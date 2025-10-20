@@ -1,5 +1,6 @@
 "use strict";
 import * as vscode from "vscode";
+import * as crypto from 'crypto';
 
 export interface ServerConfig {
   name: string;
@@ -145,13 +146,13 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     const newServer: ServerConfig = {
       name,
       url,
-      user: user || undefined,
+      user: user? user : undefined,
       urlSuffix: urlSuffix || "lims"
     };
 
     // Store password in secret storage with server-specific key
     const workspaceKey = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "default";
-    const workspaceId = require('crypto').createHash('sha1').update(workspaceKey).digest('hex');
+    const workspaceId = crypto.createHash('sha1').update(workspaceKey).digest('hex');
     const serverSecretKey = `${workspaceId}:${name}:userPassword`;
     await this._context.secrets.store(serverSecretKey, password);
 
@@ -203,7 +204,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
       if (password !== undefined) {
         // Store password in secret storage with server-specific key
         const workspaceKey = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "default";
-        const workspaceId = require('crypto').createHash('sha1').update(workspaceKey).digest('hex');
+        const workspaceId = crypto.createHash('sha1').update(workspaceKey).digest('hex');
         const serverSecretKey = `${workspaceId}:${server.name}:userPassword`;
         await this._context.secrets.store(serverSecretKey, password);
       }
@@ -218,7 +219,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
 
     // Update server config
     server.url = url;
-    server.user = user || undefined;
+    server.user = user? user : undefined;
     server.urlSuffix = urlSuffix || "lims";
 
     const config = vscode.workspace.getConfiguration("STARLIMS");
@@ -256,7 +257,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
 
     // Remove password from secret storage
     const workspaceKey = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "default";
-    const workspaceId = require('crypto').createHash('sha1').update(workspaceKey).digest('hex');
+    const workspaceId = crypto.createHash('sha1').update(workspaceKey).digest('hex');
     const serverSecretKey = `${workspaceId}:${selectedServerConfig.name}:userPassword`;
     await this._context.secrets.delete(serverSecretKey);
 

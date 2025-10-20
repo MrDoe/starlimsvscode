@@ -45,15 +45,20 @@
         {
           "id": "STARLIMSServerSelector",
           "name": "Server Selection",
-          "type": "webview"
+          "type": "webview",
+          "icon": "resources/extension/server_selector_icon.png"
         },
         {
           "id": "STARLIMSMainTree",
-          "name": "STARLIMS Enterprise"
+          "name": "STARLIMS Enterprise",
+          "type": "webview",
+          "icon": "resources/dark/treeview.svg"
         },
         {
           "id": "STARLIMSCheckedOutTree",
-          "name": "Checked Out Items"
+          "name": "Checked Out Items",
+          "type": "webview",
+          "icon": "resources/dark/treeview.svg"
         }
       ]
     },
