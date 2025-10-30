@@ -51,13 +51,13 @@
         {
           "id": "STARLIMSMainTree",
           "name": "STARLIMS Enterprise",
-          "type": "webview",
+          "type": "tree",
           "icon": "resources/dark/treeview.svg"
         },
         {
           "id": "STARLIMSCheckedOutTree",
           "name": "Checked Out Items",
-          "type": "webview",
+          "type": "tree",
           "icon": "resources/dark/treeview.svg"
         }
       ]
@@ -262,6 +262,14 @@
       {
         "command": "STARLIMS.selectServer",
         "title": "Select Server"
+      },
+      {
+        "command": "STARLIMS.ExportAllCheckouts",
+        "title": "Export all checked out items to SDP",
+        "icon": {
+          "dark": "resources/dark/export.svg",
+          "light": "resources/light/export.svg"
+        }
       }
     ],
     "keybindings": [
@@ -355,6 +363,11 @@
         },
         {
           "command": "STARLIMS.CheckInAllItems",
+          "when": "view == STARLIMSCheckedOutTree",
+          "group": "navigation"
+        },
+        {
+          "command": "STARLIMS.ExportAllCheckouts",
           "when": "view == STARLIMSCheckedOutTree",
           "group": "navigation"
         }

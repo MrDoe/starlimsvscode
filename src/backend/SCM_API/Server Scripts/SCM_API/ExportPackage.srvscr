@@ -1,0 +1,92 @@
+/******************************************************************************
+Description.. :	Export all checked out items to an SDP package file
+Author....... :	DC
+Date......... : 2024-10-20
+*******************************************************************************/;
+:DECLARE oResponse, aResult, ds, sPackageId, sPackageName, sExportLog, i;
+
+oResponse := CreateUDObject({
+	{"success", .T.},
+	{"data", NIL}
+});
+
+:TRY;
+	:DECLARE sItemID, sItemType, aItemsToExport;
+	aItemsToExport := {};
+	
+	/* Get all checked out items for current user;
+	aResult := DoProc("Enterprise_Data_Providers.CheckInProvider.GetPendingCheckins", {.F.});
+	ds := DoProc("Enterprise_Data_Providers.Utils.ConvertXMLStringToDataset", {aResult});
+	
+	/* Create package ID and name;
+	sPackageId := CreateGuid();
+	sPackageName := "CheckedOutItems_" + sPackageId;
+	usrmes("sPackageName", sPackageName);
+	
+	/* Get the ImpExp path from settings;
+	:IF !DosSupport("ISDIR", GlbImpExpPath + sPackageId);
+		:IF !DosSupport("MD", GlbImpExpPath + sPackageId);
+			oResponse:success := .F.;
+			oResponse:data := "Cannot create package directory";
+			usrmes("Cannot create package directory");
+			:RETURN ToJson(oResponse);
+		:ENDIF;
+	:ENDIF;
+	
+	/* Export each checked out item;
+	:FOR i:=0 :TO ds:Tables[0]:Rows:Count - 1;
+		:DECLARE row;
+		row := ds:Tables[0]:Rows[i];
+		sItemID := row["CHILDID"];
+		sItemType := row["CHILDTYPE"];
+		
+		/* Use the appropriate save procedure based on item type;
+		:BEGINCASE;
+			:CASE sItemType == "FORM";
+                usrmes("Exporting FORM", sItemID);
+				DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveApplicationForm", {sPackageId, sItemID});
+			:EXITCASE;
+			
+			:CASE sItemType == "SERVERSCRIPT";
+                usrmes("Exporting SERVERSCRIPT", sItemID);
+				DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveServerScript", {sPackageId, sItemID});
+			:EXITCASE;
+			
+			:CASE sItemType == "DATASOURCE";
+                usrmes("Exporting DATASOURCE", sItemID);
+				DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveApplicationDataSource", {sPackageId, sItemID});
+			:EXITCASE;
+			
+			:CASE sItemType == "CLIENTSCRIPT";
+                usrmes("Exporting CLIENTSCRIPT", sItemID);
+				DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveApplicationClientScript", {sPackageId, sItemID});
+			:EXITCASE;
+		:ENDCASE;
+	:NEXT;
+	
+	/* Create manifest file;
+	:DECLARE manifestContent;
+	manifestContent := "<?xml version='1.0' encoding='utf-8'?><Package><Name>" + sPackageName + "</Name><Date>" + LimsString(Today()) + "</Date></Package>";
+	usrmes(manifestContent);
+
+    /* create file first;
+    WriteText(GlbImpExpPath + sPackageId + "\manifest.xml", manifestContent);
+
+	/* Create the SDP file;
+	DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.CreateSDP", {sPackageId, sPackageName, ""});
+	usrmes(sPackageId);
+	
+	/* Return success with package filename;
+	Response:StatusCode := 200;
+	oResponse:success := .T.;
+	oResponse:data := sPackageName + ".sdp";
+	
+:CATCH;
+	:DECLARE sError;
+	sError := GetLastSSLError():FullDescription;
+	Response:StatusCode := 400;
+	oResponse:success := .F.;
+	oResponse:data := "Error exporting checked out items: " + sError;
+:ENDTRY;
+
+:RETURN ToJson(oResponse);
