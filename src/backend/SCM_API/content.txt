@@ -57,6 +57,7 @@ Server Script Category: SCM_API
 	- CheckOut
 	- ClearLog
 	- Delete
+	- ExportPackage
 	- GetAllItems
 	- GetCheckedOutItems
 	- GetCode
@@ -81,5 +82,3 @@ Server Script Category: SCM_API
 
 Table database: DICTIONARY
 	- CONTROL_PROPERTIES
-
-

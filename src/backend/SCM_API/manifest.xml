@@ -388,6 +388,19 @@
           <IsReferred>false</IsReferred>
         </ServerScript>
         <ServerScript>
+          <ItemID>2D1C2C3E-1F4C-4D1C-8C3E-3C6F5D8A9B0E</ItemID>
+          <ItemName>ExportPackage</ItemName>
+          <LayerId>300</LayerId>
+          <ItemDescription />
+          <ItemCategory>SCM_API</ItemCategory>
+          <ItemContent>Server Scripts\SCM_API\ExportPackage.srvscr</ItemContent>
+          <IsMandatory>false</IsMandatory>
+          <ItemBehaviour>overwrite</ItemBehaviour>
+          <ItemProgrammingLanguage>STARLIMS</ItemProgrammingLanguage>
+          <ItemIsOwned>N</ItemIsOwned>
+          <IsReferred>false</IsReferred>
+        </ServerScript>
+        <ServerScript>
           <ItemID>78452D93-5054-4EAB-93FC-F040AC922458</ItemID>
           <ItemName>GetAllItems</ItemName>
           <LayerId>300</LayerId>

@@ -346,6 +346,57 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  // register the ExportAllCheckouts command
+  vscode.commands.registerCommand(
+    "STARLIMS.ExportAllCheckouts",
+    async () => {
+      // ask for confirmation
+      const confirm = await vscode.window.showWarningMessage(
+        `Are you sure you want to export all checked out items to an SDP file?`,
+        { modal: true },
+        "Yes"
+      );
+      if (confirm !== "Yes") {
+        return;
+      }
+
+      // execute the export with progress
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Window,
+          cancellable: false,
+          title: "STARLIMS"
+        },
+        async (progress) => {
+          progress.report({ increment: 0, message: "Exporting checked out items..." });
+          const success = await enterpriseService.exportAllCheckouts();
+          progress.report({ increment: 100, message: "Done." });
+
+          // if export was successful, ask for file name
+          if (success) {
+            const fileName = await vscode.window.showInputBox({
+              prompt: "Enter a file name for the exported package (without extension)",
+              placeHolder: "CheckedOutItems",
+              validateInput: (value: string) => {
+                if (!value.trim()) {
+                  return "File name cannot be empty";
+                }
+                if (!/^[a-zA-Z0-9_\-\s.]+$/.test(value)) {
+                  return "File name contains invalid characters";
+                }
+                return "";
+              }
+            });
+
+            if (fileName) {
+              vscode.window.showInformationMessage(`Package exported as: ${fileName}.sdp`);
+            }
+          }
+        }
+      );
+    }
+  );
+
   // register a decoration provider for the STARLIMS enterprise tree
   const fileDecorationProvider = new EnterpriseFileDecorationProvider();
   vscode.window.registerFileDecorationProvider(fileDecorationProvider);

@@ -52,6 +52,53 @@ export class EnterpriseService implements IEnterpriseService {
     this.urlSuffix = serverConfig.urlSuffix || "lims";
     this.currentServerName = serverName;
   }
+
+  /**
+   * Safely parse a response as JSON, handling errors gracefully
+   * @param response The fetch response object
+   * @returns The parsed JSON object or null if parsing fails
+   */
+  private async safeParseJson(response: any): Promise<any> {
+    const contentType = response.headers?.get?.('content-type') || '';
+    
+    // Check if response status is not ok
+    if (!response.ok) {
+      const text = await response.text();
+      // Try to parse as JSON, otherwise treat as error text
+      if (contentType.includes('application/json') && isJson(text)) {
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          vscode.window.showErrorMessage(`Server error (${response.status}): Unable to parse error response`);
+          console.error('Failed to parse error response:', text);
+          return null;
+        }
+      } else {
+        // Server returned non-JSON error (likely HTML error page)
+        vscode.window.showErrorMessage(`Server error (${response.status}): ${response.statusText}`);
+        console.error('Server returned non-JSON response:', text.substring(0, 200));
+        return null;
+      }
+    }
+    
+    // Response status is ok, try to parse as JSON
+    if (!contentType.includes('application/json')) {
+      const text = await response.text();
+      vscode.window.showErrorMessage(`Server returned non-JSON response: ${contentType || 'unknown content type'}`);
+      console.error('Response content type:', contentType, 'Body:', text.substring(0, 200));
+      return null;
+    }
+    
+    try {
+      return await response.json();
+    } catch (e: any) {
+      const text = await response.text();
+      vscode.window.showErrorMessage(`Failed to parse JSON response: ${e.message}`);
+      console.error('Failed to parse JSON:', text.substring(0, 200));
+      return null;
+    }
+  }
+
   async moveItem(uri: string, destination: string) {
     const url = `${this.baseUrl}/SCM_API.Move.${this.urlSuffix}?URI=${uri}&Destination=${destination}`;
     const headers = new Headers(await this.getAPIHeaders());
@@ -62,7 +109,11 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJson(response);
+      if (!result) {
+        return false;
+      }
+      const { success, data } = result;
       if (success) {
         vscode.window.showInformationMessage("Item moved successfully.");
         return true;
@@ -93,7 +144,11 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJson(response);
+      if (!result) {
+        return false;
+      }
+      const { success, data } = result;
       if (success) {
         vscode.window.showInformationMessage("Item renamed successfully.");
         return true;
@@ -143,7 +198,11 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJson(response);
+      if (!result) {
+        return;
+      }
+      const { success, data } = result;
       if (success) {
         vscode.window.showInformationMessage("STARLIMS VS Code backend API upgraded successfully.");
       } else {
@@ -173,7 +232,11 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJson(response);
+      if (!result) {
+        return null;
+      }
+      const { success, data } = result;
       if (success) {
         return data;
       } else {
@@ -349,7 +412,11 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJson(response);
+      if (!result) {
+        return [];
+      }
+      const { success, data } = result;
       if (success) {
         return data.items;
       } else {
@@ -1165,4 +1232,35 @@ export class EnterpriseService implements IEnterpriseService {
       return null;
     }
   }
+
+  /**
+   * Export all checked out items to an SDP package file
+   * @returns true if the export was successful, false otherwise
+   */
+  public async exportAllCheckouts() {
+    const url = `${this.baseUrl}/SCM_API.ExportPackage.${this.urlSuffix}`;
+    const headers = new Headers(await this.getAPIHeaders());
+    const options: any = {
+      method: "GET",
+      headers
+    };
+
+    try {
+      const response = await fetch(url, options);
+      const { success, data }: { success: boolean; data: any } = await response.json();
+      if (success) {
+        vscode.window.showInformationMessage(`Export successful. Package: ${data}`);
+        return true;
+      } else {
+        vscode.window.showErrorMessage(`Export failed: ${data}`);
+        console.error(data);
+        return false;
+      }
+    } catch (e: any) {
+      vscode.window.showErrorMessage("Could not export checked out items.");
+      console.error(e);
+      return false;
+    }
+  }
 }
+
