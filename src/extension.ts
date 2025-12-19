@@ -2084,15 +2084,15 @@ function setupGitIntegration(
 
       const commitMessage = commit.message;
       
-      // Get staged changes that were part of this commit
-      // We'll check the working changes to see what was modified
-      const changes = repo.state.workingTreeChanges || [];
-      
-      // Since we can't reliably get the exact files from a past commit,
-      // we'll use a different approach: check all tracked files in SLVSCODE that were recently modified
+      // NOTE: Due to limitations in the Git extension API, we cannot reliably get the exact files
+      // that were part of this specific commit. As a workaround, we check all STARLIMS files
+      // that are checked out. The checkInFileToStarlims function will verify if each file is
+      // actually checked out before attempting to check it in, so this is safe but may be inefficient.
+      // Future enhancement: Track file modifications using a file watcher to know exactly which files
+      // were part of the commit.
       const slvscodeFiles = await getSLVSCODEFilesInRepo(repoPath);
       
-      // Check in each file to STARLIMS
+      // Check in each file to STARLIMS (only files that are checked out will actually be checked in)
       let checkedInCount = 0;
       for (const file of slvscodeFiles) {
         const success = await checkInFileToStarlims(file, commitMessage, repoPath);
