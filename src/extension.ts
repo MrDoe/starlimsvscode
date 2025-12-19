@@ -18,6 +18,42 @@ import * as crypto from 'crypto';
 const { version } = require('../package.json');
 const SLVSCODE_FOLDER = "SLVSCODE";
 
+/**
+ * Ensures that the SLVSCODE folder is opened as a workspace folder
+ * @param slvscodePath Path to the SLVSCODE folder
+ */
+async function ensureSLVSCODEWorkspace(slvscodePath: string): Promise<void> {
+  const fs = require('fs');
+  
+  // Create SLVSCODE folder if it doesn't exist
+  if (!fs.existsSync(slvscodePath)) {
+    fs.mkdirSync(slvscodePath, { recursive: true });
+  }
+
+  // Check if SLVSCODE folder is already in workspace
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  const isSlvscodeOpen = workspaceFolders?.some(folder => 
+    folder.uri.fsPath === slvscodePath
+  );
+
+  // If SLVSCODE folder is not in workspace, add it
+  if (!isSlvscodeOpen) {
+    const folderUri = vscode.Uri.file(slvscodePath);
+    
+    // If no workspace folders exist, open the SLVSCODE folder
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      vscode.workspace.updateWorkspaceFolders(0, 0, { uri: folderUri, name: "SLVSCODE" });
+    } else {
+      // Add SLVSCODE folder to existing workspace
+      vscode.workspace.updateWorkspaceFolders(
+        workspaceFolders.length, 
+        0, 
+        { uri: folderUri, name: "SLVSCODE" }
+      );
+    }
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext) {
   const secretStorage: vscode.SecretStorage = context.secrets;
   let config = vscode.workspace.getConfiguration("STARLIMS");
@@ -124,6 +160,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // create root path for the extension
   rootPath = path.join(config.get("rootPath") as string, SLVSCODE_FOLDER);
 
+  // Ensure SLVSCODE folder is opened as workspace
+  await ensureSLVSCODEWorkspace(rootPath);
+
   // reload configuration if it was updated
   if (reloadConfig) {
     config = vscode.workspace.getConfiguration("STARLIMS");
@@ -131,6 +170,21 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // create enterprise service
   const enterpriseService = new EnterpriseService(config, secretStorage);
+  
+  // Initialize server name for path structure
+  const selectedServerName = config.get("selectedServer") as string;
+  if (selectedServerName) {
+    // Use the selected server name
+    const servers: ServerConfig[] = config.get("servers", []);
+    const selectedServer = servers.find(s => s.name === selectedServerName);
+    if (selectedServer) {
+      enterpriseService.updateServerConfig(selectedServer, selectedServer.name);
+    }
+  } else if (url) {
+    // For backward compatibility, use URL as default server name
+    const defaultServerName = "Default";
+    enterpriseService.updateServerConfig({ url, user, urlSuffix: config.get("urlSuffix", "lims") }, defaultServerName);
+  }
 
   const expressServer = new ExpressServer();
   expressServer.start();
@@ -448,13 +502,16 @@ export async function activate(context: vscode.ExtensionContext) {
   vscode.commands.registerCommand(
     "STARLIMS.GetLocal",
     async (item: TreeEnterpriseItem | any) => {
+      // get server-specific workspace path
+      const serverWorkspacePath = enterpriseService.getServerWorkspacePath(rootPath!);
+      
       // get local copy of the item
       const localFilePath = await enterpriseService.getLocalCopy(
         item.uri ||
         (item.path
           ? item.path.slice(0, item.path.lastIndexOf("."))
           : undefined),
-        rootPath!,
+        serverWorkspacePath,
         false,
         item.language
       );
@@ -501,8 +558,11 @@ export async function activate(context: vscode.ExtensionContext) {
    * @param item the enterprise tree item to handle
    */
   async function handleSelectResourcesItem(item: TreeEnterpriseItem) {
+    // get server-specific workspace path
+    const serverWorkspacePath = enterpriseService.getServerWorkspacePath(rootPath!);
+    
     // get remote URI
-    const remoteUri = enterpriseService.getEnterpriseItemUri(item.uri, rootPath!);
+    const remoteUri = enterpriseService.getEnterpriseItemUri(item.uri, serverWorkspacePath);
 
     // get form resources
     let oParams = await enterpriseService.getFormResources(remoteUri, item.language);
@@ -518,6 +578,9 @@ export async function activate(context: vscode.ExtensionContext) {
    * @param item the enterprise tree item to handle
    */
   async function handleSelectCodeItem(item: TreeEnterpriseItem) {
+    // get server-specific workspace path
+    const serverWorkspacePath = enterpriseService.getServerWorkspacePath(rootPath!);
+    
     // check if the item is already open, switch the tab if it is
     const openDocument = vscode.workspace.textDocuments.find(
       (doc) => doc.uri.fsPath.toLowerCase() === item.filePath?.toLowerCase()
@@ -529,11 +592,11 @@ export async function activate(context: vscode.ExtensionContext) {
         // get the remote URI
         const remoteUri = enterpriseService.getEnterpriseItemUri(
           item.uri,
-          rootPath!
+          serverWorkspacePath
         );
 
         // update local copy
-        await enterpriseService.getLocalCopy(remoteUri, rootPath!, false, item.language);
+        await enterpriseService.getLocalCopy(remoteUri, serverWorkspacePath, false, item.language);
 
         // show the document
         await vscode.window.showTextDocument(openDocument);
@@ -549,7 +612,7 @@ export async function activate(context: vscode.ExtensionContext) {
       // get local copy of the item
       const localFilePath = await enterpriseService.getLocalCopy(
         item.uri,
-        rootPath!,
+        serverWorkspacePath,
         false,
         item.language
       );
@@ -1890,6 +1953,9 @@ export async function activate(context: vscode.ExtensionContext) {
   vscode.window.showInformationMessage(
     `Connected to STARLIMS on ${config.url}.`
   );
+
+  // Git integration: automatically check in to STARLIMS when committing via Git
+  setupGitIntegration(rootPath!, enterpriseService, enterpriseTreeProvider, checkedOutTreeDataProvider);
 }
 
 async function highlightGlobalSearchMatches(item: TreeEnterpriseItem, localUri: vscode.Uri) {
@@ -1931,6 +1997,200 @@ async function highlightGlobalSearchMatches(item: TreeEnterpriseItem, localUri: 
         });
         vscode.debug.addBreakpoints(breakpoints);
       }
+    }
+  }
+}
+
+/**
+ * Sets up Git integration to automatically check in to STARLIMS when committing via Git
+ * @param slvscodePath Path to the SLVSCODE folder
+ * @param enterpriseService The enterprise service instance
+ * @param enterpriseTreeProvider The enterprise tree provider
+ * @param checkedOutTreeDataProvider The checked out tree provider
+ */
+function setupGitIntegration(
+  slvscodePath: string,
+  enterpriseService: EnterpriseService,
+  enterpriseTreeProvider: EnterpriseTreeDataProvider,
+  checkedOutTreeDataProvider: CheckedOutTreeDataProvider
+): void {
+  const fs = require('fs');
+  const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
+  
+  if (!gitExtension) {
+    console.log("Git extension not found, Git integration disabled");
+    return;
+  }
+
+  const api = gitExtension.getAPI(1);
+  
+  // Track last known commit hash for each repository
+  const lastCommitHashes = new Map<string, string>();
+  
+  // Watch for Git repository changes in the SLVSCODE folder
+  vscode.workspace.onDidChangeWorkspaceFolders(() => {
+    updateGitRepositoryWatchers();
+  });
+
+  // Initial setup
+  updateGitRepositoryWatchers();
+
+  function updateGitRepositoryWatchers() {
+    // Find repositories in SLVSCODE folder
+    api.repositories.forEach((repo: any) => {
+      const repoPath = repo.rootUri.fsPath;
+      
+      // Check if this repository is within SLVSCODE folder or contains it
+      if (repoPath.includes(SLVSCODE_FOLDER) || slvscodePath.startsWith(repoPath)) {
+        // Listen for state changes in this repository
+        repo.state.onDidChange(() => {
+          handleGitStateChange(repo, repoPath);
+        });
+      }
+    });
+  }
+
+  async function handleGitStateChange(repo: any, repoPath: string) {
+    try {
+      const head = repo.state.HEAD;
+      if (!head || !head.commit) {
+        return;
+      }
+
+      const currentCommitHash = head.commit;
+      const lastKnownHash = lastCommitHashes.get(repoPath);
+      
+      // Check if this is a new commit
+      if (lastKnownHash && lastKnownHash !== currentCommitHash) {
+        // New commit detected, process it
+        await handleNewCommit(repo, repoPath, currentCommitHash);
+      }
+      
+      // Update the last known commit hash
+      lastCommitHashes.set(repoPath, currentCommitHash);
+      
+    } catch (error) {
+      console.error("Error handling Git state change:", error);
+    }
+  }
+
+  async function handleNewCommit(repo: any, repoPath: string, commitHash: string) {
+    try {
+      // Get the commit message
+      const commit = await repo.getCommit(commitHash);
+      if (!commit || !commit.message) {
+        return;
+      }
+
+      const commitMessage = commit.message;
+      
+      // NOTE: Due to limitations in the Git extension API, we cannot reliably get the exact files
+      // that were part of this specific commit. As a workaround, we check all STARLIMS files
+      // that are checked out. The checkInFileToStarlims function will verify if each file is
+      // actually checked out before attempting to check it in, so this is safe but may be inefficient.
+      // Future enhancement: Track file modifications using a file watcher to know exactly which files
+      // were part of the commit.
+      const slvscodeFiles = await getSLVSCODEFilesInRepo(repoPath);
+      
+      // Check in each file to STARLIMS (only files that are checked out will actually be checked in)
+      let checkedInCount = 0;
+      for (const file of slvscodeFiles) {
+        const success = await checkInFileToStarlims(file, commitMessage, repoPath);
+        if (success) {
+          checkedInCount++;
+        }
+      }
+
+      if (checkedInCount > 0) {
+        vscode.window.showInformationMessage(`Checked in ${checkedInCount} file(s) to STARLIMS`);
+        // Refresh checked out items after check-ins
+        vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
+      }
+      
+    } catch (error) {
+      console.error("Error handling new commit:", error);
+    }
+  }
+
+  async function getSLVSCODEFilesInRepo(repoPath: string): Promise<string[]> {
+    try {
+      const files: string[] = [];
+      const serverWorkspacePath = enterpriseService.getServerWorkspacePath(slvscodePath);
+      
+      // Check if SLVSCODE path is within this repo
+      if (!serverWorkspacePath.startsWith(repoPath)) {
+        return files;
+      }
+
+      // Get all files in the SLVSCODE folder that are STARLIMS files
+      const glob = require('glob');
+      const pattern = path.join(serverWorkspacePath, '**', '*.{ssl,slsql}');
+      const foundFiles = glob.sync(pattern);
+      
+      return foundFiles.map((file: string) => 
+        file.replace(repoPath + path.sep, '')
+      );
+    } catch (error) {
+      console.error("Error getting SLVSCODE files in repo:", error);
+      return [];
+    }
+  }
+
+  async function checkInFileToStarlims(relativePath: string, commitMessage: string, repoPath: string): Promise<boolean> {
+    try {
+      const fullPath = path.join(repoPath, relativePath);
+      
+      // Extract the URI from the file path
+      // Path format: {serverName}/{ItemType}/{Category}/{ItemName}.{extension}
+      const serverWorkspacePath = enterpriseService.getServerWorkspacePath(slvscodePath);
+      
+      // Check if file is within server workspace path
+      if (!fullPath.startsWith(serverWorkspacePath)) {
+        return false;
+      }
+      
+      const relativeToslvscode = fullPath.replace(serverWorkspacePath + path.sep, '');
+      
+      // Extract item information from path
+      const pathParts = relativeToslvscode.split(path.sep);
+      if (pathParts.length < 2) {
+        return false; // Invalid path
+      }
+
+      // Remove extension from file name
+      const fileNameWithExt = pathParts[pathParts.length - 1];
+      const lastDotIndex = fileNameWithExt.lastIndexOf('.');
+      const fileName = lastDotIndex > 0 ? fileNameWithExt.substring(0, lastDotIndex) : fileNameWithExt;
+      
+      // Construct URI for STARLIMS
+      // Format: /{ItemType}/{Category}/{ItemName}
+      const itemType = pathParts[0];
+      const category = pathParts.slice(1, -1).join('/');
+      const uri = `/${itemType}/${category}/${fileName}`;
+
+      // Check if file is checked out
+      const isCheckedOut = await enterpriseService.isCheckedOut(uri);
+      if (!isCheckedOut) {
+        console.log(`File ${uri} is not checked out, skipping STARLIMS check-in`);
+        return false;
+      }
+
+      // Check in to STARLIMS with Git commit message
+      console.log(`Checking in ${uri} to STARLIMS with message: ${commitMessage}`);
+      const success = await enterpriseService.checkInItem(uri, commitMessage, undefined);
+      
+      if (success) {
+        // Update tree providers
+        const item = await enterpriseTreeProvider.getTreeItemFromPath(fullPath, false);
+        if (item) {
+          enterpriseTreeProvider.setItemCheckedOutStatus(item, false, item.language);
+        }
+      }
+      
+      return success;
+    } catch (error) {
+      console.error(`Error checking in file to STARLIMS:`, error);
+      return false;
     }
   }
 }
