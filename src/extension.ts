@@ -170,6 +170,21 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // create enterprise service
   const enterpriseService = new EnterpriseService(config, secretStorage);
+  
+  // Initialize server name for path structure
+  const selectedServerName = config.get("selectedServer") as string;
+  if (selectedServerName) {
+    // Use the selected server name
+    const servers: ServerConfig[] = config.get("servers", []);
+    const selectedServer = servers.find(s => s.name === selectedServerName);
+    if (selectedServer) {
+      enterpriseService.updateServerConfig(selectedServer, selectedServer.name);
+    }
+  } else if (url) {
+    // For backward compatibility, use URL as default server name
+    const defaultServerName = "Default";
+    enterpriseService.updateServerConfig({ url, user, urlSuffix: config.get("urlSuffix", "lims") }, defaultServerName);
+  }
 
   const expressServer = new ExpressServer();
   expressServer.start();
@@ -2009,6 +2024,9 @@ function setupGitIntegration(
 
   const api = gitExtension.getAPI(1);
   
+  // Track last known commit hash for each repository
+  const lastCommitHashes = new Map<string, string>();
+  
   // Watch for Git repository changes in the SLVSCODE folder
   vscode.workspace.onDidChangeWorkspaceFolders(() => {
     updateGitRepositoryWatchers();
@@ -2022,9 +2040,9 @@ function setupGitIntegration(
     api.repositories.forEach((repo: any) => {
       const repoPath = repo.rootUri.fsPath;
       
-      // Check if this repository is within SLVSCODE folder
-      if (repoPath.includes(SLVSCODE_FOLDER)) {
-        // Listen for commits in this repository
+      // Check if this repository is within SLVSCODE folder or contains it
+      if (repoPath.includes(SLVSCODE_FOLDER) || slvscodePath.startsWith(repoPath)) {
+        // Listen for state changes in this repository
         repo.state.onDidChange(() => {
           handleGitStateChange(repo, repoPath);
         });
@@ -2034,101 +2052,109 @@ function setupGitIntegration(
 
   async function handleGitStateChange(repo: any, repoPath: string) {
     try {
-      // Get the last commit
       const head = repo.state.HEAD;
       if (!head || !head.commit) {
         return;
       }
 
-      // Get the commit message
-      const commitMessage = await getLastCommitMessage(repo);
-      if (!commitMessage) {
-        return;
-      }
-
-      // Get the files that were changed in the last commit
-      const changedFiles = await getChangedFilesInLastCommit(repo);
+      const currentCommitHash = head.commit;
+      const lastKnownHash = lastCommitHashes.get(repoPath);
       
-      // Filter files that are in SLVSCODE folder
-      const slvscodeFiles = changedFiles.filter((file: string) => {
-        const fullPath = path.join(repoPath, file);
-        return fullPath.startsWith(slvscodePath);
-      });
-
-      if (slvscodeFiles.length === 0) {
-        return;
+      // Check if this is a new commit
+      if (lastKnownHash && lastKnownHash !== currentCommitHash) {
+        // New commit detected, process it
+        await handleNewCommit(repo, repoPath, currentCommitHash);
       }
-
-      // Check in each file to STARLIMS
-      for (const file of slvscodeFiles) {
-        await checkInFileToStarlims(file, commitMessage, repoPath);
-      }
-
-      // Refresh checked out items after check-ins
-      vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
+      
+      // Update the last known commit hash
+      lastCommitHashes.set(repoPath, currentCommitHash);
       
     } catch (error) {
       console.error("Error handling Git state change:", error);
     }
   }
 
-  async function getLastCommitMessage(repo: any): Promise<string | undefined> {
+  async function handleNewCommit(repo: any, repoPath: string, commitHash: string) {
     try {
-      const head = repo.state.HEAD;
-      if (!head || !head.commit) {
-        return undefined;
+      // Get the commit message
+      const commit = await repo.getCommit(commitHash);
+      if (!commit || !commit.message) {
+        return;
       }
 
-      // Get commit details
-      const commit = await repo.getCommit(head.commit);
-      return commit?.message || undefined;
+      const commitMessage = commit.message;
+      
+      // Get staged changes that were part of this commit
+      // We'll check the working changes to see what was modified
+      const changes = repo.state.workingTreeChanges || [];
+      
+      // Since we can't reliably get the exact files from a past commit,
+      // we'll use a different approach: check all tracked files in SLVSCODE that were recently modified
+      const slvscodeFiles = await getSLVSCODEFilesInRepo(repoPath);
+      
+      // Check in each file to STARLIMS
+      let checkedInCount = 0;
+      for (const file of slvscodeFiles) {
+        const success = await checkInFileToStarlims(file, commitMessage, repoPath);
+        if (success) {
+          checkedInCount++;
+        }
+      }
+
+      if (checkedInCount > 0) {
+        vscode.window.showInformationMessage(`Checked in ${checkedInCount} file(s) to STARLIMS`);
+        // Refresh checked out items after check-ins
+        vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
+      }
+      
     } catch (error) {
-      console.error("Error getting commit message:", error);
-      return undefined;
+      console.error("Error handling new commit:", error);
     }
   }
 
-  async function getChangedFilesInLastCommit(repo: any): Promise<string[]> {
+  async function getSLVSCODEFilesInRepo(repoPath: string): Promise<string[]> {
     try {
-      const head = repo.state.HEAD;
-      if (!head || !head.commit) {
-        return [];
+      const files: string[] = [];
+      const serverWorkspacePath = enterpriseService.getServerWorkspacePath(slvscodePath);
+      
+      // Check if SLVSCODE path is within this repo
+      if (!serverWorkspacePath.startsWith(repoPath)) {
+        return files;
       }
 
-      // Get the diff for the last commit
-      const commit = await repo.getCommit(head.commit);
-      if (!commit) {
-        return [];
-      }
-
-      // Get parent commit
-      const parents = commit.parents || [];
-      if (parents.length === 0) {
-        return [];
-      }
-
-      // Get diff between current commit and parent
-      const diff = await repo.diffBetween(parents[0], head.commit);
-      return diff.map((change: any) => change.uri.fsPath.replace(repo.rootUri.fsPath + path.sep, ''));
+      // Get all files in the SLVSCODE folder that are STARLIMS files
+      const glob = require('glob');
+      const pattern = path.join(serverWorkspacePath, '**', '*.{ssl,slsql}');
+      const foundFiles = glob.sync(pattern);
+      
+      return foundFiles.map((file: string) => 
+        file.replace(repoPath + path.sep, '')
+      );
     } catch (error) {
-      console.error("Error getting changed files:", error);
+      console.error("Error getting SLVSCODE files in repo:", error);
       return [];
     }
   }
 
-  async function checkInFileToStarlims(relativePath: string, commitMessage: string, repoPath: string): Promise<void> {
+  async function checkInFileToStarlims(relativePath: string, commitMessage: string, repoPath: string): Promise<boolean> {
     try {
       const fullPath = path.join(repoPath, relativePath);
       
       // Extract the URI from the file path
       // Path format: {serverName}/{ItemType}/{Category}/{ItemName}.{extension}
       const serverWorkspacePath = enterpriseService.getServerWorkspacePath(slvscodePath);
+      
+      // Check if file is within server workspace path
+      if (!fullPath.startsWith(serverWorkspacePath)) {
+        return false;
+      }
+      
       const relativeToslvscode = fullPath.replace(serverWorkspacePath + path.sep, '');
       
       // Extract item information from path
       const pathParts = relativeToslvscode.split(path.sep);
-      if (pathParts.length < 3) {
-        return; // Invalid path
+      if (pathParts.length < 2) {
+        return false; // Invalid path
       }
 
       // Remove extension from file name
@@ -2146,7 +2172,7 @@ function setupGitIntegration(
       const isCheckedOut = await enterpriseService.isCheckedOut(uri);
       if (!isCheckedOut) {
         console.log(`File ${uri} is not checked out, skipping STARLIMS check-in`);
-        return;
+        return false;
       }
 
       // Check in to STARLIMS with Git commit message
@@ -2154,18 +2180,17 @@ function setupGitIntegration(
       const success = await enterpriseService.checkInItem(uri, commitMessage, undefined);
       
       if (success) {
-        vscode.window.showInformationMessage(`Successfully checked in ${fileName} to STARLIMS`);
-        
         // Update tree providers
         const item = await enterpriseTreeProvider.getTreeItemFromPath(fullPath, false);
         if (item) {
           enterpriseTreeProvider.setItemCheckedOutStatus(item, false, item.language);
         }
-      } else {
-        vscode.window.showWarningMessage(`Failed to check in ${fileName} to STARLIMS`);
       }
+      
+      return success;
     } catch (error) {
       console.error(`Error checking in file to STARLIMS:`, error);
+      return false;
     }
   }
 }

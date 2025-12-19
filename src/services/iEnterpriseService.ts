@@ -28,4 +28,7 @@ export interface IEnterpriseService {
   deleteItem(uri: string): any;
   moveItem(uri: string, destination: string): any;
   getItemByGUID(guid: string, itemType: string): any;
+  getCurrentServerName(): string;
+  getServerWorkspacePath(baseWorkspacePath: string): string;
+  updateServerConfig(serverConfig: { url: string; user?: string; urlSuffix?: string }, serverName: string): void;
 }
