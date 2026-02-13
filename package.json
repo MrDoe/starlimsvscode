@@ -270,6 +270,18 @@
           "dark": "resources/dark/export.svg",
           "light": "resources/light/export.svg"
         }
+      },
+      {
+        "command": "STARLIMS.InitializeGitRepo",
+        "title": "STARLIMS: Initialize Git Repository",
+        "icon": {
+          "dark": "resources/dark/git.svg",
+          "light": "resources/light/git.svg"
+        }
+      },
+      {
+        "command": "STARLIMS.ConfigureGitRemote",
+        "title": "STARLIMS: Configure Git Remote"
       }
     ],
     "keybindings": [
@@ -677,6 +689,26 @@
             "type": "string",
             "default": "",
             "description": "Currently selected server name"
+          },
+          "STARLIMS.git.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable git integration for STARLIMS check-in operations"
+          },
+          "STARLIMS.git.autoPush": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically push commits to remote repository after check-in"
+          },
+          "STARLIMS.git.remoteUrl": {
+            "type": "string",
+            "default": "",
+            "description": "Git remote repository URL (optional, can be configured separately)"
+          },
+          "STARLIMS.git.remoteName": {
+            "type": "string",
+            "default": "origin",
+            "description": "Git remote name"
           }
         }
       }
