@@ -13,6 +13,7 @@ import { GenericDataViewPanel } from "./panels/GenericDataViewPanel";
 import { cleanUrl, executeWithProgress } from "./utilities/miscUtils";
 import { CheckedOutTreeDataProvider } from "./providers/checkedOutTreeDataProvider";
 import { ServerSelectorWebviewProvider, ServerConfig } from "./providers/serverSelectorWebviewProvider";
+import { GitService } from "./services/gitService";
 import * as crypto from 'crypto';
 
 const { version } = require('../package.json');
@@ -123,6 +124,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // create root path for the extension
   rootPath = path.join(config.get("rootPath") as string, SLVSCODE_FOLDER);
+
+  // initialize git service for SLVSCODE folder
+  const gitService = new GitService(rootPath);
 
   // reload configuration if it was updated
   if (reloadConfig) {
@@ -333,12 +337,91 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      // ask for checkin reason
-      const checkinReason = await vscode.window.showInputBox({
-        title: "Check in all items",
-        prompt: "Enter check in reason:",
-        ignoreFocusOut: true,
-      });
+      // Check if git integration is enabled
+      const config = vscode.workspace.getConfiguration("STARLIMS");
+      const gitEnabled = config.get("git.enabled", false);
+
+      let checkinReason: string = "";
+      let initResponse: string | undefined;
+
+      // If git is enabled, generate commit message with Copilot
+      if (gitEnabled) {
+        let isGitRepo = await gitService.isGitRepository();
+        if (!isGitRepo) {
+          initResponse = await vscode.window.showWarningMessage(
+            "Git repository not initialized in SLVSCODE folder. Would you like to initialize it now?",
+            "Yes", "No"
+          );
+          if (initResponse === "Yes") {
+            await gitService.initializeRepository();
+            isGitRepo = true;
+          } else {
+            vscode.window.showInformationMessage("Continuing without git integration for this check-in.");
+          }
+        }
+
+        // Check if there are changes to commit
+        if (isGitRepo) {
+          const hasChanges = await gitService.hasChanges();
+          if (hasChanges) {
+            // Generate commit message using Copilot
+            let generatedMessage = await gitService.generateCommitMessage();
+            if (!generatedMessage) {
+              generatedMessage = "Check in all items";
+            }
+
+            // Show the generated message and allow editing
+            checkinReason = await vscode.window.showInputBox({
+              title: "Check in all items",
+              prompt: "Review and edit the commit/check-in message",
+              value: generatedMessage,
+              ignoreFocusOut: true,
+            }) || "";
+          } else {
+            // No git changes, just ask for check-in reason
+            checkinReason = await vscode.window.showInputBox({
+              title: "Check in all items",
+              prompt: "Enter check in reason:",
+              ignoreFocusOut: true,
+            }) || "";
+          }
+        } else {
+          // Git not initialized, ask for check-in reason normally
+          checkinReason = await vscode.window.showInputBox({
+            title: "Check in all items",
+            prompt: "Enter check in reason:",
+            ignoreFocusOut: true,
+          }) || "";
+        }
+      } else {
+        // Git not enabled, ask for check-in reason normally
+        checkinReason = await vscode.window.showInputBox({
+          title: "Check in all items",
+          prompt: "Enter check in reason:",
+          ignoreFocusOut: true,
+        }) || "";
+      }
+
+      // First, commit to git if enabled and there are changes
+      if (gitEnabled) {
+        const isGitRepo = await gitService.isGitRepository();
+        if (isGitRepo) {
+          const hasChanges = await gitService.hasChanges();
+          if (hasChanges) {
+            const commitMessage = await gitService.commitAndPush(checkinReason);
+            if (!commitMessage) {
+              // Commit failed, ask if user wants to continue with STARLIMS check-in
+              const continueResponse = await vscode.window.showWarningMessage(
+                "Git commit failed. Do you want to continue with STARLIMS check-in?",
+                "Yes", "No"
+              );
+              if (continueResponse !== "Yes") {
+                return;
+              }
+            }
+          }
+        }
+      }
 
       // refresh tree
       await enterpriseService.checkInAllItems(checkinReason);
@@ -394,6 +477,97 @@ export async function activate(context: vscode.ExtensionContext) {
           }
         }
       );
+    }
+  );
+
+  // register the InitializeGitRepo command
+  vscode.commands.registerCommand(
+    "STARLIMS.InitializeGitRepo",
+    async () => {
+      // Check if git is available
+      const isAvailable = await gitService.isGitAvailable();
+      if (!isAvailable) {
+        vscode.window.showErrorMessage("Git is not installed or not available in PATH. Please install Git first.");
+        return;
+      }
+
+      // Check if already initialized
+      const isRepo = await gitService.isGitRepository();
+      if (isRepo) {
+        vscode.window.showInformationMessage("Git repository is already initialized in SLVSCODE folder.");
+        return;
+      }
+
+      // Initialize the repository
+      const success = await gitService.initializeRepository();
+      if (success) {
+        // Ask if user wants to configure remote
+        const configureRemote = await vscode.window.showInformationMessage(
+          "Git repository initialized successfully. Would you like to configure a remote repository?",
+          "Yes", "No"
+        );
+        
+        if (configureRemote === "Yes") {
+          vscode.commands.executeCommand("STARLIMS.ConfigureGitRemote");
+        }
+      }
+    }
+  );
+
+  // register the ConfigureGitRemote command
+  vscode.commands.registerCommand(
+    "STARLIMS.ConfigureGitRemote",
+    async () => {
+      // Check if git is available
+      const isAvailable = await gitService.isGitAvailable();
+      if (!isAvailable) {
+        vscode.window.showErrorMessage("Git is not installed or not available in PATH. Please install Git first.");
+        return;
+      }
+
+      // Check if git repository is initialized
+      const isRepo = await gitService.isGitRepository();
+      if (!isRepo) {
+        const initResponse = await vscode.window.showWarningMessage(
+          "Git repository not initialized. Would you like to initialize it now?",
+          "Yes", "No"
+        );
+        if (initResponse === "Yes") {
+          await gitService.initializeRepository();
+        } else {
+          return;
+        }
+      }
+
+      // Get remote URL from settings or ask user
+      const config = vscode.workspace.getConfiguration("STARLIMS");
+      let remoteUrl = config.get("git.remoteUrl", "");
+      
+      if (!remoteUrl) {
+        remoteUrl = await vscode.window.showInputBox({
+          title: "Configure Git Remote",
+          prompt: "Enter the remote repository URL (e.g., https://github.com/user/repo.git)",
+          placeHolder: "https://github.com/user/repo.git",
+          ignoreFocusOut: true,
+        }) || "";
+      }
+
+      if (!remoteUrl) {
+        vscode.window.showWarningMessage("Remote URL not provided. Git remote not configured.");
+        return;
+      }
+
+      // Get remote name from settings
+      const remoteName = config.get("git.remoteName", "origin");
+
+      // Add the remote
+      const success = await gitService.addRemote(remoteName, remoteUrl);
+      if (success) {
+        vscode.window.showInformationMessage(`Git remote '${remoteName}' configured successfully.`);
+        
+        // Save the remote URL to settings for future use
+        await config.update("git.remoteUrl", remoteUrl, vscode.ConfigurationTarget.Workspace);
+      }
     }
   );
 
@@ -694,13 +868,93 @@ export async function activate(context: vscode.ExtensionContext) {
         item = await enterpriseTreeProvider.getTreeItemFromPath(item.path, false);
       }
 
-      let checkinReason: string =
-        (await vscode.window.showInputBox({
+      // Check if git integration is enabled
+      const config = vscode.workspace.getConfiguration("STARLIMS");
+      const gitEnabled = config.get("git.enabled", false);
+
+      let checkinReason: string = "";
+      let initResponse: string | undefined;
+
+      // If git is enabled, generate commit message with Copilot
+      if (gitEnabled) {
+        let isGitRepo = await gitService.isGitRepository();
+        if (!isGitRepo) {
+          initResponse = await vscode.window.showWarningMessage(
+            "Git repository not initialized in SLVSCODE folder. Would you like to initialize it now?",
+            "Yes", "No"
+          );
+          if (initResponse === "Yes") {
+            await gitService.initializeRepository();
+            isGitRepo = true;
+          } else {
+            vscode.window.showInformationMessage("Continuing without git integration for this check-in.");
+          }
+        }
+
+        // Check if there are changes to commit
+        if (isGitRepo) {
+          const hasChanges = await gitService.hasChanges();
+          if (hasChanges) {
+            // Generate commit message using Copilot
+            let generatedMessage = await gitService.generateCommitMessage();
+            if (!generatedMessage) {
+              generatedMessage = `Check in ${item.label}`;
+            }
+
+            // Show the generated message and allow editing
+            checkinReason = await vscode.window.showInputBox({
+              title: "Check in STARLIMS Enterprise Item",
+              prompt: "Review and edit the commit/check-in message",
+              value: generatedMessage,
+              ignoreFocusOut: true,
+            }) || "Checked in from VSCode";
+          } else {
+            // No git changes, just ask for check-in reason
+            checkinReason = await vscode.window.showInputBox({
+              title: "Check in STARLIMS Enterprise Item",
+              prompt: "Enter checkin reason",
+              ignoreFocusOut: true,
+            }) || "Checked in from VSCode";
+          }
+        } else {
+          // Git not initialized, ask for check-in reason normally
+          checkinReason = await vscode.window.showInputBox({
+            title: "Check in STARLIMS Enterprise Item",
+            prompt: "Enter checkin reason",
+            ignoreFocusOut: true,
+          }) || "Checked in from VSCode";
+        }
+      } else {
+        // Git not enabled, ask for check-in reason normally
+        checkinReason = await vscode.window.showInputBox({
           title: "Check in STARLIMS Enterprise Item",
           prompt: "Enter checkin reason",
           ignoreFocusOut: true,
-        })) || "Checked in from VSCode";
+        }) || "Checked in from VSCode";
+      }
 
+      // First, commit to git if enabled and there are changes
+      if (gitEnabled) {
+        const isGitRepo = await gitService.isGitRepository();
+        if (isGitRepo) {
+          const hasChanges = await gitService.hasChanges();
+          if (hasChanges) {
+            const commitMessage = await gitService.commitAndPush(checkinReason);
+            if (!commitMessage) {
+              // Commit failed, ask if user wants to continue with STARLIMS check-in
+              const continueResponse = await vscode.window.showWarningMessage(
+                "Git commit failed. Do you want to continue with STARLIMS check-in?",
+                "Yes", "No"
+              );
+              if (continueResponse !== "Yes") {
+                return;
+              }
+            }
+          }
+        }
+      }
+
+      // Proceed with STARLIMS check-in
       let bSuccess = await enterpriseService.checkInItem(item.uri, checkinReason, item.language);
       if (bSuccess) {
         enterpriseTreeProvider.setItemCheckedOutStatus(item, false, item.language);
