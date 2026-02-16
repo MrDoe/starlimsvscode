@@ -54,6 +54,26 @@ export class EnterpriseService implements IEnterpriseService {
   }
 
   /**
+   * Get the current server name
+   * @returns the current server name or empty string if not set
+   */
+  public getCurrentServerName(): string {
+    return this.currentServerName;
+  }
+
+  /**
+   * Get server-specific workspace path
+   * @param baseWorkspacePath Base workspace path (e.g., rootPath/SLVSCODE)
+   * @returns Server-specific path (e.g., rootPath/SLVSCODE/ServerName)
+   */
+  public getServerWorkspacePath(baseWorkspacePath: string): string {
+    if (this.currentServerName) {
+      return path.join(baseWorkspacePath, this.currentServerName);
+    }
+    return baseWorkspacePath;
+  }
+
+  /**
    * Safely parse a response as JSON, handling errors gracefully
    * @param response The fetch response object
    * @returns The parsed JSON object or null if parsing fails
