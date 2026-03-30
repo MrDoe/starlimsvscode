@@ -61,16 +61,88 @@ export async function activate(context: vscode.ExtensionContext) {
   let password: string | undefined;
   let url: string | undefined = config.get("url");
   let rootPath: string | undefined = config.get("rootPath");
+  let activeUser: string = user || "";
   let reloadConfig = false;
   let selectedItem: TreeEnterpriseItem | undefined;
   let languages: any[] = [];
+  let enterpriseService!: EnterpriseService;
+  let enterpriseTreeProvider!: EnterpriseTreeDataProvider;
 
   const workspaceKey = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "default";
   const workspaceId = crypto.createHash('sha1').update(workspaceKey).digest('hex');
   const secretKey = `${workspaceId}:userPassword`;
 
+  const configuredServers: ServerConfig[] = config.get("servers", []);
+  const selectedServerNameFromConfig = config.get("selectedServer") as string;
+  const selectedServerFromConfig = configuredServers.find(s => s.name === selectedServerNameFromConfig);
+  const hasConfiguredServers = configuredServers.length > 0;
+
+  if (selectedServerFromConfig) {
+    url = selectedServerFromConfig.url || url;
+    user = selectedServerFromConfig.user || user;
+    activeUser = selectedServerFromConfig.user || activeUser;
+  }
+
+  const serverSelectorProvider = new ServerSelectorWebviewProvider(
+    context.extensionUri,
+    context,
+    async (serverConfig: ServerConfig | undefined) => {
+      if (!serverConfig) {
+        vscode.window.showInformationMessage("No server selected");
+        return;
+      }
+
+      activeUser = serverConfig.user || user || "";
+
+      // The selector must stay functional even before the backend service is initialized.
+      if (!enterpriseService) {
+        return;
+      }
+
+      try {
+        enterpriseService.updateServerConfig(serverConfig, serverConfig.name);
+
+        if (enterpriseTreeProvider) {
+          enterpriseTreeProvider.refresh();
+          vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
+        }
+
+        try {
+          await enterpriseService.getLanguages();
+          languages = [];
+          for (let lang of enterpriseService.languages) {
+            languages.push({ label: lang[0], description: lang[1] });
+          }
+        } catch (error) {
+          console.error("Error loading languages for server:", error);
+        }
+
+        vscode.window.showInformationMessage(`Connected to server: ${serverConfig.name} (${serverConfig.url})`);
+      } catch (error) {
+        console.error("Error switching to server:", error);
+        vscode.window.showErrorMessage(`Failed to connect to server: ${serverConfig.name}`);
+      }
+    }
+  );
+
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      ServerSelectorWebviewProvider.viewType,
+      serverSelectorProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration("STARLIMS")) {
+        serverSelectorProvider.refresh();
+        vscode.window.showInformationMessage("STARLIMS server selector refreshed after settings change.");
+      }
+    })
+  );
+
   // ensure STARLIMS URL is defined and prompt for value if not
-  if (!url) {
+  if (!url && !hasConfiguredServers) {
     url = await vscode.window.showInputBox({
       title: "Configure STARLIMS",
       placeHolder: "STARLIMS URL (e. g. https://my.starlims.server.com/STARLIMS/)",
@@ -98,7 +170,13 @@ export async function activate(context: vscode.ExtensionContext) {
       ignoreFocusOut: true
     }) ?? '';
 
-    secretStorage.store(secretKey, passwordInput);
+    await secretStorage.store(secretKey, passwordInput);
+
+    const selectedServerName = (vscode.workspace.getConfiguration("STARLIMS").get("selectedServer") as string) || "";
+    if (selectedServerName) {
+      const serverSecretKey = `${workspaceId}:${selectedServerName}:userPassword`;
+      await secretStorage.store(serverSecretKey, passwordInput);
+    }
   });
 
   // register server configuration commands
@@ -113,7 +191,7 @@ export async function activate(context: vscode.ExtensionContext) {
   });
 
   // ensure Starlims user name is defined and prompt for it if not
-  if (!user) {
+  if (!user && !hasConfiguredServers) {
     user = await vscode.window.showInputBox({
       title: "Configure STARLIMS (3/4)",
       placeHolder: "STARLIMS Username",
@@ -130,12 +208,27 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  // get password from secret storage
-  password = await secretStorage.get(secretKey);
+  if (!hasConfiguredServers) {
+    // get password from secret storage
+    password = await secretStorage.get(secretKey);
 
-  // prompt for password if not found in secret storage
-  if (!password) {
-    password = await vscode.commands.executeCommand('STARLIMS.setPassword');
+    // prompt for password if not found in secret storage
+    if (!password) {
+      password = await vscode.commands.executeCommand('STARLIMS.setPassword');
+    }
+  } else {
+    const selectedServerName = (config.get("selectedServer") as string) || "";
+    const selectedServerSecretKey = selectedServerName
+      ? `${workspaceId}:${selectedServerName}:userPassword`
+      : "";
+    const selectedServerPassword = selectedServerSecretKey
+      ? await secretStorage.get(selectedServerSecretKey)
+      : undefined;
+    const legacyPassword = await secretStorage.get(secretKey);
+
+    if (!selectedServerPassword && !legacyPassword) {
+      await vscode.commands.executeCommand('STARLIMS.setPassword');
+    }
   }
 
   // ensure base path is defined and prompt for value if not
@@ -169,7 +262,7 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // create enterprise service
-  const enterpriseService = new EnterpriseService(config, secretStorage);
+  enterpriseService = new EnterpriseService(config, secretStorage);
   
   // Initialize server name for path structure
   const selectedServerName = config.get("selectedServer") as string;
@@ -179,11 +272,13 @@ export async function activate(context: vscode.ExtensionContext) {
     const selectedServer = servers.find(s => s.name === selectedServerName);
     if (selectedServer) {
       enterpriseService.updateServerConfig(selectedServer, selectedServer.name);
+      activeUser = selectedServer.user || activeUser;
     }
   } else if (url) {
     // For backward compatibility, use URL as default server name
     const defaultServerName = "Default";
     enterpriseService.updateServerConfig({ url, user, urlSuffix: config.get("urlSuffix", "lims") }, defaultServerName);
+    activeUser = user || activeUser;
   }
 
   const expressServer = new ExpressServer();
@@ -247,7 +342,8 @@ export async function activate(context: vscode.ExtensionContext) {
   vscode.commands.registerCommand("STARLIMS.RefreshLogChannel",
     async () => {
       // get current user's log
-      const logUri = "/ServerLogs/" + user + ".log";
+      const logUser = activeUser || user;
+      const logUri = "/ServerLogs/" + logUser + ".log";
       var log = await enterpriseService.getEnterpriseItemCode(logUri, undefined);
       if (log) {
         logChannel.clear();
@@ -261,7 +357,8 @@ export async function activate(context: vscode.ExtensionContext) {
   vscode.commands.registerCommand("STARLIMS.ClearLogChannel",
     async () => {
       // clear current user's log
-      let remoteUri = "/ServerLogs/" + user;
+      const logUser = activeUser || user;
+      let remoteUri = "/ServerLogs/" + logUser;
       await enterpriseService.clearLog(remoteUri);
 
       // refresh log
@@ -284,7 +381,7 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // register a custom tree data provider for the STARLIMS enterprise designer explorer
-  const enterpriseTreeProvider = new EnterpriseTreeDataProvider(enterpriseService);
+  enterpriseTreeProvider = new EnterpriseTreeDataProvider(enterpriseService);
   vscode.window.registerTreeDataProvider("STARLIMSMainTree", enterpriseTreeProvider);
 
   // register a custom tree data provider for the STARLIMS checked out items
@@ -292,57 +389,14 @@ export async function activate(context: vscode.ExtensionContext) {
   const checkedOutTreeDataProvider = new CheckedOutTreeDataProvider(checkedOutItems, enterpriseService);
   vscode.window.registerTreeDataProvider("STARLIMSCheckedOutTree", checkedOutTreeDataProvider);
 
-  // Create the server selector webview provider (now that tree providers exist)
-  const serverSelectorProvider = new ServerSelectorWebviewProvider(
-    context.extensionUri,
-    context,
-    async (serverConfig: ServerConfig | undefined) => {
-      if (serverConfig) {
-        try {
-          // Update the enterprise service with the new server configuration
-          enterpriseService.updateServerConfig(serverConfig, serverConfig.name);
-          
-          // Refresh the tree data providers to show data from the new server
-          enterpriseTreeProvider.refresh();
-          
-          // Update checked out items for the new server
-          vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
-          
-          // Load languages for the new server
-          try {
-            await enterpriseService.getLanguages();
-            languages = [];
-            for (let lang of enterpriseService.languages) {
-              languages.push({ label: lang[0], description: lang[1] });
-            }
-          } catch (error) {
-            console.error("Error loading languages for server:", error);
-          }
-          
-          vscode.window.showInformationMessage(`Connected to server: ${serverConfig.name} (${serverConfig.url})`);
-        } catch (error) {
-          console.error("Error switching to server:", error);
-          vscode.window.showErrorMessage(`Failed to connect to server: ${serverConfig.name}`);
-        }
-      } else {
-        vscode.window.showInformationMessage("No server selected");
-      }
-    }
-  );
-  
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      ServerSelectorWebviewProvider.viewType,
-      serverSelectorProvider
-    )
-  );
-
   // Initialize with the selected server if available
   const selectedServerConfig = serverSelectorProvider.getSelectedServer();
   if (selectedServerConfig) {
     // Update service with selected server on startup
     enterpriseService.updateServerConfig(selectedServerConfig, selectedServerConfig.name);
+    activeUser = selectedServerConfig.user || activeUser;
   }
+  serverSelectorProvider.refresh();
 
   vscode.commands.registerCommand(
     "STARLIMS.GetCheckedOutItems",
@@ -651,7 +705,7 @@ export async function activate(context: vscode.ExtensionContext) {
         remoteUri = enterpriseService.getUriFromLocalPath(item.path);
       }
 
-      if (item.checkedOutBy === user) {
+      if (item.checkedOutBy === (activeUser || user)) {
         // document not saved, save it first
         if (vscode.window.activeTextEditor?.document.isDirty) {
           await vscode.commands.executeCommand("STARLIMS.Save", item);
@@ -663,14 +717,17 @@ export async function activate(context: vscode.ExtensionContext) {
       );
 
       // get user log
-      const logUri = "/ServerLogs/" + user + ".log";
-      var logBeforeRun = (await enterpriseService.getEnterpriseItemCode(logUri, undefined)).code;
+      const logUser = activeUser || user;
+      const logUri = "/ServerLogs/" + logUser + ".log";
+      const logBeforeRunData = await enterpriseService.getEnterpriseItemCode(logUri, undefined);
+      var logBeforeRun = logBeforeRunData?.code || "";
 
       executeWithProgress(async () => {
         const result = await enterpriseService.runScript(remoteUri.toString());
         if (result) {
           // append current user log to output channel
-          let logAfterRun = (await enterpriseService.getEnterpriseItemCode(logUri, undefined)).code;
+          const logAfterRunData = await enterpriseService.getEnterpriseItemCode(logUri, undefined);
+          let logAfterRun = logAfterRunData?.code || "";
           let logDiff = logAfterRun.replace(logBeforeRun, "");
           outputChannel.appendLine("### Log output: ###");
           outputChannel.appendLine(logDiff);
@@ -1955,7 +2012,7 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   // Git integration: automatically check in to STARLIMS when committing via Git
-  setupGitIntegration(rootPath!, enterpriseService, enterpriseTreeProvider, checkedOutTreeDataProvider);
+  void setupGitIntegration(context, rootPath!, enterpriseService, enterpriseTreeProvider, checkedOutTreeDataProvider);
 }
 
 async function highlightGlobalSearchMatches(item: TreeEnterpriseItem, localUri: vscode.Uri) {
@@ -2008,21 +2065,47 @@ async function highlightGlobalSearchMatches(item: TreeEnterpriseItem, localUri: 
  * @param enterpriseTreeProvider The enterprise tree provider
  * @param checkedOutTreeDataProvider The checked out tree provider
  */
-function setupGitIntegration(
+async function setupGitIntegration(
+  context: vscode.ExtensionContext,
   slvscodePath: string,
   enterpriseService: EnterpriseService,
   enterpriseTreeProvider: EnterpriseTreeDataProvider,
   checkedOutTreeDataProvider: CheckedOutTreeDataProvider
-): void {
+): Promise<void> {
   const fs = require('fs');
-  const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
-  
+  const gitExtension = vscode.extensions.getExtension<{ getAPI(version: number): any }>('vscode.git');
+
   if (!gitExtension) {
-    console.log("Git extension not found, Git integration disabled");
+    console.log("Built-in Git extension is unavailable, Git integration disabled");
     return;
   }
 
-  const api = gitExtension.getAPI(1);
+  if (!gitExtension.isActive) {
+    const gitActivationListener = vscode.extensions.onDidChange(() => {
+      const updatedGitExtension = vscode.extensions.getExtension<{ getAPI(version: number): any }>('vscode.git');
+      if (updatedGitExtension?.isActive) {
+        gitActivationListener.dispose();
+        void setupGitIntegration(context, slvscodePath, enterpriseService, enterpriseTreeProvider, checkedOutTreeDataProvider);
+      }
+    });
+    context.subscriptions.push(gitActivationListener);
+    console.log("Built-in Git extension is not active yet, Git integration will initialize when it becomes available");
+    return;
+  }
+
+  const gitApiProvider = gitExtension.exports;
+
+  if (!gitApiProvider || typeof gitApiProvider.getAPI !== 'function') {
+    console.log("Git API is unavailable, Git integration disabled");
+    return;
+  }
+
+  const api = gitApiProvider.getAPI(1);
+
+  if (!api || !Array.isArray(api.repositories)) {
+    console.log("Git repositories API is unavailable, Git integration disabled");
+    return;
+  }
   
   // Track last known commit hash for each repository
   const lastCommitHashes = new Map<string, string>();

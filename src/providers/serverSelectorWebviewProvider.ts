@@ -24,11 +24,45 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     this.loadServers();
   }
 
+  private normalizeServers(value: unknown): ServerConfig[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value
+      .filter((entry): entry is Partial<ServerConfig> => !!entry && typeof entry === 'object')
+      .map((entry) => ({
+        name: typeof entry.name === 'string' ? entry.name : '',
+        url: typeof entry.url === 'string' ? entry.url : '',
+        user: typeof entry.user === 'string' ? entry.user : undefined,
+        urlSuffix: typeof entry.urlSuffix === 'string' ? entry.urlSuffix : 'lims'
+      }))
+      .filter((entry) => !!entry.name && !!entry.url);
+  }
+
+  private readServerConfigFromWorkspaceFolders(): { servers: ServerConfig[]; selectedServer: string } {
+    const workspaceFolders = vscode.workspace.workspaceFolders || [];
+
+    for (const folder of workspaceFolders) {
+      const folderConfig = vscode.workspace.getConfiguration('STARLIMS', folder.uri);
+      const folderServers = this.normalizeServers(folderConfig.get('servers', []));
+      if (folderServers.length > 0) {
+        return {
+          servers: folderServers,
+          selectedServer: folderConfig.get('selectedServer', '')
+        };
+      }
+    }
+
+    return { servers: [], selectedServer: '' };
+  }
+
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
     context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken,
   ) {
+    this.logState('resolveWebviewView start');
     this._view = webviewView;
 
     webviewView.webview.options = {
@@ -38,7 +72,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
       ]
     };
 
-    webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+    this.logState('resolveWebviewView after options');
 
     webviewView.webview.onDidReceiveMessage(data => {
       switch (data.type) {
@@ -55,16 +89,54 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
           this.deleteCurrentServer();
           break;
         case 'ready':
+          // Ensure server list is read again once the webview is ready
+          this.loadServers();
           this.updateWebview();
           break;
       }
+    });
+
+    webviewView.onDidChangeVisibility(() => {
+      this.logState('onDidChangeVisibility:' + webviewView.visible);
+      if (webviewView.visible) {
+        this.updateWebview();
+      }
+    });
+
+    webviewView.onDidDispose(() => {
+      this.logState('onDidDispose');
+      this._view = undefined;
+    });
+
+    webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+    this.updateWebview();
+    this.logState('resolveWebviewView end');
+  }
+
+  private logState(context: string) {
+    console.log(`[ServerSelector] ${context}`, {
+      servers: this._servers,
+      selectedServer: this._selectedServer,
+      view: !!this._view,
+      workspaceFolders: vscode.workspace.workspaceFolders?.map(f => f.name)
     });
   }
 
   private loadServers() {
     const config = vscode.workspace.getConfiguration("STARLIMS");
-    this._servers = config.get("servers", []);
+    this._servers = this.normalizeServers(config.get("servers", []));
     this._selectedServer = config.get("selectedServer", "");
+
+    // Fallback for multi-root/folder-scoped settings where workspace-level lookup is empty.
+    if (this._servers.length === 0) {
+      const folderScopedConfig = this.readServerConfigFromWorkspaceFolders();
+      this._servers = folderScopedConfig.servers;
+      this._selectedServer = folderScopedConfig.selectedServer;
+    }
+
+    if (this._servers.length > 0 && !this._servers.some(s => s.name === this._selectedServer)) {
+      this._selectedServer = this._servers[0].name;
+    }
 
     // Migrate legacy configuration if needed
     const legacyUrl = config.get("url") as string;
@@ -84,6 +156,8 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
       config.update("servers", this._servers, false);
       config.update("selectedServer", this._selectedServer, false);
     }
+
+    this.logState('loadServers');
   }
 
   private selectServer(serverName: string) {
@@ -93,6 +167,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     
     const selectedServerConfig = this._servers.find(s => s.name === serverName);
     this._onServerChanged(selectedServerConfig);
+    this.logState('selectServer');
     this.updateWebview();
   }
 
@@ -290,16 +365,27 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
   }
 
   private updateWebview() {
+    this.logState('updateWebview');
+    const payload = {
+      type: 'updateServers',
+      servers: this._servers,
+      selectedServer: this._selectedServer
+    };
+
     if (this._view) {
-      this._view.webview.postMessage({
-        type: 'updateServers',
-        servers: this._servers,
-        selectedServer: this._selectedServer
-      });
+      this._view.webview.postMessage(payload);
+    } else {
+      // Wenn View noch nicht da ist, jetzt nicht endlos loopen, sondern warten auf die eigentliche Resolve-/Visibility-Event.
+      console.log('[ServerSelector] updateWebview: view not ready, skipping. will retry on resolve/visibility.');
     }
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {
+    const initialState = JSON.stringify({
+      servers: this._servers,
+      selectedServer: this._selectedServer
+    }).replace(/</g, '\\u003c');
+
     return `<!DOCTYPE html>
     <html lang="en">
     <head>
@@ -374,6 +460,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
 
         <script>
             const vscode = acquireVsCodeApi();
+          const initialState = ${initialState};
             const serverSelect = document.getElementById('serverSelect');
             const configureBtn = document.getElementById('configureBtn');
             const addBtn = document.getElementById('addBtn');
@@ -446,6 +533,8 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
             }
 
             // Initialize
+            console.log('STARLIMS Server Selector Webview initialize', initialState);
+            updateServerList(initialState.servers || [], initialState.selectedServer || '');
             vscode.postMessage({ type: 'ready' });
         </script>
     </body>

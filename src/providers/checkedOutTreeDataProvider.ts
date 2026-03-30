@@ -96,8 +96,8 @@ export class CheckedOutTreeDataProvider implements vscode.TreeDataProvider<TreeE
    */
   private getCustomIcon(icon: string): any {
     return {
-      light: path.join(__filename, "..", "..", "resources", "light", icon),
-      dark: path.join(__filename, "..", "..", "resources", "dark", icon)
+      light: vscode.Uri.file(path.join(__filename, "..", "..", "resources", "light", icon)),
+      dark: vscode.Uri.file(path.join(__filename, "..", "..", "resources", "dark", icon))
     };
   }
 

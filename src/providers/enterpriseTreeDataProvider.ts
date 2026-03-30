@@ -303,8 +303,8 @@ export class EnterpriseTreeDataProvider implements vscode.TreeDataProvider<TreeE
    */
   private getCustomIcon(icon: string): any {
     return {
-      light: path.join(__filename, "..", "..", "resources", "light", icon),
-      dark: path.join(__filename, "..", "..", "resources", "dark", icon)
+      light: vscode.Uri.file(path.join(__filename, "..", "..", "resources", "light", icon)),
+      dark: vscode.Uri.file(path.join(__filename, "..", "..", "resources", "dark", icon))
     };
   }
 
@@ -1054,12 +1054,7 @@ export class TreeEnterpriseItem extends vscode.TreeItem {
   children?: TreeEnterpriseItem[];
   tooltip?: string | vscode.MarkdownString | undefined;
   isSystem?: boolean | undefined;
-  iconPath?:
-    | string
-    | vscode.Uri
-    | { light: string | vscode.Uri; dark: string | vscode.Uri }
-    | vscode.ThemeIcon
-    | undefined;
+  iconPath?: vscode.TreeItem["iconPath"];
   globalSearchTerm?: string | undefined;
   color?: string | undefined;
 
