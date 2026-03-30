@@ -65,6 +65,9 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     this.logState('resolveWebviewView start');
     this._view = webviewView;
 
+    // Ensure server list and selected server are fresh when view is resolved.
+    this.loadServers();
+
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [
@@ -99,6 +102,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     webviewView.onDidChangeVisibility(() => {
       this.logState('onDidChangeVisibility:' + webviewView.visible);
       if (webviewView.visible) {
+        this.loadServers();
         this.updateWebview();
       }
     });

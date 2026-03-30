@@ -71,7 +71,6 @@ export async function activate(context: vscode.ExtensionContext) {
   const workspaceKey = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "default";
   const workspaceId = crypto.createHash('sha1').update(workspaceKey).digest('hex');
   const secretKey = `${workspaceId}:userPassword`;
-
   const configuredServers: ServerConfig[] = config.get("servers", []);
   const selectedServerNameFromConfig = config.get("selectedServer") as string;
   const selectedServerFromConfig = configuredServers.find(s => s.name === selectedServerNameFromConfig);
@@ -99,6 +98,7 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
 
+      // here!!
       try {
         enterpriseService.updateServerConfig(serverConfig, serverConfig.name);
 
@@ -128,18 +128,16 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       ServerSelectorWebviewProvider.viewType,
-      serverSelectorProvider
+      serverSelectorProvider,
+      {
+        webviewOptions: {
+          retainContextWhenHidden: true
+        }
+      }
     )
   );
-
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration(e => {
-      if (e.affectsConfiguration("STARLIMS")) {
-        serverSelectorProvider.refresh();
-        vscode.window.showInformationMessage("STARLIMS server selector refreshed after settings change.");
-      }
-    })
-  );
+  
+  serverSelectorProvider.refresh();
 
   // ensure STARLIMS URL is defined and prompt for value if not
   if (!url && !hasConfiguredServers) {
