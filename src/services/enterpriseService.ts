@@ -17,6 +17,7 @@ import * as crypto from 'crypto';
 export class EnterpriseService implements IEnterpriseService {
   private config: any;
   private baseUrl: string;
+  private currentUser: string = "";
   private rootPath: string = "";
   private refreshSessionInterval: NodeJS.Timeout | undefined;
   private SLVSCODE_FOLDER: string = "SLVSCODE";
@@ -37,6 +38,7 @@ export class EnterpriseService implements IEnterpriseService {
     this.config = config;
     this.secretStorage = secretStorage;
     this.baseUrl = cleanUrl(config.url);
+    this.currentUser = (config.user as string) || "";
     if (config.urlSuffix) {
       this.urlSuffix = config.urlSuffix;
     }
@@ -50,7 +52,16 @@ export class EnterpriseService implements IEnterpriseService {
   public updateServerConfig(serverConfig: { url: string; user?: string; urlSuffix?: string }, serverName: string) {
     this.baseUrl = cleanUrl(serverConfig.url);
     this.urlSuffix = serverConfig.urlSuffix || "lims";
+    this.currentUser = serverConfig.user || (this.config.user as string) || "";
     this.currentServerName = serverName;
+  }
+
+  /**
+   * Get the currently active user
+   * @returns active user name used for API calls
+   */
+  public getCurrentUser(): string {
+    return this.currentUser;
   }
 
   /**
@@ -74,49 +85,75 @@ export class EnterpriseService implements IEnterpriseService {
   }
 
   /**
+   * Extract a readable error message from an HTML response body.
+   */
+  private getHtmlTitle(text: string): string | null {
+    const titleMatch = text.match(/<title>(.*?)<\/title>/is);
+    if (titleMatch && titleMatch[1]) {
+      return titleMatch[1].trim();
+    }
+    return null;
+  }
+
+  /**
    * Safely parse a response as JSON, handling errors gracefully
    * @param response The fetch response object
    * @returns The parsed JSON object or null if parsing fails
    */
   private async safeParseJson(response: any): Promise<any> {
     const contentType = response.headers?.get?.('content-type') || '';
-    
+
+    // Read the body once to avoid stream re-read errors after parse failures.
+    const text = await response.text();
+    const compactPreview = text.replace(/\s+/g, ' ').trim().substring(0, 200);
+    const parsedJson = isJson(text) ? JSON.parse(text) : null;
+
     // Check if response status is not ok
     if (!response.ok) {
-      const text = await response.text();
-      // Try to parse as JSON, otherwise treat as error text
-      if (contentType.includes('application/json') && isJson(text)) {
-        try {
-          return JSON.parse(text);
-        } catch (e) {
-          vscode.window.showErrorMessage(`Server error (${response.status}): Unable to parse error response`);
-          console.error('Failed to parse error response:', text);
-          return null;
-        }
-      } else {
-        // Server returned non-JSON error (likely HTML error page)
-        vscode.window.showErrorMessage(`Server error (${response.status}): ${response.statusText}`);
-        console.error('Server returned non-JSON response:', text.substring(0, 200));
-        return null;
+      if (parsedJson) {
+        return parsedJson;
+      }
+
+      const htmlTitle = this.getHtmlTitle(text);
+      const errorMessage = htmlTitle || response.statusText;
+      vscode.window.showErrorMessage(`Server error (${response.status}): ${errorMessage}`);
+      console.error('Server returned non-JSON response:', compactPreview);
+      return null;
+    }
+
+    if (parsedJson) {
+      return parsedJson;
+    }
+
+    const htmlTitle = this.getHtmlTitle(text);
+    if (htmlTitle) {
+      vscode.window.showErrorMessage(`Server error: ${htmlTitle}`);
+      console.error('Server returned HTML response:', compactPreview);
+      return null;
+    }
+
+    vscode.window.showErrorMessage(`Server returned non-JSON response: ${contentType || 'unknown content type'}`);
+    console.error('Response content type:', contentType, 'Body:', compactPreview);
+    return null;
+  }
+
+  /**
+   * Resolve password for API calls using server-specific key first and legacy key as fallback.
+   */
+  private async getAuthPassword(): Promise<string> {
+    const workspaceKey = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "default";
+    const workspaceId = crypto.createHash('sha1').update(workspaceKey).digest('hex');
+    const legacySecretKey = `${workspaceId}:userPassword`;
+
+    if (this.currentServerName) {
+      const serverSecretKey = `${workspaceId}:${this.currentServerName}:userPassword`;
+      const serverPassword = await this.secretStorage.get(serverSecretKey);
+      if (serverPassword) {
+        return serverPassword;
       }
     }
-    
-    // Response status is ok, try to parse as JSON
-    if (!contentType.includes('application/json')) {
-      const text = await response.text();
-      vscode.window.showErrorMessage(`Server returned non-JSON response: ${contentType || 'unknown content type'}`);
-      console.error('Response content type:', contentType, 'Body:', text.substring(0, 200));
-      return null;
-    }
-    
-    try {
-      return await response.json();
-    } catch (e: any) {
-      const text = await response.text();
-      vscode.window.showErrorMessage(`Failed to parse JSON response: ${e.message}`);
-      console.error('Failed to parse JSON:', text.substring(0, 200));
-      return null;
-    }
+
+    return (await this.secretStorage.get(legacySecretKey)) || "";
   }
 
   async moveItem(uri: string, destination: string) {
@@ -198,13 +235,11 @@ export class EnterpriseService implements IEnterpriseService {
     }
     const readStream = fs.createReadStream(sdpPackage);
     
-    const workspaceKey = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "default";
-    const workspaceId = crypto.createHash('sha1').update(workspaceKey).digest('hex');
-    const secretKey = `${workspaceId}:userPassword`;
+    const authPassword = await this.getAuthPassword();
 
     const headers = new Headers([
-      ["STARLIMSUser", this.config.user],
-      ["STARLIMSPass", await this.secretStorage.get(secretKey)],
+      ["STARLIMSUser", this.currentUser],
+      ["STARLIMSPass", authPassword],
       ["Accept", "*/*"],
       ["Accept-Encoding", "gzip, deflate, br"],
       ["Content-length", stats.size.toString()]
@@ -475,7 +510,11 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJson(response);
+      if (!result) {
+        return null;
+      }
+      const { success, data }: { success: boolean; data: any } = result;
       if (success) {
         if (data.language === "JS") {
           // comment out all occurences of '#include' in order for eslint to work
@@ -665,16 +704,11 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns an array of string arrays with header name and value.
    */
   private async getAPIHeaders(): Promise<string[][]> {
-    const workspaceKey = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "default";
-    const workspaceId = crypto.createHash('sha1').update(workspaceKey).digest('hex');
-    // Use server-specific secret key if available, otherwise fall back to legacy key
-    const secretKey = this.currentServerName 
-      ? `${workspaceId}:${this.currentServerName}:userPassword`
-      : `${workspaceId}:userPassword`;
+    const authPassword = await this.getAuthPassword();
     
     return [
-      ["STARLIMSUser", this.config.user],
-      ["STARLIMSPass", await this.secretStorage.get(secretKey)],
+      ["STARLIMSUser", this.currentUser],
+      ["STARLIMSPass", authPassword],
       ["Content-Type", "application/json"],
       ["Accept", "*/*"]
     ];
@@ -1146,7 +1180,11 @@ export class EnterpriseService implements IEnterpriseService {
     };
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJson(response);
+      if (!result) {
+        return false;
+      }
+      const { success, data }: { success: boolean; data: any } = result;
 
       if (success) {
         this.languages = isJson(data) ? JSON.parse(data) : data;
@@ -1173,6 +1211,11 @@ export class EnterpriseService implements IEnterpriseService {
     let resourcesData = await this.getEnterpriseItemCode(uri, language);
 
     if (resourcesData) {
+      if (!resourcesData.code || typeof resourcesData.code !== "string") {
+        vscode.window.showErrorMessage("Could not load form resources: invalid XML response.");
+        return;
+      }
+
       const formName = uri.split("/").pop();
 
       // Create a new DOMParser
