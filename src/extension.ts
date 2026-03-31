@@ -81,50 +81,40 @@ export async function activate(context: vscode.ExtensionContext) {
     user = selectedServerFromConfig.user || user;
     activeUser = selectedServerFromConfig.user || activeUser;
   }
+  let serverConfig: ServerConfig | undefined = selectedServerFromConfig;
 
-  const serverSelectorProvider = new ServerSelectorWebviewProvider(
-    context.extensionUri,
-    context,
-    async (serverConfig: ServerConfig | undefined) => {
-      if (!serverConfig) {
-        vscode.window.showInformationMessage("No server selected");
-        return;
-      }
-
-      activeUser = serverConfig.user || user || "";
-
-      // The selector must stay functional even before the backend service is initialized.
-      if (!enterpriseService) {
-        return;
-      }
-
-      // here!!
-      try {
-        enterpriseService.updateServerConfig(serverConfig, serverConfig.name);
-
-        if (enterpriseTreeProvider) {
-          enterpriseTreeProvider.refresh();
-          vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
-        }
-
-        try {
-          await enterpriseService.getLanguages();
-          languages = [];
-          for (let lang of enterpriseService.languages) {
-            languages.push({ label: lang[0], description: lang[1] });
-          }
-        } catch (error) {
-          console.error("Error loading languages for server:", error);
-        }
-
-        vscode.window.showInformationMessage(`Connected to server: ${serverConfig.name} (${serverConfig.url})`);
-      } catch (error) {
-        console.error("Error switching to server:", error);
-        vscode.window.showErrorMessage(`Failed to connect to server: ${serverConfig.name}`);
-      }
+  const serverSelectorProvider = new ServerSelectorWebviewProvider(context.extensionUri, context, () => {
+    // Callback to update server config in enterprise service and refresh tree when server selection changes
+    const selectedServer = serverSelectorProvider.getSelectedServer();
+    if (!selectedServer) {
+      return;
     }
-  );
 
+    serverConfig = selectedServer;
+
+    if (!enterpriseService) {
+      console.debug('STARLIMS: server selected before backend initialized, update will happen once backend is ready', serverConfig.name);
+      return;
+    }
+
+    if (typeof enterpriseService.updateServerConfig !== 'function') {
+      console.error('STARLIMS: enterpriseService updateServerConfig is not available');
+      return;
+    }
+
+    try {
+      enterpriseService.updateServerConfig(serverConfig, serverConfig.name);
+      if (enterpriseTreeProvider) {
+        enterpriseTreeProvider.refresh();
+        vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
+      }
+    } catch (error) {
+      console.error('Error switching to server:', error);
+      vscode.window.showErrorMessage(`Failed to connect to server: ${serverConfig.name}`);
+    }
+  });
+
+  // register the server selector webview view provider
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       ServerSelectorWebviewProvider.viewType,
@@ -136,8 +126,33 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     )
   );
-  
-  serverSelectorProvider.refresh();
+
+  const openServerSelectorView = async () => {
+    try {
+      await vscode.commands.executeCommand('workbench.view.extension.STARLIMSVSCode');
+
+      const viewCommand = 'workbench.views.openView';
+      const supportedCommands = await vscode.commands.getCommands(true);
+      if (supportedCommands.includes(viewCommand)) {
+        await vscode.commands.executeCommand(viewCommand, 'STARLIMSServerSelector');
+        return;
+      }
+
+      // Fallback: hide and show sidebar (simulate manual hide/show)
+      await vscode.commands.executeCommand('workbench.action.closeSidebar');
+      setTimeout(async () => {
+        await vscode.commands.executeCommand('workbench.view.extension.STARLIMSVSCode');
+      }, 100);
+    } catch (error) {
+      if (error && typeof error === 'object' && 'name' in error && (error as any).name === 'Canceled') {
+        console.debug('STARLIMS: sidebar open canceled during startup/shutdown');
+      } else {
+        console.warn('STARLIMS: failed to ensure server selector view is shown', error);
+      }
+    }
+  };
+
+  openServerSelectorView();
 
   // ensure STARLIMS URL is defined and prompt for value if not
   if (!url && !hasConfiguredServers) {
