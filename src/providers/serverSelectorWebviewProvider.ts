@@ -368,20 +368,16 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     return this._servers.find(s => s.name === this._selectedServer);
   }
 
-  private updateWebview() {
-    this.logState('updateWebview');
-    const payload = {
-      type: 'updateServers',
-      servers: this._servers,
-      selectedServer: this._selectedServer
-    };
-
+  public updateWebview() {
     if (this._view) {
-      this._view.webview.postMessage(payload);
+      this._view.webview.postMessage({
+        type: 'updateServers', 
+        servers: this._servers,
+        selectedServer: this._selectedServer
+      });
     } else {
-      // Wenn View noch nicht da ist, jetzt nicht endlos loopen, sondern warten auf die eigentliche Resolve-/Visibility-Event.
-      console.log('[ServerSelector] updateWebview: view not ready, skipping. will retry on resolve/visibility.');
-    }
+      this.logState('updateWebview called but view is not available');
+    } 
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {
