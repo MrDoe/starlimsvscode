@@ -655,6 +655,11 @@
             "default": "lims",
             "description": "The web service request url suffix. Use lims2 with older versions of the STARLIMS Technology Platform which don't recognize the HTTPServices web.config setting key"
           },
+          "STARLIMS.defaultFormLanguage": {
+            "type": "string",
+            "default": "",
+            "description": "Default language to use when checking out STARLIMS form items."
+          },
           "STARLIMS.servers": {
             "type": "array",
             "default": [],
@@ -690,6 +695,76 @@
             "type": "string",
             "default": "",
             "description": "Currently selected server name"
+          },
+          "STARLIMS.git.commitMessageGenerator": {
+            "type": "string",
+            "enum": [
+              "fast",
+              "copilot"
+            ],
+            "enumDescriptions": [
+              "Use a fast local fallback message such as 'Update frmTest [Code Behind]' without calling Copilot.",
+              "Use Copilot to generate the message, with a short timeout fallback to the fast local message."
+            ],
+            "default": "fast",
+            "description": "How Copilot generates check-in and Git commit messages."
+          },
+          "STARLIMS.git.copilotCommitMessageModel": {
+            "type": "string",
+            "default": "",
+            "description": "Optional exact Copilot chat model ID to use for generated check-in and Git commit messages. Leave empty to use the default available Copilot model."
+          },
+          "STARLIMS.git.copilotCommitMessageSystemPrompt": {
+            "type": "string",
+            "default": "You write STARLIMS commit messages. Describe the changes in detail. Mention the main item or items based on the diffs. Use bullets where applicable. ",
+            "markdownDescription": "Top-level instruction text sent to Copilot before the STARLIMS item context when generating check-in and Git commit messages."
+          },
+          "STARLIMS.git.commitMessageDetailLevel": {
+            "type": "string",
+            "enum": [
+              "short",
+              "standard",
+              "detailed"
+            ],
+            "enumDescriptions": [
+              "Keep messages compact and focused on the item name and change details.",
+              "Include balanced context such as item type or change details when helpful.",
+              "Prefer richer descriptions that include item name and the change details."
+            ],
+            "default": "standard",
+            "description": "How much detail to include in generated STARLIMS commit messages."
+          },
+          "STARLIMS.git.commitMessageMaxLength": {
+            "type": "number",
+            "default": 512,
+            "minimum": 100,
+            "description": "Maximum length for generated STARLIMS commit messages."
+          },
+          "STARLIMS.git.commitMessagePrefix": {
+            "type": "string",
+            "default": "",
+            "description": "Optional prefix added to generated STARLIMS commit messages, for example a ticket or team tag."
+          },
+          "STARLIMS.git.includeItemTypeInCommitMessage": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include the STARLIMS item type in generated commit messages when using standard or detailed modes."
+          },
+          "STARLIMS.git.includeLanguageInCommitMessage": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include the STARLIMS language in generated commit messages when available."
+          },
+          "STARLIMS.git.includeFileNameInCommitMessage": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include the local file name in generated commit messages when available."
+          },
+          "STARLIMS.git.copilotCommitMessageTimeoutMs": {
+            "type": "number",
+            "default": 4000,
+            "minimum": 500,
+            "description": "Maximum time in milliseconds to wait for Copilot commit message generation before falling back to the fast local message."
           }
         }
       }

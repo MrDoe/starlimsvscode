@@ -4,7 +4,6 @@
 import * as vscode from "vscode";
 import { execFile as execFileCallback } from "child_process";
 import * as fs from "fs";
-import { diffLines } from "diff";
 import { EnterpriseFileDecorationProvider } from "./providers/enterpriseFileDecorationProvider";
 import { EnterpriseItemType, EnterpriseTreeDataProvider, TreeEnterpriseItem } from "./providers/enterpriseTreeDataProvider";
 import { EnterpriseService } from "./services/enterpriseService";
@@ -22,9 +21,32 @@ import { promisify } from "util";
 const { version } = require('../package.json');
 const SLVSCODE_FOLDER = "SLVSCODE";
 const DEFERRED_STARLIMS_INIT_MS = 250;
-const MAX_CHECKIN_DIFF_HUNKS = 3;
 const MAX_CHECKIN_ITEMS_FOR_CONTEXT = 5;
+const DEFAULT_COMMIT_MESSAGE_TIMEOUT_MS = 4000;
+const DEFAULT_COMMIT_MESSAGE_MAX_LENGTH = 200;
+const DEFAULT_COPILOT_COMMIT_MESSAGE_SYSTEM_PROMPT = [
+  "You write STARLIMS check-in and git commit messages.",
+  "Return plain text only.",
+  "Use exactly one sentence.",
+  "Mention the main item or items and the intent of the change.",
+  "Do not use bullets, quotes, markdown, or prefixes."
+].join("\n");
 const execFile = promisify(execFileCallback);
+
+type CommitMessageDetailLevel = "short" | "standard" | "detailed";
+
+type CommitMessageOptions = {
+  generatorMode: "fast" | "copilot";
+  detailLevel: CommitMessageDetailLevel;
+  maxLength: number;
+  prefix: string;
+  includeItemType: boolean;
+  includeLanguage: boolean;
+  includeFileName: boolean;
+  timeoutMs: number;
+  modelId?: string;
+  systemPrompt: string;
+};
 
 /**
  * Ensures that the SLVSCODE folder is opened as a workspace folder
@@ -104,16 +126,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
     serverConfig = selectedServer;
 
-    // if (!enterpriseService) {
-    //   console.debug('STARLIMS: server selected before backend initialized, update will happen once backend is ready', serverConfig.name);
-    //   return;
-    // }
-
-    // if (typeof enterpriseService.updateServerConfig !== 'function') {
-    //   console.error('STARLIMS: enterpriseService updateServerConfig is not available');
-    //   return;
-    // }
-
     try {
       enterpriseService.updateServerConfig(serverConfig, serverConfig.name);
       if (enterpriseTreeProvider) {
@@ -134,95 +146,179 @@ export async function activate(context: vscode.ExtensionContext) {
     return label.replace(/\s+\(Checked out by .*$/, "");
   }
 
-  function countLines(text: string): number {
-    if (!text) {
-      return 0;
+  function isFormItemType(itemType: EnterpriseItemType): boolean {
+    return itemType === EnterpriseItemType.XFDFormXML ||
+      itemType === EnterpriseItemType.XFDFormResources ||
+      itemType === EnterpriseItemType.XFDFormCode ||
+      itemType === EnterpriseItemType.HTMLFormXML ||
+      itemType === EnterpriseItemType.HTMLFormCode ||
+      itemType === EnterpriseItemType.HTMLFormGuide ||
+      itemType === EnterpriseItemType.HTMLFormResources;
+  }
+
+  function resolveDefaultFormLanguage(): string | undefined {
+    const configuredLanguage = (config.get<string>("defaultFormLanguage", "") || "").trim();
+    if (!configuredLanguage) {
+      return undefined;
     }
 
-    return text.split(/\r?\n/).filter((line, index, allLines) => {
-      return !(index === allLines.length - 1 && line === "");
-    }).length;
+    const matchingLanguage = languages.find((languageOption) => {
+      const label = typeof languageOption.label === "string" ? languageOption.label : "";
+      const description = typeof languageOption.description === "string" ? languageOption.description : "";
+      return label.localeCompare(configuredLanguage, undefined, { sensitivity: "accent" }) === 0 ||
+        description.localeCompare(configuredLanguage, undefined, { sensitivity: "accent" }) === 0;
+    });
+
+    return matchingLanguage?.label;
   }
 
   function truncateText(text: string, maxLength: number): string {
     return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
   }
 
-  function toSnippetLines(text: string, prefix: string): string[] {
-    return text
-      .split(/\r?\n/)
-      .filter((line, index, allLines) => !(index === allLines.length - 1 && line === ""))
-      .slice(0, 3)
-      .map((line) => `${prefix}${truncateText(line, 110)}`);
-  }
-
-  function summarizeDiff(remoteCode: string, localCode: string): string {
-    if (remoteCode === localCode) {
-      return "No saved local diff detected against the current server copy.";
-    }
-
-    const parts = diffLines(remoteCode, localCode);
-    let addedLines = 0;
-    let removedLines = 0;
-
-    for (const part of parts) {
-      if (part.added) {
-        addedLines += countLines(part.value);
-      }
-      if (part.removed) {
-        removedLines += countLines(part.value);
-      }
-    }
-
-    const hunks: string[] = [];
-    for (let index = 0; index < parts.length && hunks.length < MAX_CHECKIN_DIFF_HUNKS; index++) {
-      const part = parts[index];
-      if (!part.added && !part.removed) {
-        continue;
-      }
-
-      const removedPart = part.removed ? part : undefined;
-      const addedPart = part.added ? part : parts[index + 1]?.added ? parts[index + 1] : undefined;
-      if (removedPart && addedPart && parts[index + 1]?.added) {
-        index += 1;
-      }
-
-      const snippetLines = [
-        ...(removedPart ? toSnippetLines(removedPart.value, "- ") : []),
-        ...(addedPart ? toSnippetLines(addedPart.value, "+ ") : [])
-      ];
-
-      if (snippetLines.length > 0) {
-        hunks.push(snippetLines.join("\n"));
-      }
-    }
-
-    const summary = [`Saved diff stats: +${addedLines} / -${removedLines} lines.`];
-    if (hunks.length > 0) {
-      summary.push("Changed snippets:");
-      summary.push(hunks.join("\n---\n"));
-    }
-
-    return summary.join("\n");
-  }
-
   function getSavedLocalPath(item: TreeEnterpriseItem, language: string | undefined): string | undefined {
-    if (item.filePath && fs.existsSync(item.filePath)) {
-      return item.filePath;
-    }
-
     if (!language || !rootPath) {
-      return undefined;
+      return item.filePath && fs.existsSync(item.filePath) ? item.filePath : undefined;
     }
 
     const serverWorkspacePath = enterpriseService.getServerWorkspacePath(rootPath);
     const localFilePath = enterpriseService.getLocalFilePath(item.uri, serverWorkspacePath, language);
-    return fs.existsSync(localFilePath) ? localFilePath : undefined;
+
+    if (fs.existsSync(localFilePath)) {
+      return localFilePath;
+    }
+
+    if (item.filePath && fs.existsSync(item.filePath)) {
+      return item.filePath;
+    }
+
+    return undefined;
+  }
+
+  function getCommitMessageGeneratorMode(): "fast" | "copilot" {
+    const configuredMode = config.get<string>("git.commitMessageGenerator", "fast");
+    return configuredMode === "copilot" ? "copilot" : "fast";
+  }
+
+  function getCommitMessageDetailLevel(): CommitMessageDetailLevel {
+    const configuredLevel = config.get<string>("git.commitMessageDetailLevel", "standard");
+    if (configuredLevel === "short" || configuredLevel === "detailed") {
+      return configuredLevel;
+    }
+
+    return "standard";
+  }
+
+  function getCommitMessageMaxLength(): number {
+    const configuredLength = config.get<number>("git.commitMessageMaxLength", DEFAULT_COMMIT_MESSAGE_MAX_LENGTH);
+    return configuredLength && configuredLength > 20 ? configuredLength : DEFAULT_COMMIT_MESSAGE_MAX_LENGTH;
+  }
+
+  function getCommitMessagePrefix(): string {
+    return (config.get<string>("git.commitMessagePrefix", "") || "").trim();
+  }
+
+  function getCopilotCommitMessageModelId(): string | undefined {
+    const configuredModelId = (config.get<string>("git.copilotCommitMessageModel", "") || "").trim();
+    return configuredModelId || undefined;
+  }
+
+  function getCopilotCommitMessageSystemPrompt(): string {
+    const configuredPrompt = config.get<string>(
+      "git.copilotCommitMessageSystemPrompt",
+      DEFAULT_COPILOT_COMMIT_MESSAGE_SYSTEM_PROMPT
+    );
+    const trimmedPrompt = (configuredPrompt || "").trim();
+    return trimmedPrompt || DEFAULT_COPILOT_COMMIT_MESSAGE_SYSTEM_PROMPT;
+  }
+
+  function getCommitMessageOptions(): CommitMessageOptions {
+    return {
+      generatorMode: getCommitMessageGeneratorMode(),
+      detailLevel: getCommitMessageDetailLevel(),
+      maxLength: getCommitMessageMaxLength(),
+      prefix: getCommitMessagePrefix(),
+      includeItemType: config.get<boolean>("git.includeItemTypeInCommitMessage", true) ?? true,
+      includeLanguage: config.get<boolean>("git.includeLanguageInCommitMessage", true) ?? true,
+      includeFileName: config.get<boolean>("git.includeFileNameInCommitMessage", false) ?? false,
+      timeoutMs: getCopilotCommitMessageTimeoutMs(),
+      modelId: getCopilotCommitMessageModelId(),
+      systemPrompt: getCopilotCommitMessageSystemPrompt()
+    };
+  }
+
+  function getCopilotCommitMessageTimeoutMs(): number {
+    const configuredTimeout = config.get<number>("git.copilotCommitMessageTimeoutMs", DEFAULT_COMMIT_MESSAGE_TIMEOUT_MS);
+    return configuredTimeout && configuredTimeout > 0 ? configuredTimeout : DEFAULT_COMMIT_MESSAGE_TIMEOUT_MS;
+  }
+
+  function formatMessageWithPrefix(message: string, options: CommitMessageOptions): string {
+    const prefixedMessage = options.prefix ? `${options.prefix} ${message}` : message;
+    return truncateText(prefixedMessage.trim(), options.maxLength);
+  }
+
+  function buildItemDescriptor(item: TreeEnterpriseItem, options: CommitMessageOptions): string {
+    const parts = [toDisplayLabel(item)];
+
+    if (options.includeItemType) {
+      parts.push(item.type);
+    }
+
+    const language = item.language || item.scriptLanguage;
+    if (options.includeLanguage && language) {
+      parts.push(language);
+    }
+
+    if (options.includeFileName) {
+      const savedLocalPath = getSavedLocalPath(item, language);
+      if (savedLocalPath) {
+        parts.push(path.basename(savedLocalPath));
+      }
+    }
+
+    if (options.detailLevel === "short") {
+      return toDisplayLabel(item);
+    }
+
+    return parts.join(" ");
+  }
+
+  function buildSingleItemFallbackReason(item: TreeEnterpriseItem, options: CommitMessageOptions): string {
+    const itemDescriptor = buildItemDescriptor(item, options);
+
+    if (options.detailLevel === "detailed") {
+      return formatMessageWithPrefix(`Update STARLIMS item ${itemDescriptor} and sync checked-in changes`, options);
+    }
+
+    return formatMessageWithPrefix(`Update ${itemDescriptor}`, options);
+  }
+
+  function buildAllItemsFallbackReason(items: TreeEnterpriseItem[], options: CommitMessageOptions): string {
+    if (items.length === 0) {
+      return formatMessageWithPrefix("Check in STARLIMS items", options);
+    }
+
+    if (items.length === 1) {
+      return buildSingleItemFallbackReason(items[0], options);
+    }
+
+    const itemDescriptors = items.slice(0, 3).map((item) => buildItemDescriptor(item, options));
+    if (options.detailLevel === "short") {
+      return formatMessageWithPrefix(`Update ${items.length} STARLIMS items`, options);
+    }
+
+    if (options.detailLevel === "detailed") {
+      return formatMessageWithPrefix(
+        `Check in ${items.length} STARLIMS items: ${itemDescriptors.join(", ")}`,
+        options
+      );
+    }
+
+    return formatMessageWithPrefix(`Update ${items.length} STARLIMS items: ${itemDescriptors.join(", ")}`, options);
   }
 
   async function buildItemChangeContext(item: TreeEnterpriseItem): Promise<string> {
-    const remoteItem = await enterpriseService.getEnterpriseItemCode(item.uri, item.language);
-    const language = remoteItem?.language ?? item.language ?? item.scriptLanguage;
+    const language = item.language || item.scriptLanguage;
     const savedLocalPath = getSavedLocalPath(item, language);
     const contextLines = [
       `Item: ${toDisplayLabel(item)}`,
@@ -236,17 +332,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
     if (savedLocalPath) {
       contextLines.push(`Local file: ${savedLocalPath}`);
-      try {
-        const localCode = fs.readFileSync(savedLocalPath, "utf8");
-        if (remoteItem?.code) {
-          contextLines.push(summarizeDiff(remoteItem.code, localCode));
-        } else {
-          contextLines.push("Remote code could not be loaded, so no diff summary is available.");
-        }
-      } catch (error) {
-        console.warn(`Failed to read saved local file for ${item.uri}:`, error);
-        contextLines.push("Saved local file could not be read.");
-      }
+      const fileName = path.basename(savedLocalPath);
+      contextLines.push(`File name: ${fileName}`);
     } else {
       contextLines.push("Saved local file not found; generate the reason from the item metadata only.");
     }
@@ -277,7 +364,7 @@ export async function activate(context: vscode.ExtensionContext) {
     return leafItems;
   }
 
-  function sanitizeGeneratedReason(text: string, fallbackReason: string): string {
+  function sanitizeGeneratedReason(text: string, fallbackReason: string, options: CommitMessageOptions): string {
     const cleanedText = text
       .replace(/\r?\n+/g, " ")
       .replace(/^check[ -]?in reason:\s*/i, "")
@@ -289,12 +376,55 @@ export async function activate(context: vscode.ExtensionContext) {
       return fallbackReason;
     }
 
-    return truncateText(cleanedText, 300);
+    return formatMessageWithPrefix(cleanedText, options);
   }
 
-  async function generateCheckInReasonWithCopilot(changeContext: string, fallbackReason: string): Promise<string> {
+  async function selectCopilotCommitMessageModel(options: CommitMessageOptions): Promise<vscode.LanguageModelChat | undefined> {
+    if (options.modelId) {
+      const configuredModels = await vscode.lm.selectChatModels({
+        vendor: "copilot",
+        id: options.modelId
+      });
+      if (configuredModels.length > 0) {
+        return configuredModels[0];
+      }
+    }
+
+    const [defaultModel] = await vscode.lm.selectChatModels({ vendor: "copilot" });
+    return defaultModel;
+  }
+
+  function buildCopilotCommitMessagePrompt(changeContext: string, options: CommitMessageOptions): string {
+    const instructionLines = [options.systemPrompt.trim()];
+
+    instructionLines.push(
+      options.detailLevel === "short"
+        ? "Keep it compact and direct."
+        : options.detailLevel === "detailed"
+          ? "Include concrete details such as item type, language, or filename when helpful."
+          : "Use a balanced level of detail."
+    );
+
+    instructionLines.push(
+      `Keep it under ${Math.max(60, options.maxLength - Math.max(0, options.prefix.length + 1))} characters when possible and never exceed ${options.maxLength} characters after formatting.`,
+      "",
+      changeContext
+    );
+
+    return instructionLines.join("\n");
+  }
+
+  async function generateCheckInReasonWithCopilot(
+    changeContext: string,
+    fallbackReason: string,
+    options: CommitMessageOptions
+  ): Promise<string> {
+    if (options.generatorMode !== "copilot") {
+      return fallbackReason;
+    }
+
     try {
-      const [model] = await vscode.lm.selectChatModels({ vendor: "copilot" });
+      const model = await selectCopilotCommitMessageModel(options);
       if (!model) {
         return fallbackReason;
       }
@@ -305,26 +435,25 @@ export async function activate(context: vscode.ExtensionContext) {
       }
 
       const messages = [
-        vscode.LanguageModelChatMessage.User([
-          `Write a concise STARLIMS check-in reason for an SCM history entry.`,
-          `Return plain text only.`,
-          `Use exactly one sentence.`,
-          `Mention the main item or items and the intent of the change.`,
-          `Do not use bullets, quotes, markdown, or prefixes such as 'Check-in reason:'.`,
-          `Keep it under 220 characters when possible, and never exceed 300 characters.`,
-          "",
-          changeContext
-        ].join("\n"))
+        vscode.LanguageModelChatMessage.User(buildCopilotCommitMessagePrompt(changeContext, options))
       ];
 
-      const response = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
+      const cancellationSource = new vscode.CancellationTokenSource();
+      const timeoutHandle = setTimeout(() => cancellationSource.cancel(), options.timeoutMs);
       let generatedText = "";
 
-      for await (const fragment of response.text) {
-        generatedText += fragment;
+      try {
+        const response = await model.sendRequest(messages, {}, cancellationSource.token);
+
+        for await (const fragment of response.text) {
+          generatedText += fragment;
+        }
+      } finally {
+        clearTimeout(timeoutHandle);
+        cancellationSource.dispose();
       }
 
-      return sanitizeGeneratedReason(generatedText, fallbackReason);
+      return sanitizeGeneratedReason(generatedText, fallbackReason, options);
     } catch (error) {
       console.warn("Falling back to default STARLIMS check-in reason.", error);
       return fallbackReason;
@@ -332,7 +461,8 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   async function buildSingleItemCheckInReason(item: TreeEnterpriseItem): Promise<string> {
-    const fallbackReason = `Update ${toDisplayLabel(item)}`;
+    const options = getCommitMessageOptions();
+    const fallbackReason = buildSingleItemFallbackReason(item, options);
     const changeContext = await buildItemChangeContext(item);
     return vscode.window.withProgress(
       {
@@ -342,7 +472,7 @@ export async function activate(context: vscode.ExtensionContext) {
       },
       async (progress) => {
         progress.report({ message: "Generating check-in description with Copilot..." });
-        return generateCheckInReasonWithCopilot(changeContext, fallbackReason);
+        return generateCheckInReasonWithCopilot(changeContext, fallbackReason, options);
       }
     );
   }
@@ -360,10 +490,9 @@ export async function activate(context: vscode.ExtensionContext) {
       return "Checked in all items from VSCode";
     }
 
+    const options = getCommitMessageOptions();
     const itemNames = userLeafItems.map((item) => toDisplayLabel(item));
-    const fallbackReason = userLeafItems.length === 1
-      ? `Update ${itemNames[0]}`
-      : `Update ${userLeafItems.length} STARLIMS items: ${truncateText(itemNames.slice(0, 3).join(", "), 140)}`;
+    const fallbackReason = buildAllItemsFallbackReason(userLeafItems, options);
 
     const contextItems = await Promise.all(
       userLeafItems.slice(0, MAX_CHECKIN_ITEMS_FOR_CONTEXT).map((item) => buildItemChangeContext(item))
@@ -391,7 +520,7 @@ export async function activate(context: vscode.ExtensionContext) {
       },
       async (progress) => {
         progress.report({ message: "Generating check-in description with Copilot..." });
-        return generateCheckInReasonWithCopilot(changeContext.join("\n"), fallbackReason);
+        return generateCheckInReasonWithCopilot(changeContext.join("\n"), fallbackReason, options);
       }
     );
   }
@@ -412,6 +541,27 @@ export async function activate(context: vscode.ExtensionContext) {
         await document.save();
       }
     }
+  }
+
+  async function saveActiveDocumentBeforeCheckIn(targetPath?: string): Promise<void> {
+    const activeDocument = vscode.window.activeTextEditor?.document;
+    if (!activeDocument || activeDocument.isUntitled || !activeDocument.isDirty) {
+      return;
+    }
+
+    if (rootPath && !activeDocument.uri.fsPath.toLowerCase().startsWith(rootPath.toLowerCase())) {
+      return;
+    }
+
+    if (targetPath) {
+      const normalizedActivePath = normalizePathForComparison(activeDocument.uri.fsPath);
+      const normalizedTargetPath = normalizePathForComparison(targetPath);
+      if (normalizedActivePath !== normalizedTargetPath) {
+        return;
+      }
+    }
+
+    await activeDocument.save();
   }
 
   async function runGitCommand(workingDirectory: string, args: string[]): Promise<string> {
@@ -447,30 +597,21 @@ export async function activate(context: vscode.ExtensionContext) {
     return String(error);
   }
 
-  async function commitAndPushGitFiles(reason: string, filePaths: string[]): Promise<void> {
-    const existingPaths = Array.from(new Set(filePaths.filter((filePath) => !!filePath && fs.existsSync(filePath))));
-    if (existingPaths.length === 0) {
+  async function commitAndPushGitFile(reason: string, filePath: string | undefined): Promise<void> {
+    if (!filePath || !fs.existsSync(filePath)) {
       return;
     }
 
-    await saveOpenDocuments(existingPaths);
+    await saveOpenDocuments([filePath]);
 
-    const filesByRepository = new Map<string, string[]>();
-    for (const filePath of existingPaths) {
-      const repositoryRoot = await getGitRepositoryRoot(filePath);
-      if (!repositoryRoot) {
-        continue;
-      }
-
-      const repositoryFiles = filesByRepository.get(repositoryRoot) ?? [];
-      repositoryFiles.push(filePath);
-      filesByRepository.set(repositoryRoot, repositoryFiles);
-    }
-
-    if (filesByRepository.size === 0) {
-      vscode.window.showWarningMessage("STARLIMS items were checked in, but no Git repository was found for the local files.");
+    const repositoryRoot = await getGitRepositoryRoot(filePath);
+    if (!repositoryRoot) {
+      vscode.window.showWarningMessage("STARLIMS item was checked in, but no Git repository was found for the local file.");
       return;
     }
+
+    const relativePath = toRelativeGitPath(repositoryRoot, filePath);
+    const normalizedRelativePath = normalizePathForComparison(relativePath);
 
     await vscode.window.withProgress(
       {
@@ -479,33 +620,54 @@ export async function activate(context: vscode.ExtensionContext) {
         title: "STARLIMS"
       },
       async (progress) => {
-        progress.report({ message: "Committing and pushing Git changes..." });
+        progress.report({ message: `Committing and pushing Git changes for ${relativePath}...` });
 
-        let committedRepositories = 0;
-        for (const [repositoryRoot, repositoryFiles] of filesByRepository) {
-          const uniqueRepoFiles = Array.from(new Set(repositoryFiles));
-          const relativePaths = uniqueRepoFiles.map((filePath) => toRelativeGitPath(repositoryRoot, filePath));
-
-          const statusOutput = await runGitCommand(repositoryRoot, ["status", "--porcelain", "--", ...relativePaths]);
-          if (!statusOutput) {
-            continue;
-          }
-
-          await runGitCommand(repositoryRoot, ["add", "--", ...relativePaths]);
-
-          const stagedOutput = await runGitCommand(repositoryRoot, ["diff", "--cached", "--name-only", "--", ...relativePaths]);
-          if (!stagedOutput) {
-            continue;
-          }
-
-          await runGitCommand(repositoryRoot, ["commit", "-m", reason, "--", ...relativePaths]);
-          await runGitCommand(repositoryRoot, ["push"]);
-          committedRepositories++;
+        const statusOutput = await runGitCommand(repositoryRoot, ["status", "--porcelain", "--", relativePath]);
+        if (!statusOutput) {
+          return;
         }
 
-        if (committedRepositories > 0) {
-          vscode.window.showInformationMessage(`Committed and pushed changes to ${committedRepositories} Git repositor${committedRepositories === 1 ? "y" : "ies"}.`);
+        const stagedBeforeAdd = await runGitCommand(repositoryRoot, ["diff", "--cached", "--name-only"]);
+        const unrelatedStagedFiles = stagedBeforeAdd
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
+          .filter((line) => normalizePathForComparison(line) !== normalizedRelativePath);
+
+        if (unrelatedStagedFiles.length > 0) {
+          vscode.window.showWarningMessage(
+            `STARLIMS item was checked in, but Git auto-commit was skipped because ${repositoryRoot} already has unrelated staged changes.`
+          );
+          return;
         }
+
+        await runGitCommand(repositoryRoot, ["add", "--", relativePath]);
+
+        const stagedAfterAdd = await runGitCommand(repositoryRoot, ["diff", "--cached", "--name-only"]);
+        const stagedFiles = stagedAfterAdd
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+
+        if (stagedFiles.length === 0) {
+          return;
+        }
+
+        const unexpectedStagedFiles = stagedFiles.filter(
+          (line) => normalizePathForComparison(line) !== normalizedRelativePath
+        );
+
+        if (unexpectedStagedFiles.length > 0) {
+          vscode.window.showWarningMessage(
+            `STARLIMS item was checked in, but Git auto-commit was skipped because staging ${relativePath} would also commit other files.`
+          );
+          return;
+        }
+
+        await runGitCommand(repositoryRoot, ["commit", "-m", reason]);
+        await runGitCommand(repositoryRoot, ["push"]);
+
+        vscode.window.showInformationMessage(`Committed and pushed Git changes for ${relativePath}.`);
       }
     );
   }
@@ -520,9 +682,11 @@ export async function activate(context: vscode.ExtensionContext) {
     const allLeafItems = await getCheckedOutLeafItems(checkedOutItems);
     const userLeafItems = allLeafItems.filter((item) => item.checkedOutBy === currentUser);
 
-    return userLeafItems
-      .map((checkedOutItem) => getSavedLocalPath(checkedOutItem, checkedOutItem.language || checkedOutItem.scriptLanguage))
-      .filter((filePath): filePath is string => !!filePath);
+    return Array.from(new Set(
+      userLeafItems
+        .map((checkedOutItem) => getSavedLocalPath(checkedOutItem, checkedOutItem.language || checkedOutItem.scriptLanguage))
+        .filter((savedPath): savedPath is string => !!savedPath)
+    ));
   }
 
   // register the server selector webview view provider
@@ -861,13 +1025,21 @@ export async function activate(context: vscode.ExtensionContext) {
         ignoreFocusOut: true,
       });
 
+      await saveActiveDocumentBeforeCheckIn();
+
       const gitFilePaths = await getCheckedOutLocalFilePaths();
 
       // refresh tree
       const checkInSuccess = await enterpriseService.checkInAllItems(checkinReason);
       if (checkInSuccess) {
         try {
-          await commitAndPushGitFiles(checkinReason || "Checked in all items from VSCode", gitFilePaths);
+          if (gitFilePaths.length === 0) {
+            vscode.window.showWarningMessage("STARLIMS items were checked in, but no local files were found to commit in the SLVSCODE Git repository.");
+          }
+
+          for (const gitFilePath of gitFilePaths) {
+            await commitAndPushGitFile(checkinReason || "Checked in all items from VSCode", gitFilePath);
+          }
         } catch (error) {
           vscode.window.showErrorMessage(`STARLIMS items were checked in, but Git commit/push failed: ${getGitErrorMessage(error)}`);
         }
@@ -1200,21 +1372,24 @@ export async function activate(context: vscode.ExtensionContext) {
 
       // choose language for forms only
       let language;
-      if (item.type === EnterpriseItemType.XFDFormXML ||
-        item.type === EnterpriseItemType.XFDFormResources ||
-        item.type === EnterpriseItemType.XFDFormCode ||
-        item.type === EnterpriseItemType.HTMLFormXML ||
-        item.type === EnterpriseItemType.HTMLFormCode ||
-        item.type === EnterpriseItemType.HTMLFormGuide ||
-        item.type === EnterpriseItemType.HTMLFormResources) {
-        let oReturn = await vscode.window.showQuickPick(
-          languages,
-          {
-            placeHolder: "Select language",
-            ignoreFocusOut: true
+      if (isFormItemType(item.type)) {
+        language = resolveDefaultFormLanguage();
+
+        if (!language) {
+          let oReturn = await vscode.window.showQuickPick(
+            languages,
+            {
+              placeHolder: "Select language",
+              ignoreFocusOut: true
+            }
+          );
+
+          if (!oReturn) {
+            return;
           }
-        );
-        language = oReturn.label;
+
+          language = oReturn.label;
+        }
       }
       // check out the item
       let bSuccess = await enterpriseService.checkOutItem(item.uri, language);
@@ -1232,8 +1407,26 @@ export async function activate(context: vscode.ExtensionContext) {
   vscode.commands.registerCommand(
     "STARLIMS.Checkin",
     async (item: TreeEnterpriseItem | any) => {
+      let gitFilePath: string | undefined;
+
+      if (item instanceof vscode.Uri) {
+        gitFilePath = item.fsPath;
+      } else if (item?.path && typeof item.path === "string") {
+        gitFilePath = item.path;
+      } else if (item?.fsPath && typeof item.fsPath === "string") {
+        gitFilePath = item.fsPath;
+      }
+
+      if (!item) {
+        const activeEditorPath = vscode.window.activeTextEditor?.document.uri.fsPath;
+        if (activeEditorPath) {
+          gitFilePath = activeEditorPath;
+          item = await enterpriseTreeProvider.getTreeItemFromPath(activeEditorPath, false);
+        }
+      }
+
       if (!(item instanceof TreeEnterpriseItem)) {
-        item = await enterpriseTreeProvider.getTreeItemFromPath(item.path, false);
+        item = await enterpriseTreeProvider.getTreeItemFromPath(gitFilePath || item.path, false);
       }
       if (!item) {
         return;
@@ -1246,13 +1439,16 @@ export async function activate(context: vscode.ExtensionContext) {
           value: await buildSingleItemCheckInReason(item),
           ignoreFocusOut: true,
         })) || "Checked in from VSCode";
+      gitFilePath = gitFilePath && fs.existsSync(gitFilePath)
+        ? gitFilePath
+        : getSavedLocalPath(item, item.language || item.scriptLanguage);
 
-      const gitFilePath = getSavedLocalPath(item, item.language || item.scriptLanguage);
+      await saveActiveDocumentBeforeCheckIn(gitFilePath);
 
       let bSuccess = await enterpriseService.checkInItem(item.uri, checkinReason, item.language);
       if (bSuccess) {
         try {
-          await commitAndPushGitFiles(checkinReason, gitFilePath ? [gitFilePath] : []);
+          await commitAndPushGitFile(checkinReason, gitFilePath);
         } catch (error) {
           vscode.window.showErrorMessage(`STARLIMS item was checked in, but Git commit/push failed: ${getGitErrorMessage(error)}`);
         }
