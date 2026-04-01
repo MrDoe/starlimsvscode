@@ -85,6 +85,30 @@ export class EnterpriseService implements IEnterpriseService {
   }
 
   /**
+   * Normalize enterprise URIs so local path translation does not duplicate the server name.
+   */
+  private normalizeEnterpriseUri(uri: string): string {
+    if (!uri) {
+      return "";
+    }
+
+    let normalizedUri = uri.replace(/\\/g, "/");
+    if (!normalizedUri.startsWith("/")) {
+      normalizedUri = `/${normalizedUri}`;
+    }
+
+    if (!this.currentServerName) {
+      return normalizedUri;
+    }
+
+    const escapedServerName = this.currentServerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const duplicateServerPrefix = new RegExp(`^(?:/${escapedServerName})+(/|$)`, "i");
+    normalizedUri = normalizedUri.replace(duplicateServerPrefix, "/");
+
+    return normalizedUri === "" ? "/" : normalizedUri;
+  }
+
+  /**
    * Extract a readable error message from an HTML response body.
    */
   private getHtmlTitle(text: string): string | null {
@@ -623,6 +647,7 @@ export class EnterpriseService implements IEnterpriseService {
     returnCode: boolean = false,
     language: string
   ): Promise<string | null> {
+    uri = this.normalizeEnterpriseUri(uri);
     const item = await this.getEnterpriseItemCode(uri, language);
     if (item) {
       // create local file path
@@ -659,6 +684,7 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns the local file path
    */
   public getLocalFilePath(uri: string, workspaceFolder: string, extension: string): string {
+    uri = this.normalizeEnterpriseUri(uri);
     const localFilePath = path.join(workspaceFolder, `${uri}.${extension.toLowerCase().replace("sql", "slsql")}`);
     return localFilePath;
   }
@@ -777,7 +803,7 @@ export class EnterpriseService implements IEnterpriseService {
 
     // remove workspace folder path from file path
     filePath = filePath.replace(new RegExp(rootPath, "ig"), "");
-    return filePath;
+    return this.normalizeEnterpriseUri(filePath);
   }
 
   /**
@@ -1048,7 +1074,7 @@ export class EnterpriseService implements IEnterpriseService {
     let remotePath = hasFolderPath
       ? uri.slice(uri.lastIndexOf(this.SLVSCODE_FOLDER) + this.SLVSCODE_FOLDER.length)
       : uri;
-    return remotePath;
+    return this.normalizeEnterpriseUri(remotePath);
   }
 
   /**

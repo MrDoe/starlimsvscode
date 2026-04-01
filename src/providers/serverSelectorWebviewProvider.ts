@@ -15,6 +15,11 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
   private _view?: vscode.WebviewView;
   private _servers: ServerConfig[] = [];
   private _selectedServer: string = '';
+  private _logStateCounter = 0;
+  private logState(message: string) {
+    console.log(`STARLIMS ServerSelectorWebviewProvider: ${message} (counter: ${this._logStateCounter++})`);
+    console.log(`  Servers: ${this._servers.map(s => s.name).join(', ')} | Selected: ${this._selectedServer}`);
+  }
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -65,17 +70,27 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     this.logState('resolveWebviewView start');
     this._view = webviewView;
 
-    // Ensure server list and selected server are fresh when view is resolved.
-    this.loadServers();
-
     webviewView.webview.options = {
       enableScripts: true,
-      localResourceRoots: [
-        this._extensionUri
-      ]
+      localResourceRoots: [this._extensionUri]
     };
 
-    this.logState('resolveWebviewView after options');
+    // Start with immediate UI render to avoid any blank view while configuration is fetched.
+    webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+
+    // Update state from configuration and refresh the webview after data is ready.
+    this.loadServers();
+    this.updateWebview();
+
+    // ✅ FIX 1: Refresh whenever STARLIMS config changes (handles async config.update()
+    // calls in activate() that completes after resolveWebviewView fires).
+    const configChangeDisposable = vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('STARLIMS')) {
+        this.loadServers();
+        this.updateWebview();
+      }
+    });
+    webviewView.onDidDispose(() => configChangeDisposable.dispose());
 
     webviewView.webview.onDidReceiveMessage(data => {
       switch (data.type) {
@@ -92,7 +107,6 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
           this.deleteCurrentServer();
           break;
         case 'ready':
-          // Ensure server list is read again once the webview is ready
           this.loadServers();
           this.updateWebview();
           break;
@@ -113,17 +127,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     });
 
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
-    this.updateWebview();
     this.logState('resolveWebviewView end');
-  }
-
-  private logState(context: string) {
-    console.log(`[ServerSelector] ${context}`, {
-      servers: this._servers,
-      selectedServer: this._selectedServer,
-      view: !!this._view,
-      workspaceFolders: vscode.workspace.workspaceFolders?.map(f => f.name)
-    });
   }
 
   private loadServers() {
@@ -145,7 +149,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     // Migrate legacy configuration if needed
     const legacyUrl = config.get("url") as string;
     const legacyUser = config.get("user") as string;
-    
+
     if (legacyUrl && this._servers.length === 0) {
       const legacyServer: ServerConfig = {
         name: "Default Server",
@@ -155,7 +159,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
       };
       this._servers = [legacyServer];
       this._selectedServer = legacyServer.name;
-      
+
       // Save migrated configuration
       config.update("servers", this._servers, false);
       config.update("selectedServer", this._selectedServer, false);
@@ -168,7 +172,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     this._selectedServer = serverName;
     const config = vscode.workspace.getConfiguration("STARLIMS");
     config.update("selectedServer", serverName, false);
-    
+
     const selectedServerConfig = this._servers.find(s => s.name === serverName);
     this._onServerChanged(selectedServerConfig);
     this.logState('selectServer');
@@ -177,7 +181,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
 
   private async configureCurrentServer() {
     const selectedServerConfig = this._servers.find(s => s.name === this._selectedServer);
-    
+
     if (!selectedServerConfig) {
       vscode.window.showErrorMessage("No server selected to configure.");
       return;
@@ -192,29 +196,37 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
       prompt: "Enter server name",
       placeHolder: "My STARLIMS Server"
     });
-    
-    if (!name) return;
+
+    if (!name) {
+      return;
+    }
 
     const url = await vscode.window.showInputBox({
       prompt: "Enter STARLIMS URL",
       placeHolder: "https://my.starlims.server.com/STARLIMS/"
     });
-    
-    if (!url) return;
+
+    if (!url) {
+      return;
+    }
 
     const user = await vscode.window.showInputBox({
       prompt: "Enter username",
       placeHolder: "username"
     });
 
-    if (!user) return;
+    if (!user) {
+      return;
+    }
 
     const password = await vscode.window.showInputBox({
       prompt: `Enter password for user '${user}'`,
       password: true
     });
 
-    if (!password) return;
+    if (!password) {
+      return;
+    }
 
     const urlSuffix = await vscode.window.showInputBox({
       prompt: "Enter URL suffix (optional)",
@@ -225,7 +237,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     const newServer: ServerConfig = {
       name,
       url,
-      user: user? user : undefined,
+      user: user ? user : undefined,
       urlSuffix: urlSuffix || "lims"
     };
 
@@ -238,12 +250,12 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     this._servers.push(newServer);
     const config = vscode.workspace.getConfiguration("STARLIMS");
     await config.update("servers", this._servers, false);
-    
+
     // Select the new server and trigger refresh
     this._selectedServer = newServer.name;
     await config.update("selectedServer", this._selectedServer, false);
     this._onServerChanged(newServer);
-    
+
     this.updateWebview();
   }
 
@@ -252,15 +264,19 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
       prompt: "Enter STARLIMS URL",
       value: server.url
     });
-    
-    if (url === undefined) return;
+
+    if (url === undefined) {
+      return;
+    }
 
     const user = await vscode.window.showInputBox({
       prompt: "Enter username",
       value: server.user || ""
     });
 
-    if (user === undefined) return;
+    if (user === undefined) {
+      return;
+    }
 
     // Ask for password
     const setPassword = await vscode.window.showQuickPick(
@@ -268,7 +284,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
         { label: "Keep current password" },
         { label: "Set new password" }
       ],
-      { 
+      {
         placeHolder: "Password setting",
         ignoreFocusOut: true
       }
@@ -294,27 +310,29 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
       value: server.urlSuffix || "lims"
     });
 
-    if (urlSuffix === undefined) return;
+    if (urlSuffix === undefined) {
+      return;
+    }
 
     // Update server config
     server.url = url;
-    server.user = user? user : undefined;
+    server.user = user ? user : undefined;
     server.urlSuffix = urlSuffix || "lims";
 
     const config = vscode.workspace.getConfiguration("STARLIMS");
     await config.update("servers", this._servers, false);
-    
+
     if (this._selectedServer === server.name) {
       this._onServerChanged(server);
     }
-    
+
     this.updateWebview();
     this.refresh();
   }
 
   private async deleteCurrentServer() {
     const selectedServerConfig = this._servers.find(s => s.name === this._selectedServer);
-    
+
     if (!selectedServerConfig) {
       vscode.window.showErrorMessage("No server selected to delete.");
       return;
@@ -371,13 +389,13 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
   public updateWebview() {
     if (this._view) {
       this._view.webview.postMessage({
-        type: 'updateServers', 
+        type: 'updateServers',
         servers: this._servers,
         selectedServer: this._selectedServer
       });
     } else {
       this.logState('updateWebview called but view is not available');
-    } 
+    }
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {
@@ -393,8 +411,12 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Server Selector</title>
         <style>
+            html, body {
+                margin: 0;
+                padding: 0;
+                overflow: hidden;
+            }
             body {
-                padding: 6px;
                 font-family: var(--vscode-font-family);
                 font-size: var(--vscode-font-size);
                 color: var(--vscode-foreground);
@@ -403,32 +425,38 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
                 display: flex;
                 align-items: center;
                 gap: 4px;
-                margin-bottom: 0px;
+                padding: 2px 4px;
+                min-height: 24px;
+                box-sizing: border-box;
             }
             select {
                 flex: 1;
-                padding: 2px 4px;
+                height: 20px;
+                padding: 0 4px;
                 background: var(--vscode-input-background);
                 color: var(--vscode-input-foreground);
                 border: 1px solid var(--vscode-input-border);
                 border-radius: 2px;
                 font-size: var(--vscode-font-size);
                 min-width: 0;
+                box-sizing: border-box;
             }
             button {
-                padding: 2px 6px;
+                padding: 0;
                 background: var(--vscode-button-background);
                 color: var(--vscode-button-foreground);
                 border: none;
                 border-radius: 2px;
                 cursor: pointer;
-                font-size: 12px;
+                font-size: 10px;
                 white-space: nowrap;
-                min-width: 24px;
-                height: 24px;
+                min-width: 20px;
+                width: 20px;
+                height: 20px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                line-height: 1;
             }
             button:hover {
                 background: var(--vscode-button-hoverBackground);
@@ -436,12 +464,6 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
             button:disabled {
                 opacity: 0.5;
                 cursor: not-allowed;
-            }
-            .no-servers {
-                color: var(--vscode-descriptionForeground);
-                font-style: italic;
-                margin-bottom: 6px;
-                font-size: 11px;
             }
         </style>
     </head>
@@ -454,18 +476,28 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
             <button id="addBtn" title="Add New Server">+</button>
             <button id="deleteBtn" title="Delete Server" disabled>🗑️</button>
         </div>
-        <div id="noServers" class="no-servers" style="display: none;">
-            No servers configured. Click + to add.
-        </div>
 
         <script>
             const vscode = acquireVsCodeApi();
-          const initialState = ${initialState};
+            const initialState = ${initialState};
             const serverSelect = document.getElementById('serverSelect');
             const configureBtn = document.getElementById('configureBtn');
             const addBtn = document.getElementById('addBtn');
             const deleteBtn = document.getElementById('deleteBtn');
-            const noServers = document.getElementById('noServers');
+
+            // Set up a ResizeObserver to help with layout if the sidebar is very narrow
+            const observer = new ResizeObserver(entries => {
+                for (let entry of entries) {
+                    const width = entry.contentRect.width;
+                    const selector = document.querySelector('.server-selector');
+                    if (width < 150) {
+                        selector.style.gap = '2px';
+                    } else {
+                        selector.style.gap = '4px';
+                    }
+                }
+            });
+            observer.observe(document.body);
 
             serverSelect.addEventListener('change', () => {
                 vscode.postMessage({
@@ -504,15 +536,15 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
 
             function updateServerList(servers, selectedServer) {
                 serverSelect.innerHTML = '';
-                
+
                 if (servers.length === 0) {
                     serverSelect.innerHTML = '<option value="">No servers configured</option>';
-                    noServers.style.display = 'block';
+                serverSelect.title = 'No servers configured. Click + to add.';
                     serverSelect.disabled = true;
                 } else {
-                    noServers.style.display = 'none';
+                serverSelect.title = '';
                     serverSelect.disabled = false;
-                    
+
                     servers.forEach(server => {
                         const option = document.createElement('option');
                         option.value = server.name;
@@ -527,16 +559,34 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
             }
 
             function updateButtonStates() {
-                const hasSelection = serverSelect.value !== '' && serverSelect.value !== 'No servers configured';
+              const hasSelection = serverSelect.value !== '';
                 configureBtn.disabled = !hasSelection;
                 deleteBtn.disabled = !hasSelection;
             }
 
-            // Initialize
-            console.log('STARLIMS Server Selector Webview initialize', initialState);
-            updateServerList(initialState.servers || [], initialState.selectedServer || '');
+            // Initialize with embedded state, but keep loading indicator until extension confirms.
+            if (initialState.servers && initialState.servers.length > 0) {
+                updateServerList(initialState.servers, initialState.selectedServer || '');
+            } else {
+                serverSelect.innerHTML = '<option value="">Loading servers...</option>';
+              serverSelect.title = 'Loading server configuration...';
+                serverSelect.disabled = true;
+            }
+
+            // Request fresh data from extension — if extension responds with something
+            // different, the message handler above will update the list.
             vscode.postMessage({ type: 'ready' });
-        </script>
+
+            // ✅ FIX 2: If the list is still empty after 500ms (extension was busy),
+            // request again. This covers the race where config.update() in activate()
+            // hadn't resolved when the first 'ready' was processed.
+            setTimeout(() => {
+                if (serverSelect.options.length === 0 ||
+                    (serverSelect.options.length === 1 && serverSelect.options[0].value === '')) {
+                    vscode.postMessage({ type: 'ready' });
+                }
+            }, 500);
+          </script>
     </body>
     </html>`;
   }

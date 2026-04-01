@@ -2,6 +2,9 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from "vscode";
+import { execFile as execFileCallback } from "child_process";
+import * as fs from "fs";
+import { diffLines } from "diff";
 import { EnterpriseFileDecorationProvider } from "./providers/enterpriseFileDecorationProvider";
 import { EnterpriseItemType, EnterpriseTreeDataProvider, TreeEnterpriseItem } from "./providers/enterpriseTreeDataProvider";
 import { EnterpriseService } from "./services/enterpriseService";
@@ -14,9 +17,14 @@ import { cleanUrl, executeWithProgress } from "./utilities/miscUtils";
 import { CheckedOutTreeDataProvider } from "./providers/checkedOutTreeDataProvider";
 import { ServerSelectorWebviewProvider, ServerConfig } from "./providers/serverSelectorWebviewProvider";
 import * as crypto from 'crypto';
+import { promisify } from "util";
 
 const { version } = require('../package.json');
 const SLVSCODE_FOLDER = "SLVSCODE";
+const DEFERRED_STARLIMS_INIT_MS = 250;
+const MAX_CHECKIN_DIFF_HUNKS = 3;
+const MAX_CHECKIN_ITEMS_FOR_CONTEXT = 5;
+const execFile = promisify(execFileCallback);
 
 /**
  * Ensures that the SLVSCODE folder is opened as a workspace folder
@@ -24,7 +32,7 @@ const SLVSCODE_FOLDER = "SLVSCODE";
  */
 async function ensureSLVSCODEWorkspace(slvscodePath: string): Promise<void> {
   const fs = require('fs');
-  
+
   // Create SLVSCODE folder if it doesn't exist
   if (!fs.existsSync(slvscodePath)) {
     fs.mkdirSync(slvscodePath, { recursive: true });
@@ -32,22 +40,22 @@ async function ensureSLVSCODEWorkspace(slvscodePath: string): Promise<void> {
 
   // Check if SLVSCODE folder is already in workspace
   const workspaceFolders = vscode.workspace.workspaceFolders;
-  const isSlvscodeOpen = workspaceFolders?.some(folder => 
+  const isSlvscodeOpen = workspaceFolders?.some(folder =>
     folder.uri.fsPath === slvscodePath
   );
 
   // If SLVSCODE folder is not in workspace, add it
   if (!isSlvscodeOpen) {
     const folderUri = vscode.Uri.file(slvscodePath);
-    
+
     // If no workspace folders exist, open the SLVSCODE folder
     if (!workspaceFolders || workspaceFolders.length === 0) {
       vscode.workspace.updateWorkspaceFolders(0, 0, { uri: folderUri, name: "SLVSCODE" });
     } else {
       // Add SLVSCODE folder to existing workspace
       vscode.workspace.updateWorkspaceFolders(
-        workspaceFolders.length, 
-        0, 
+        workspaceFolders.length,
+        0,
         { uri: folderUri, name: "SLVSCODE" }
       );
     }
@@ -55,7 +63,10 @@ async function ensureSLVSCODEWorkspace(slvscodePath: string): Promise<void> {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
-  const secretStorage: vscode.SecretStorage = context.secrets;
+
+  setTimeout(() => {
+    void (async () => {
+      const secretStorage: vscode.SecretStorage = context.secrets;
   let config = vscode.workspace.getConfiguration("STARLIMS");
   let user: string | undefined = config.get("user");
   let password: string | undefined;
@@ -76,6 +87,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const selectedServerFromConfig = configuredServers.find(s => s.name === selectedServerNameFromConfig);
   const hasConfiguredServers = configuredServers.length > 0;
 
+  // Selected Server section
   if (selectedServerFromConfig) {
     url = selectedServerFromConfig.url || url;
     user = selectedServerFromConfig.user || user;
@@ -92,15 +104,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
     serverConfig = selectedServer;
 
-    if (!enterpriseService) {
-      console.debug('STARLIMS: server selected before backend initialized, update will happen once backend is ready', serverConfig.name);
-      return;
-    }
+    // if (!enterpriseService) {
+    //   console.debug('STARLIMS: server selected before backend initialized, update will happen once backend is ready', serverConfig.name);
+    //   return;
+    // }
 
-    if (typeof enterpriseService.updateServerConfig !== 'function') {
-      console.error('STARLIMS: enterpriseService updateServerConfig is not available');
-      return;
-    }
+    // if (typeof enterpriseService.updateServerConfig !== 'function') {
+    //   console.error('STARLIMS: enterpriseService updateServerConfig is not available');
+    //   return;
+    // }
 
     try {
       enterpriseService.updateServerConfig(serverConfig, serverConfig.name);
@@ -113,6 +125,405 @@ export async function activate(context: vscode.ExtensionContext) {
       vscode.window.showErrorMessage(`Failed to connect to server: ${serverConfig.name}`);
     }
   });
+
+  function toDisplayLabel(item: TreeEnterpriseItem): string {
+    const label = typeof item.label === "string"
+      ? item.label
+      : item.label?.label ?? item.uri.split("/").filter(Boolean).pop() ?? "STARLIMS item";
+
+    return label.replace(/\s+\(Checked out by .*$/, "");
+  }
+
+  function countLines(text: string): number {
+    if (!text) {
+      return 0;
+    }
+
+    return text.split(/\r?\n/).filter((line, index, allLines) => {
+      return !(index === allLines.length - 1 && line === "");
+    }).length;
+  }
+
+  function truncateText(text: string, maxLength: number): string {
+    return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+  }
+
+  function toSnippetLines(text: string, prefix: string): string[] {
+    return text
+      .split(/\r?\n/)
+      .filter((line, index, allLines) => !(index === allLines.length - 1 && line === ""))
+      .slice(0, 3)
+      .map((line) => `${prefix}${truncateText(line, 110)}`);
+  }
+
+  function summarizeDiff(remoteCode: string, localCode: string): string {
+    if (remoteCode === localCode) {
+      return "No saved local diff detected against the current server copy.";
+    }
+
+    const parts = diffLines(remoteCode, localCode);
+    let addedLines = 0;
+    let removedLines = 0;
+
+    for (const part of parts) {
+      if (part.added) {
+        addedLines += countLines(part.value);
+      }
+      if (part.removed) {
+        removedLines += countLines(part.value);
+      }
+    }
+
+    const hunks: string[] = [];
+    for (let index = 0; index < parts.length && hunks.length < MAX_CHECKIN_DIFF_HUNKS; index++) {
+      const part = parts[index];
+      if (!part.added && !part.removed) {
+        continue;
+      }
+
+      const removedPart = part.removed ? part : undefined;
+      const addedPart = part.added ? part : parts[index + 1]?.added ? parts[index + 1] : undefined;
+      if (removedPart && addedPart && parts[index + 1]?.added) {
+        index += 1;
+      }
+
+      const snippetLines = [
+        ...(removedPart ? toSnippetLines(removedPart.value, "- ") : []),
+        ...(addedPart ? toSnippetLines(addedPart.value, "+ ") : [])
+      ];
+
+      if (snippetLines.length > 0) {
+        hunks.push(snippetLines.join("\n"));
+      }
+    }
+
+    const summary = [`Saved diff stats: +${addedLines} / -${removedLines} lines.`];
+    if (hunks.length > 0) {
+      summary.push("Changed snippets:");
+      summary.push(hunks.join("\n---\n"));
+    }
+
+    return summary.join("\n");
+  }
+
+  function getSavedLocalPath(item: TreeEnterpriseItem, language: string | undefined): string | undefined {
+    if (item.filePath && fs.existsSync(item.filePath)) {
+      return item.filePath;
+    }
+
+    if (!language || !rootPath) {
+      return undefined;
+    }
+
+    const serverWorkspacePath = enterpriseService.getServerWorkspacePath(rootPath);
+    const localFilePath = enterpriseService.getLocalFilePath(item.uri, serverWorkspacePath, language);
+    return fs.existsSync(localFilePath) ? localFilePath : undefined;
+  }
+
+  async function buildItemChangeContext(item: TreeEnterpriseItem): Promise<string> {
+    const remoteItem = await enterpriseService.getEnterpriseItemCode(item.uri, item.language);
+    const language = remoteItem?.language ?? item.language ?? item.scriptLanguage;
+    const savedLocalPath = getSavedLocalPath(item, language);
+    const contextLines = [
+      `Item: ${toDisplayLabel(item)}`,
+      `URI: ${item.uri}`,
+      `Type: ${item.type}`
+    ];
+
+    if (language) {
+      contextLines.push(`Language: ${language}`);
+    }
+
+    if (savedLocalPath) {
+      contextLines.push(`Local file: ${savedLocalPath}`);
+      try {
+        const localCode = fs.readFileSync(savedLocalPath, "utf8");
+        if (remoteItem?.code) {
+          contextLines.push(summarizeDiff(remoteItem.code, localCode));
+        } else {
+          contextLines.push("Remote code could not be loaded, so no diff summary is available.");
+        }
+      } catch (error) {
+        console.warn(`Failed to read saved local file for ${item.uri}:`, error);
+        contextLines.push("Saved local file could not be read.");
+      }
+    } else {
+      contextLines.push("Saved local file not found; generate the reason from the item metadata only.");
+    }
+
+    return contextLines.join("\n");
+  }
+
+  async function getCheckedOutLeafItems(xmlData: string): Promise<TreeEnterpriseItem[]> {
+    const treeDataProvider = new CheckedOutTreeDataProvider(xmlData, enterpriseService);
+    const roots = (await treeDataProvider.getChildren()) ?? [];
+    const itemsToVisit = [...roots];
+    const leafItems: TreeEnterpriseItem[] = [];
+
+    while (itemsToVisit.length > 0) {
+      const currentItem = itemsToVisit.shift();
+      if (!currentItem) {
+        continue;
+      }
+
+      if (currentItem.children && currentItem.children.length > 0) {
+        itemsToVisit.push(...currentItem.children);
+        continue;
+      }
+
+      leafItems.push(currentItem);
+    }
+
+    return leafItems;
+  }
+
+  function sanitizeGeneratedReason(text: string, fallbackReason: string): string {
+    const cleanedText = text
+      .replace(/\r?\n+/g, " ")
+      .replace(/^check[ -]?in reason:\s*/i, "")
+      .replace(/^reason:\s*/i, "")
+      .replace(/^['"`]+|['"`]+$/g, "")
+      .trim();
+
+    if (!cleanedText) {
+      return fallbackReason;
+    }
+
+    return truncateText(cleanedText, 300);
+  }
+
+  async function generateCheckInReasonWithCopilot(changeContext: string, fallbackReason: string): Promise<string> {
+    try {
+      const [model] = await vscode.lm.selectChatModels({ vendor: "copilot" });
+      if (!model) {
+        return fallbackReason;
+      }
+
+      const canSendRequest = context.languageModelAccessInformation.canSendRequest(model);
+      if (canSendRequest === false) {
+        return fallbackReason;
+      }
+
+      const messages = [
+        vscode.LanguageModelChatMessage.User([
+          `Write a concise STARLIMS check-in reason for an SCM history entry.`,
+          `Return plain text only.`,
+          `Use exactly one sentence.`,
+          `Mention the main item or items and the intent of the change.`,
+          `Do not use bullets, quotes, markdown, or prefixes such as 'Check-in reason:'.`,
+          `Keep it under 220 characters when possible, and never exceed 300 characters.`,
+          "",
+          changeContext
+        ].join("\n"))
+      ];
+
+      const response = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
+      let generatedText = "";
+
+      for await (const fragment of response.text) {
+        generatedText += fragment;
+      }
+
+      return sanitizeGeneratedReason(generatedText, fallbackReason);
+    } catch (error) {
+      console.warn("Falling back to default STARLIMS check-in reason.", error);
+      return fallbackReason;
+    }
+  }
+
+  async function buildSingleItemCheckInReason(item: TreeEnterpriseItem): Promise<string> {
+    const fallbackReason = `Update ${toDisplayLabel(item)}`;
+    const changeContext = await buildItemChangeContext(item);
+    return vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Window,
+        cancellable: false,
+        title: "STARLIMS"
+      },
+      async (progress) => {
+        progress.report({ message: "Generating check-in description with Copilot..." });
+        return generateCheckInReasonWithCopilot(changeContext, fallbackReason);
+      }
+    );
+  }
+
+  async function buildAllItemsCheckInReason(): Promise<string> {
+    const checkedOutItems = await enterpriseService.getCheckedOutItems(false);
+    if (typeof checkedOutItems !== "string" || checkedOutItems.length === 0) {
+      return "Checked in all items from VSCode";
+    }
+
+    const currentUser = enterpriseService.getCurrentUser() || activeUser || user || "";
+    const allLeafItems = await getCheckedOutLeafItems(checkedOutItems);
+    const userLeafItems = allLeafItems.filter((item) => item.checkedOutBy === currentUser);
+    if (userLeafItems.length === 0) {
+      return "Checked in all items from VSCode";
+    }
+
+    const itemNames = userLeafItems.map((item) => toDisplayLabel(item));
+    const fallbackReason = userLeafItems.length === 1
+      ? `Update ${itemNames[0]}`
+      : `Update ${userLeafItems.length} STARLIMS items: ${truncateText(itemNames.slice(0, 3).join(", "), 140)}`;
+
+    const contextItems = await Promise.all(
+      userLeafItems.slice(0, MAX_CHECKIN_ITEMS_FOR_CONTEXT).map((item) => buildItemChangeContext(item))
+    );
+
+    const changeContext = [
+      `Checked in ${userLeafItems.length} STARLIMS items for user ${currentUser}.`,
+      `Items: ${itemNames.join(", ")}`,
+      "",
+      ...contextItems
+    ];
+
+    if (userLeafItems.length > MAX_CHECKIN_ITEMS_FOR_CONTEXT) {
+      changeContext.push(
+        "",
+        `Additional checked out items not expanded here: ${userLeafItems.slice(MAX_CHECKIN_ITEMS_FOR_CONTEXT).map((item) => toDisplayLabel(item)).join(", ")}`
+      );
+    }
+
+    return vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Window,
+        cancellable: false,
+        title: "STARLIMS"
+      },
+      async (progress) => {
+        progress.report({ message: "Generating check-in description with Copilot..." });
+        return generateCheckInReasonWithCopilot(changeContext.join("\n"), fallbackReason);
+      }
+    );
+  }
+
+  function normalizePathForComparison(filePath: string): string {
+    return process.platform === "win32" ? filePath.toLowerCase() : filePath;
+  }
+
+  async function saveOpenDocuments(filePaths: string[]): Promise<void> {
+    const normalizedPaths = new Set(filePaths.map((filePath) => normalizePathForComparison(filePath)));
+
+    for (const document of vscode.workspace.textDocuments) {
+      if (!document.isDirty || document.isUntitled) {
+        continue;
+      }
+
+      if (normalizedPaths.has(normalizePathForComparison(document.uri.fsPath))) {
+        await document.save();
+      }
+    }
+  }
+
+  async function runGitCommand(workingDirectory: string, args: string[]): Promise<string> {
+    const result = await execFile("git", ["-C", workingDirectory, ...args], {
+      windowsHide: true,
+      maxBuffer: 1024 * 1024
+    });
+
+    return result.stdout.trim();
+  }
+
+  async function getGitRepositoryRoot(filePath: string): Promise<string | undefined> {
+    try {
+      const workingDirectory = fs.statSync(filePath).isDirectory() ? filePath : path.dirname(filePath);
+      const repositoryRoot = await runGitCommand(workingDirectory, ["rev-parse", "--show-toplevel"]);
+      return repositoryRoot || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function toRelativeGitPath(repositoryRoot: string, filePath: string): string {
+    return path.relative(repositoryRoot, filePath).replace(/\\/g, "/");
+  }
+
+  function getGitErrorMessage(error: unknown): string {
+    if (error && typeof error === "object") {
+      const stderr = "stderr" in error && typeof error.stderr === "string" ? error.stderr.trim() : "";
+      const message = "message" in error && typeof error.message === "string" ? error.message.trim() : "";
+      return stderr || message || "Unknown Git error";
+    }
+
+    return String(error);
+  }
+
+  async function commitAndPushGitFiles(reason: string, filePaths: string[]): Promise<void> {
+    const existingPaths = Array.from(new Set(filePaths.filter((filePath) => !!filePath && fs.existsSync(filePath))));
+    if (existingPaths.length === 0) {
+      return;
+    }
+
+    await saveOpenDocuments(existingPaths);
+
+    const filesByRepository = new Map<string, string[]>();
+    for (const filePath of existingPaths) {
+      const repositoryRoot = await getGitRepositoryRoot(filePath);
+      if (!repositoryRoot) {
+        continue;
+      }
+
+      const repositoryFiles = filesByRepository.get(repositoryRoot) ?? [];
+      repositoryFiles.push(filePath);
+      filesByRepository.set(repositoryRoot, repositoryFiles);
+    }
+
+    if (filesByRepository.size === 0) {
+      vscode.window.showWarningMessage("STARLIMS items were checked in, but no Git repository was found for the local files.");
+      return;
+    }
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Window,
+        cancellable: false,
+        title: "STARLIMS"
+      },
+      async (progress) => {
+        progress.report({ message: "Committing and pushing Git changes..." });
+
+        let committedRepositories = 0;
+        for (const [repositoryRoot, repositoryFiles] of filesByRepository) {
+          const uniqueRepoFiles = Array.from(new Set(repositoryFiles));
+          const relativePaths = uniqueRepoFiles.map((filePath) => toRelativeGitPath(repositoryRoot, filePath));
+
+          const statusOutput = await runGitCommand(repositoryRoot, ["status", "--porcelain", "--", ...relativePaths]);
+          if (!statusOutput) {
+            continue;
+          }
+
+          await runGitCommand(repositoryRoot, ["add", "--", ...relativePaths]);
+
+          const stagedOutput = await runGitCommand(repositoryRoot, ["diff", "--cached", "--name-only", "--", ...relativePaths]);
+          if (!stagedOutput) {
+            continue;
+          }
+
+          await runGitCommand(repositoryRoot, ["commit", "-m", reason, "--", ...relativePaths]);
+          await runGitCommand(repositoryRoot, ["push"]);
+          committedRepositories++;
+        }
+
+        if (committedRepositories > 0) {
+          vscode.window.showInformationMessage(`Committed and pushed changes to ${committedRepositories} Git repositor${committedRepositories === 1 ? "y" : "ies"}.`);
+        }
+      }
+    );
+  }
+
+  async function getCheckedOutLocalFilePaths(): Promise<string[]> {
+    const checkedOutItems = await enterpriseService.getCheckedOutItems(false);
+    if (typeof checkedOutItems !== "string" || checkedOutItems.length === 0) {
+      return [];
+    }
+
+    const currentUser = enterpriseService.getCurrentUser() || activeUser || user || "";
+    const allLeafItems = await getCheckedOutLeafItems(checkedOutItems);
+    const userLeafItems = allLeafItems.filter((item) => item.checkedOutBy === currentUser);
+
+    return userLeafItems
+      .map((checkedOutItem) => getSavedLocalPath(checkedOutItem, checkedOutItem.language || checkedOutItem.scriptLanguage))
+      .filter((filePath): filePath is string => !!filePath);
+  }
 
   // register the server selector webview view provider
   context.subscriptions.push(
@@ -137,22 +548,10 @@ export async function activate(context: vscode.ExtensionContext) {
         await vscode.commands.executeCommand(viewCommand, 'STARLIMSServerSelector');
         return;
       }
-
-      // Fallback: hide and show sidebar (simulate manual hide/show)
-      await vscode.commands.executeCommand('workbench.action.closeSidebar');
-      setTimeout(async () => {
-        await vscode.commands.executeCommand('workbench.view.extension.STARLIMSVSCode');
-      }, 100);
     } catch (error) {
-      if (error && typeof error === 'object' && 'name' in error && (error as any).name === 'Canceled') {
-        console.debug('STARLIMS: sidebar open canceled during startup/shutdown');
-      } else {
-        console.warn('STARLIMS: failed to ensure server selector view is shown', error);
-      }
+      console.error('Error opening server selector view:', error);
     }
   };
-
-  openServerSelectorView();
 
   // ensure STARLIMS URL is defined and prompt for value if not
   if (!url && !hasConfiguredServers) {
@@ -276,7 +675,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // create enterprise service
   enterpriseService = new EnterpriseService(config, secretStorage);
-  
+
   // Initialize server name for path structure
   const selectedServerName = config.get("selectedServer") as string;
   if (selectedServerName) {
@@ -458,11 +857,21 @@ export async function activate(context: vscode.ExtensionContext) {
       const checkinReason = await vscode.window.showInputBox({
         title: "Check in all items",
         prompt: "Enter check in reason:",
+        value: await buildAllItemsCheckInReason(),
         ignoreFocusOut: true,
       });
 
+      const gitFilePaths = await getCheckedOutLocalFilePaths();
+
       // refresh tree
-      await enterpriseService.checkInAllItems(checkinReason);
+      const checkInSuccess = await enterpriseService.checkInAllItems(checkinReason);
+      if (checkInSuccess) {
+        try {
+          await commitAndPushGitFiles(checkinReason || "Checked in all items from VSCode", gitFilePaths);
+        } catch (error) {
+          vscode.window.showErrorMessage(`STARLIMS items were checked in, but Git commit/push failed: ${getGitErrorMessage(error)}`);
+        }
+      }
       vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
     }
   );
@@ -571,7 +980,7 @@ export async function activate(context: vscode.ExtensionContext) {
     async (item: TreeEnterpriseItem | any) => {
       // get server-specific workspace path
       const serverWorkspacePath = enterpriseService.getServerWorkspacePath(rootPath!);
-      
+
       // get local copy of the item
       const localFilePath = await enterpriseService.getLocalCopy(
         item.uri ||
@@ -627,7 +1036,7 @@ export async function activate(context: vscode.ExtensionContext) {
   async function handleSelectResourcesItem(item: TreeEnterpriseItem) {
     // get server-specific workspace path
     const serverWorkspacePath = enterpriseService.getServerWorkspacePath(rootPath!);
-    
+
     // get remote URI
     const remoteUri = enterpriseService.getEnterpriseItemUri(item.uri, serverWorkspacePath);
 
@@ -647,7 +1056,7 @@ export async function activate(context: vscode.ExtensionContext) {
   async function handleSelectCodeItem(item: TreeEnterpriseItem) {
     // get server-specific workspace path
     const serverWorkspacePath = enterpriseService.getServerWorkspacePath(rootPath!);
-    
+
     // check if the item is already open, switch the tab if it is
     const openDocument = vscode.workspace.textDocuments.find(
       (doc) => doc.uri.fsPath.toLowerCase() === item.filePath?.toLowerCase()
@@ -826,16 +1235,27 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!(item instanceof TreeEnterpriseItem)) {
         item = await enterpriseTreeProvider.getTreeItemFromPath(item.path, false);
       }
+      if (!item) {
+        return;
+      }
 
       let checkinReason: string =
         (await vscode.window.showInputBox({
           title: "Check in STARLIMS Enterprise Item",
           prompt: "Enter checkin reason",
+          value: await buildSingleItemCheckInReason(item),
           ignoreFocusOut: true,
         })) || "Checked in from VSCode";
 
+      const gitFilePath = getSavedLocalPath(item, item.language || item.scriptLanguage);
+
       let bSuccess = await enterpriseService.checkInItem(item.uri, checkinReason, item.language);
       if (bSuccess) {
+        try {
+          await commitAndPushGitFiles(checkinReason, gitFilePath ? [gitFilePath] : []);
+        } catch (error) {
+          vscode.window.showErrorMessage(`STARLIMS item was checked in, but Git commit/push failed: ${getGitErrorMessage(error)}`);
+        }
         enterpriseTreeProvider.setItemCheckedOutStatus(item, false, item.language);
 
         // refresh checked out items
@@ -1333,7 +1753,7 @@ export async function activate(context: vscode.ExtensionContext) {
       }
 
       // check out the item unless it's an enterprise item category
-      
+
       let sUri = appName !== 'N/A' ? `/${root}/${categoryName}/${appName}/${selectedItemType}/${itemName}` :
         `/${root}/${categoryName}/${itemName}`;
 
@@ -1341,7 +1761,7 @@ export async function activate(context: vscode.ExtensionContext) {
         let bSuccess = await enterpriseService.checkOutItem(sUri, language);
       }
 
-      await enterpriseTreeProvider.refresh();            
+      await enterpriseTreeProvider.refresh();
 
       // wait for the tree to refresh
       await new Promise(resolve => setTimeout(resolve, 3000));
@@ -2026,6 +2446,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Git integration: automatically check in to STARLIMS when committing via Git
   void setupGitIntegration(context, rootPath!, enterpriseService, enterpriseTreeProvider, checkedOutTreeDataProvider);
+
+    })().catch((error) => {
+      console.error("STARLIMS deferred initialization failed", error);
+      void vscode.window.showErrorMessage("STARLIMS failed to initialize. See logs for details.");
+    });
+  }, DEFERRED_STARLIMS_INIT_MS);
 }
 
 async function highlightGlobalSearchMatches(item: TreeEnterpriseItem, localUri: vscode.Uri) {
@@ -2119,10 +2545,10 @@ async function setupGitIntegration(
     console.log("Git repositories API is unavailable, Git integration disabled");
     return;
   }
-  
+
   // Track last known commit hash for each repository
   const lastCommitHashes = new Map<string, string>();
-  
+
   // Watch for Git repository changes in the SLVSCODE folder
   vscode.workspace.onDidChangeWorkspaceFolders(() => {
     updateGitRepositoryWatchers();
@@ -2135,7 +2561,7 @@ async function setupGitIntegration(
     // Find repositories in SLVSCODE folder
     api.repositories.forEach((repo: any) => {
       const repoPath = repo.rootUri.fsPath;
-      
+
       // Check if this repository is within SLVSCODE folder or contains it
       if (repoPath.includes(SLVSCODE_FOLDER) || slvscodePath.startsWith(repoPath)) {
         // Listen for state changes in this repository
@@ -2155,16 +2581,16 @@ async function setupGitIntegration(
 
       const currentCommitHash = head.commit;
       const lastKnownHash = lastCommitHashes.get(repoPath);
-      
+
       // Check if this is a new commit
       if (lastKnownHash && lastKnownHash !== currentCommitHash) {
         // New commit detected, process it
         await handleNewCommit(repo, repoPath, currentCommitHash);
       }
-      
+
       // Update the last known commit hash
       lastCommitHashes.set(repoPath, currentCommitHash);
-      
+
     } catch (error) {
       console.error("Error handling Git state change:", error);
     }
@@ -2179,7 +2605,7 @@ async function setupGitIntegration(
       }
 
       const commitMessage = commit.message;
-      
+
       // NOTE: Due to limitations in the Git extension API, we cannot reliably get the exact files
       // that were part of this specific commit. As a workaround, we check all STARLIMS files
       // that are checked out. The checkInFileToStarlims function will verify if each file is
@@ -2187,7 +2613,7 @@ async function setupGitIntegration(
       // Future enhancement: Track file modifications using a file watcher to know exactly which files
       // were part of the commit.
       const slvscodeFiles = await getSLVSCODEFilesInRepo(repoPath);
-      
+
       // Check in each file to STARLIMS (only files that are checked out will actually be checked in)
       let checkedInCount = 0;
       for (const file of slvscodeFiles) {
@@ -2202,7 +2628,7 @@ async function setupGitIntegration(
         // Refresh checked out items after check-ins
         vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
       }
-      
+
     } catch (error) {
       console.error("Error handling new commit:", error);
     }
@@ -2212,7 +2638,7 @@ async function setupGitIntegration(
     try {
       const files: string[] = [];
       const serverWorkspacePath = enterpriseService.getServerWorkspacePath(slvscodePath);
-      
+
       // Check if SLVSCODE path is within this repo
       if (!serverWorkspacePath.startsWith(repoPath)) {
         return files;
@@ -2222,8 +2648,8 @@ async function setupGitIntegration(
       const glob = require('glob');
       const pattern = path.join(serverWorkspacePath, '**', '*.{ssl,slsql}');
       const foundFiles = glob.sync(pattern);
-      
-      return foundFiles.map((file: string) => 
+
+      return foundFiles.map((file: string) =>
         file.replace(repoPath + path.sep, '')
       );
     } catch (error) {
@@ -2235,18 +2661,18 @@ async function setupGitIntegration(
   async function checkInFileToStarlims(relativePath: string, commitMessage: string, repoPath: string): Promise<boolean> {
     try {
       const fullPath = path.join(repoPath, relativePath);
-      
+
       // Extract the URI from the file path
       // Path format: {serverName}/{ItemType}/{Category}/{ItemName}.{extension}
       const serverWorkspacePath = enterpriseService.getServerWorkspacePath(slvscodePath);
-      
+
       // Check if file is within server workspace path
       if (!fullPath.startsWith(serverWorkspacePath)) {
         return false;
       }
-      
+
       const relativeToslvscode = fullPath.replace(serverWorkspacePath + path.sep, '');
-      
+
       // Extract item information from path
       const pathParts = relativeToslvscode.split(path.sep);
       if (pathParts.length < 2) {
@@ -2257,7 +2683,7 @@ async function setupGitIntegration(
       const fileNameWithExt = pathParts[pathParts.length - 1];
       const lastDotIndex = fileNameWithExt.lastIndexOf('.');
       const fileName = lastDotIndex > 0 ? fileNameWithExt.substring(0, lastDotIndex) : fileNameWithExt;
-      
+
       // Construct URI for STARLIMS
       // Format: /{ItemType}/{Category}/{ItemName}
       const itemType = pathParts[0];
@@ -2274,7 +2700,7 @@ async function setupGitIntegration(
       // Check in to STARLIMS with Git commit message
       console.log(`Checking in ${uri} to STARLIMS with message: ${commitMessage}`);
       const success = await enterpriseService.checkInItem(uri, commitMessage, undefined);
-      
+
       if (success) {
         // Update tree providers
         const item = await enterpriseTreeProvider.getTreeItemFromPath(fullPath, false);
@@ -2282,7 +2708,7 @@ async function setupGitIntegration(
           enterpriseTreeProvider.setItemCheckedOutStatus(item, false, item.language);
         }
       }
-      
+
       return success;
     } catch (error) {
       console.error(`Error checking in file to STARLIMS:`, error);

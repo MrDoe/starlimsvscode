@@ -144,4 +144,6 @@ Important root entries: `.github/`, `.copilot/`, `src/`, `api/`, `resources/`, `
 ## Agent Operating Rule
 
 Trust this file first. Only search the repository when these instructions are incomplete or proven incorrect.
-You are working on Windows, so only use PowerShell-compatible commands and paths when suggesting build/test instructions.
+
+## Important Note
+You are working on Windows, so only use PowerShell- and Windows-compatible commands and paths when suggesting build/test instructions. Do not try to use Unix commands like `rm`, `cp`, or `true` in your suggestions. Use PowerShell equivalents like `Remove-Item`, `Copy-Item`, and `$true` instead.
