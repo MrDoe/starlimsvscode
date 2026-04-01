@@ -35,6 +35,11 @@ export class EnterpriseTextDocumentContentProvider implements vscode.TextDocumen
   async onDidChangeTextDocument(event: vscode.TextDocumentChangeEvent) {
     const document = event.document;
 
+    // Ignore non-edit updates such as post-save reloads, external file refreshes, or git line-ending normalization.
+    if (!document.isDirty || event.contentChanges.length === 0) {
+      return;
+    }
+
     // Check if the document has already been checked out in this session
     const uri = await this.service.getUriFromLocalPath(document.fileName);
     if ((await this.service.isCheckedOut(uri)) === true) {

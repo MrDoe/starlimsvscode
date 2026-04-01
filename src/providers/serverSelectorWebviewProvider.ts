@@ -15,11 +15,6 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
   private _view?: vscode.WebviewView;
   private _servers: ServerConfig[] = [];
   private _selectedServer: string = '';
-  private _logStateCounter = 0;
-  private logState(message: string) {
-    console.log(`STARLIMS ServerSelectorWebviewProvider: ${message} (counter: ${this._logStateCounter++})`);
-    console.log(`  Servers: ${this._servers.map(s => s.name).join(', ')} | Selected: ${this._selectedServer}`);
-  }
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -67,7 +62,6 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken,
   ) {
-    this.logState('resolveWebviewView start');
     this._view = webviewView;
 
     webviewView.webview.options = {
@@ -114,7 +108,6 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     });
 
     webviewView.onDidChangeVisibility(() => {
-      this.logState('onDidChangeVisibility:' + webviewView.visible);
       if (webviewView.visible) {
         this.loadServers();
         this.updateWebview();
@@ -122,12 +115,10 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
     });
 
     webviewView.onDidDispose(() => {
-      this.logState('onDidDispose');
       this._view = undefined;
     });
 
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
-    this.logState('resolveWebviewView end');
   }
 
   private loadServers() {
@@ -165,7 +156,6 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
       config.update("selectedServer", this._selectedServer, false);
     }
 
-    this.logState('loadServers');
   }
 
   private selectServer(serverName: string) {
@@ -175,7 +165,6 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
 
     const selectedServerConfig = this._servers.find(s => s.name === serverName);
     this._onServerChanged(selectedServerConfig);
-    this.logState('selectServer');
     this.updateWebview();
   }
 
@@ -393,8 +382,6 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
         servers: this._servers,
         selectedServer: this._selectedServer
       });
-    } else {
-      this.logState('updateWebview called but view is not available');
     }
   }
 
