@@ -712,7 +712,7 @@
           "STARLIMS.git.copilotCommitMessageModel": {
             "type": "string",
             "default": "",
-            "description": "Optional exact Copilot chat model ID to use for generated check-in and Git commit messages. Leave empty to use the default available Copilot model."
+            "description": "Optional exact Copilot chat model name to use for generated check-in and Git commit messages, for example 'Raptor Mini (Preview)'. Leave empty to use the default available Copilot model."
           },
           "STARLIMS.git.copilotCommitMessageSystemPrompt": {
             "type": "string",
