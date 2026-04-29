@@ -75,6 +75,12 @@ Related settings:
 
 ## Development
 
+Current development dependency floor:
+
+- Node.js 20.19 or later, or Node.js 22.13 or later
+
+Node 18 is no longer supported by the current toolchain. The locked versions of `copy-webpack-plugin` and `jsdom` require newer runtime features and will fail during CI or local builds on Node 18.
+
 Recommended local workflow:
 
 ```powershell
