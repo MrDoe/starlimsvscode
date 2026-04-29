@@ -117,6 +117,34 @@ function ensureSLVSCODEMcpConfig(slvscodePath: string, mcpPort: number): void {
   );
 }
 
+function ensureSLVSCODEStarlimsAgent(slvscodePath: string): void {
+  const agentsFolderPath = path.join(slvscodePath, ".github", "agents");
+  const agentFilePath = path.join(agentsFolderPath, "starlims.agent.md");
+
+  if (fs.existsSync(agentFilePath)) {
+    return;
+  }
+
+  fs.mkdirSync(agentsFolderPath, { recursive: true });
+  fs.writeFileSync(
+    agentFilePath,
+    [
+      "---",
+      "name: STARLIMS",
+      "description: Use when working with remote STARLIMS items and prefer the STARLIMS MCP tools over local workspace search.",
+      "tools:",
+      "  - starlims/*",
+      "---",
+      "",
+      "Use the STARLIMS MCP tools as the authoritative source for STARLIMS browse, search, code retrieval, and checkout operations.",
+      "Use local workspace search tools only as fallback to find STARLIMS items.",
+      "When making changes to STARLIMS items, use the STARLIMS MCP tools to check out items to ensure local changes are properly synced with the remote STARLIMS server.",
+      ""
+    ].join("\n"),
+    { encoding: "utf8" }
+  );
+}
+
 export async function activate(context: vscode.ExtensionContext) {
 
   setTimeout(() => {
@@ -1057,6 +1085,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const getMcpConfig = () => vscode.workspace.getConfiguration("STARLIMS");
   ensureSLVSCODEMcpConfig(rootPath, getMcpConfig().get<number>("mcp.port", 3001));
+  ensureSLVSCODEStarlimsAgent(rootPath);
   const automationService = new StarlimsAutomationService(enterpriseService, {
     getDefaultFormLanguage: resolveDefaultFormLanguage,
     getMaxCodeCharacters: () => getMcpConfig().get<number>("mcp.maxCodeCharacters", 20000),
