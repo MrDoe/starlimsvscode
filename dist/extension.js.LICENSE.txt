@@ -131,6 +131,12 @@
  */
 
 /*!
+ * media-typer
+ * Copyright(c) 2014-2017 Douglas Christopher Wilson
+ * MIT Licensed
+ */
+
+/*!
  * merge-descriptors
  * Copyright(c) 2014 Jonathan Ong
  * Copyright(c) 2015 Douglas Christopher Wilson
@@ -196,6 +202,13 @@
 /*!
  * raw-body
  * Copyright(c) 2013-2014 Jonathan Ong
+ * Copyright(c) 2014-2022 Douglas Christopher Wilson
+ * MIT Licensed
+ */
+
+/*!
+ * router
+ * Copyright(c) 2013 Roman Shtylman
  * Copyright(c) 2014-2022 Douglas Christopher Wilson
  * MIT Licensed
  */
