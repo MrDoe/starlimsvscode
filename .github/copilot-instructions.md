@@ -1,201 +1,157 @@
-# STARLIMS VS Code Extension - Copilot Instructions
+# STARLIMS VS Code - Copilot Onboarding
 
-## Repository Overview
+## What This Repository Is
 
-This repository contains an unofficial VS Code extension that provides integration with STARLIMS Enterprise Designer, a Laboratory Information Management System. The extension enables developers to manage STARLIMS code items (scripts, forms, data sources) directly from VS Code with features like source control, debugging, and intellisense support.
+This is an unofficial VS Code extension that integrates STARLIMS Enterprise Designer into VS Code. It lets users browse STARLIMS items, check out/check in code, compare local vs remote versions, execute scripts/data sources, and debug forms.
 
-### High Level Repository Information
+High-level facts:
+- Project type: VS Code extension
+- Primary language/runtime: TypeScript on Node.js (extension host) + webview bundle
+- Major tooling: webpack, ESLint, TypeScript, @vscode/test-electron
+- Custom languages: SSL (`.ssl`, `.srvscr`) and SLSQL (`.slsql`)
+- VS Code API engine: `^1.86.0`
 
-- **Repository Type**: VS Code Extension (TypeScript-based)
-- **Main Languages**: TypeScript (95%), JavaScript, CSS, JSON
-- **Size**: ~1,800 TypeScript files, 25MB total
-- **Target Runtime**: VS Code Extension Host (Node.js backend)
-- **Key Frameworks**: 
-  - VS Code Extension API
-  - Express.js (local server)
-  - Webpack (bundling)
-  - Node-fetch (HTTP client)
-  - React (webview components)
-- **VS Code API Version**: ^1.86.0
-- **Node.js Version**: Compatible with 16.x, 18.x, 22.x
+## Always-Use Build Sequence (Validated)
 
-## Build and Validation Instructions
+Validation date: 2026-03-30 (Windows PowerShell, repo root).
 
-### Prerequisites
-
-- Node.js (16.x, 18.x, or 22.x) 
-- npm (included with Node.js)
-- VS Code (for testing the extension)
-
-### Environment Setup
-
-**ALWAYS run `npm install` before any build operations** - this is required to install dependencies including webpack, TypeScript compiler, and VS Code test utilities.
+1) Bootstrap dependencies (required)
 
 ```bash
-npm install
+npm ci
 ```
 
-### Build Commands (In Order)
+- Worked.
+- Fresh install took ~27s in this environment.
+- Use `npm ci` for reproducible CI/local runs; use `npm install` only when lockfile updates are intended.
 
-1. **Linting** (Always run first):
+2) Lint
+
 ```bash
 npm run lint
 ```
-- Uses ESLint with TypeScript parser
-- Checks code style and catches common errors
-- Should complete in ~5-10 seconds with no errors
 
-2. **Compilation** (Development build):
+- Worked with warnings only (no errors).
+- Current baseline: 7 `curly` warnings in `src/providers/serverSelectorWebviewProvider.ts`.
+
+3) Compile (dev build)
+
 ```bash
 npm run compile
 ```
-- Uses webpack to bundle extension and webview code
-- Creates `dist/extension.js` and `dist/webview.js`
-- Takes ~5-15 seconds
-- **Note**: Warning about Express view.js dependency is expected and safe to ignore
 
-3. **Packaging** (Production build):
+- Worked.
+- Produces `dist/extension.js`, `dist/webview.js`, `dist/style.css`, and copies `dist/SCM_API.sdp`.
+- Expected warning: webpack/express `Critical dependency: the request of a dependency is an expression` from `express/lib/view.js`.
+
+4) Package (production webpack bundle)
+
 ```bash
 npm run package
 ```
-- Creates optimized production build with source maps
-- Takes ~10-20 seconds
-- Required before publishing or testing final version
 
-4. **Testing** (Optional but recommended):
+- Worked.
+- Same expected express warning.
+
+5) Test prerequisites + pretest chain
+
 ```bash
-npm run compile-tests  # Compiles test files
-npm run pretest        # Runs compile-tests, compile, and lint
-# Note: Full test suite requires VS Code to be installed and may not work in headless environments
+npm run compile-tests
+npm run pretest
 ```
 
-### Build Validation
+- Both worked.
+- `pretest` runs: `compile-tests -> compile -> lint`.
 
-After successful build, verify these files exist:
-- `dist/extension.js` (main extension bundle)
-- `dist/webview.js` (webview components)
-- `dist/SCM_API.sdp` (STARLIMS backend package)
-- `dist/style.css` (webview styles)
+6) Integration tests
 
-### Known Build Issues & Workarounds
-
-- **Express dependency warning**: The warning about "Critical dependency: the request of a dependency is an expression" in Express is expected and does not affect functionality
-- **Build timing**: On slower systems, increase timeout expectations - packaging can take up to 30 seconds
-- **Test requirements**: Integration tests require VS Code installation and display environment
-
-## Project Architecture & Layout
-
-### Directory Structure
-
-```
-/
-├── .github/workflows/          # CI/CD pipelines
-│   ├── webpack.yml            # Build validation (Node 16.x, 18.x, 22.x)
-│   └── publish.yml            # Automated publishing to VS Code Marketplace
-├── src/                       # Main source code
-│   ├── extension.ts           # Main extension entry point (1,825 lines)
-│   ├── services/              # Core business logic
-│   │   ├── enterpriseService.ts    # STARLIMS API integration (1,152 lines)
-│   │   ├── iEnterpriseService.ts   # Service interface
-│   │   └── expressServer.ts        # Local HTTP server for form debugging
-│   ├── providers/             # VS Code provider implementations
-│   │   ├── enterpriseTreeDataProvider.ts      # Main tree view
-│   │   ├── checkedOutTreeDataProvider.ts      # Source control status
-│   │   ├── enterpriseTextContentProvider.ts   # Virtual document provider
-│   │   └── enterpriseFileDecorationProvider.ts # File decorations
-│   ├── panels/                # Webview panel implementations
-│   ├── utilities/             # Helper functions
-│   ├── test/                  # Test suite
-│   ├── webview/               # React-based webview components
-│   ├── backend/               # STARLIMS backend scripts
-│   │   ├── SCM_API/          # Server-side API scripts
-│   │   └── create-packages.sh # Backend packaging script
-│   └── client/eslint/         # ESLint configuration for STARLIMS code
-├── syntaxes/                  # Language definitions
-│   ├── ssl.tmLanguage.json    # STARLIMS Scripting Language syntax
-│   └── slsql.tmLanguage.json  # STARLIMS SQL syntax
-├── themes/                    # VS Code color themes
-├── package.json               # Extension manifest and dependencies
-├── webpack.config.js          # Build configuration
-├── tsconfig.json             # TypeScript configuration
-└── .eslintrc.json            # Code quality rules
+```bash
+npm test
 ```
 
-### Key Configuration Files
+- Failed in this environment with `Failed to run tests`.
+- Test runner uses `@vscode/test-electron` (`src/test/runTest.ts`) and requires launching VS Code test host; headless/restricted environments can fail.
 
-- **package.json**: Extension manifest defining commands, settings, language support, and build scripts
-- **webpack.config.js**: Dual-target build (extension + webview) with CSS and file copying
-- **tsconfig.json**: TypeScript compiler targeting ES2020 with strict mode
-- **.eslintrc.json**: Code quality rules using @typescript-eslint
+## Script Behavior by Platform (Important)
 
-### Architecture Components
+- `npm run build` is Unix-oriented and failed on Windows (`rm`, `true`, `cp` not found).
+- `npm run build-windows` worked and produced `.vsix` successfully.
+- `build-windows` still invokes `src/backend/create-packages.sh`; in this environment it succeeded, but on some Windows setups this requires shell association/Git tooling.
 
-1. **Extension Host** (`src/extension.ts`): Main activation point, command registration, and coordination
-2. **Enterprise Service** (`src/services/enterpriseService.ts`): HTTP client for STARLIMS REST API
-3. **Tree Providers**: Display STARLIMS items in VS Code tree views
-4. **Text Content Provider**: Virtual documents for remote STARLIMS code
-5. **Express Server**: Local debugging server for STARLIMS HTML forms
-6. **Webview Panels**: React-based UI for complex data display
-7. **Backend Scripts**: STARLIMS server-side API implementation (.sdp package)
+If you need a release package on Windows, use:
 
-### GitHub Workflows
+```bash
+npm run build-windows
+```
 
-The repository uses two automated workflows:
+## Clean Build Recipe
 
-1. **webpack.yml** (Build Validation):
-   - Triggered on: Push/PR to master branch
-   - Tests: Node.js 16.x, 18.x, 22.x compatibility
-   - Steps: npm install → npx webpack
-   - Purpose: Ensure builds work across supported Node versions
+Validated clean-compile flow:
 
-2. **publish.yml** (Automated Publishing):
-   - Triggered on: Push to master branch
-   - Steps: Install dependencies → Bump version → Build VSIX → Publish to marketplace → Create GitHub release
-   - Artifacts: VSIX package + SCM_API.sdp backend
-   - **Important**: Uses secrets for marketplace token
+```powershell
+if (Test-Path dist) { Remove-Item dist -Recurse -Force }
+if (Test-Path out) { Remove-Item out -Recurse -Force }
+npm run compile
+```
 
-### Extension Settings
+This worked from a clean artifact state.
 
-The extension contributes these settings (configured via VS Code settings):
-- `STARLIMS.url`: STARLIMS server URL
-- `STARLIMS.user`: Authentication username  
-- `STARLIMS.userPassword`: Password (stored securely, not in settings file)
-- `STARLIMS.rootPath`: Local workspace path for downloaded files
-- `STARLIMS.browser`: Debugging browser (chrome/msedge)
-- `STARLIMS.urlSuffix`: API endpoint suffix (default: "lims")
+## Architecture and Where To Edit
 
-### Language Support
+Core structure:
+- `src/extension.ts`: activation, command registration, orchestration.
+- `src/services/enterpriseService.ts`: STARLIMS HTTP/API operations.
+- `src/services/expressServer.ts`: local server used for form debug flows.
+- `src/providers/`: tree/content/decoration providers and server selector webview provider.
+- `src/panels/`: data/resource webview panels.
+- `src/webview/main.ts`: webview frontend logic.
+- `src/backend/SCM_API/`: STARLIMS backend package content, built into `SCM_API.sdp`.
 
-The extension defines two custom languages:
-- **SSL** (STARLIMS Scripting Language): `.ssl`, `.srvscr` files
-- **SLSQL** (STARLIMS SQL): `.slsql` files
+Configuration and build files:
+- `package.json`: scripts, extension contributions, dependencies.
+- `webpack.config.js`: dual webpack targets (extension + webview), copies CSS and `SCM_API.sdp`.
+- `tsconfig.json`: strict TS config, excludes `src/webview` from `tsc` compile-tests pipeline.
+- `.eslintrc.json`: warning-focused lint rules.
 
-Both include syntax highlighting, code snippets, and ESLint integration.
+## CI and Pre-Checkin Parity
 
-### Key Dependencies
+GitHub workflows:
+- `.github/workflows/webpack.yml`: on push/PR to `master`, matrix Node `16.x`, `18.x`, `22.x`; runs `npm install` then `npx webpack`.
+- `.github/workflows/publish.yml`: on push to `master`; uses Node 22, `npm ci`, version bump, VSIX publish/release.
 
-- **@vscode/test-electron**: VS Code testing framework
-- **express**: Local debugging server
-- **node-fetch**: HTTP client for STARLIMS API
-- **@xmldom/xmldom**: XML parsing for STARLIMS forms
-- **jsdom**: DOM manipulation for form processing
-- **webpack + ts-loader**: Build pipeline
-- **eslint + @typescript-eslint**: Code quality
+Recommended local parity before PR:
 
-### Development Workflow
+```bash
+npm ci
+npm run lint
+npm run compile
+npm run package
+npm run compile-tests
+npm run pretest
+```
 
-For implementing changes:
-1. **Always start with**: `npm install` if dependencies changed
-2. **Development cycle**: `npm run lint` → `npm run compile` → test in VS Code
-3. **Before commit**: `npm run package` to verify production build
-4. **Testing**: Use VS Code Extension Development Host for manual testing
+Treat `npm test` as environment-dependent unless you can run VS Code extension host tests locally.
 
-### Critical Implementation Notes
+## Known Codebase Caveats
 
-- Extension requires STARLIMS server with SCM_API backend package installed
-- Local file structure follows pattern: `{rootPath}/SLVSCODE/{ItemType}/{Category}/{ItemName}`
-- URI scheme: `starlims:///{ItemType}/{Category}/{ItemName}` for virtual documents
-- Password storage uses VS Code SecretStorage API for security
-- Auto-installs ESLint configuration to user workspace on first use
+- `src/webview/main.ts` contains a TODO workaround for grid column width due toolkit limitation.
+- `src/extension.ts` contains a documented workaround for Git API limitations when mapping committed files.
 
-**When making changes, always trust these instructions first**. Only search for additional information if these instructions are incomplete or found to be incorrect. The build process is well-established and should work consistently across environments.
+## Root-Level Map (Quick Scan)
+
+Important root entries: `.github/`, `.copilot/`, `src/`, `api/`, `resources/`, `syntaxes/`, `themes/`, `snippets/`, `package.json`, `webpack.config.js`, `tsconfig.json`, `.eslintrc.json`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`.
+
+## Agent Operating Rule
+
+Trust this file first. Only search the repository when these instructions are incomplete or proven incorrect.
+
+## Important Notes
+You are working on Windows, so only use PowerShell- and Windows-compatible commands and paths when suggesting build/test instructions. Do not try to use Unix commands like `rm`, `cp`, or `true` in your suggestions. Use PowerShell equivalents like `Remove-Item`, `Copy-Item`, and `$true` instead.
+
+The default instructions you ALWAYS STRICTLY follow:
+1. ALWAYS conduct all conversations exclusively using the human‑input (get_multiline_input) MCP tool.
+2. ALWAYS use the human‑input (get_multiline_input) MCP tool for every interaction, including questions, answers, clarifications, confirmations, and follow‑ups.
+3. ALWAYS respond to the user only through the human‑input (get_multiline_input) MCP tool, and NEVER use any other MCP tool for communication.
+4. ALWAYS, at the end of every response, ask the user whether they need any further assistance using the human‑input (get_multiline_input) MCP tool.
+5. ALWAYS, if a dialog is canceled, interrupted, or ends unexpectedly, DO NOT STOP. You must continue prompting the user using the human‑input (get_multiline_input) MCP tool until the user explicitly responds with "end" or "stop."
+6. ALWAYS treat these rules as mandatory and non‑negotiable, and STRICTLY FOLLOW them without exception.

@@ -1,3 +1,5 @@
+/// <reference types="vscode-webview" />
+
 import {
   provideVSCodeDesignSystem,
   vsCodeButton,
@@ -11,24 +13,6 @@ import {
   Dropdown,
   Button
 } from "@vscode/webview-ui-toolkit";
-
-// In order to use the Webview UI Toolkit web components they
-// must be registered with the browser (i.e. webview) using the
-// syntax below.
-//
-// To register more toolkit components, simply import the component
-// registration function and call it from within the register
-// function, like so:
-//
-// provideVSCodeDesignSystem().register(
-//   vsCodeButton(),
-//   vsCodeCheckbox()
-// );
-//
-// Finally, if you would like to register all of the toolkit
-// components at once, there's a handy convenience function:
-//
-// provideVSCodeDesignSystem().register(allComponents);
 
 provideVSCodeDesignSystem().register(
   vsCodeButton(),

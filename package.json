@@ -3,11 +3,11 @@
   "displayName": "STARLIMS VS Code Extension",
   "description": "Unofficial dictionary explorer (and more) for STARLIMS.",
   "license": "SEE LICENSE IN LICENSE.md",
-  "version": "1.2.102",
+  "version": "1.3.0",
   "icon": "resources/extension/starlimsvscode.png",
-  "publisher": "MariusPopovici",
+  "publisher": "Christoph Döllinger",
   "author": {
-    "name": "Marius Popovici, Christoph Döllinger, Jan Bouecke"
+    "name": "Christoph Döllinger, Marius Popovici, Jan Bouecke"
   },
   "keywords": [
     "STARLIMS",
@@ -19,7 +19,7 @@
     "url": "https://github.com/mariuspopovici/starlimsvscode"
   },
   "engines": {
-    "vscode": "^1.86.0"
+    "vscode": "^1.110.0"
   },
   "categories": [
     "Other",
@@ -27,7 +27,9 @@
     "Programming Languages",
     "Themes"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -46,7 +48,8 @@
           "id": "STARLIMSServerSelector",
           "name": "Server Selection",
           "type": "webview",
-          "icon": "resources/extension/server_selector_icon.png"
+          "icon": "resources/dark/sql.svg",
+          "visibility": "collapsed"
         },
         {
           "id": "STARLIMSMainTree",
@@ -78,6 +81,10 @@
       {
         "command": "STARLIMS.Connect",
         "title": "Connect to STARLIMS"
+      },
+      {
+        "command": "STARLIMS.OpenTestView",
+        "title": "Open STARLIMS Test View"
       },
       {
         "command": "STARLIMS.Compare",
@@ -657,6 +664,35 @@
             "default": "lims",
             "description": "The web service request url suffix. Use lims2 with older versions of the STARLIMS Technology Platform which don't recognize the HTTPServices web.config setting key"
           },
+          "STARLIMS.defaultFormLanguage": {
+            "type": "string",
+            "default": "",
+            "description": "Default language to use when checking out STARLIMS form items."
+          },
+          "STARLIMS.mcp.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable the local STARLIMS MCP endpoint on the built-in loopback HTTP server. Only browse, search, code retrieval, and checkout are exposed. Check-in, delete, and other destructive operations remain unavailable."
+          },
+          "STARLIMS.mcp.maxItems": {
+            "type": "number",
+            "default": 100,
+            "minimum": 1,
+            "description": "Maximum number of STARLIMS items returned by a single MCP browse or search request."
+          },
+          "STARLIMS.mcp.port": {
+            "type": "number",
+            "default": 3001,
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Loopback TCP port used by the STARLIMS MCP endpoint. This is separate from the form callback server on port 3000."
+          },
+          "STARLIMS.mcp.maxCodeCharacters": {
+            "type": "number",
+            "default": 20000,
+            "minimum": 100,
+            "description": "Maximum number of code characters returned by a single STARLIMS MCP read request."
+          },
           "STARLIMS.servers": {
             "type": "array",
             "default": [],
@@ -682,7 +718,10 @@
                   "description": "The web service request url suffix"
                 }
               },
-              "required": ["name", "url"]
+              "required": [
+                "name",
+                "url"
+              ]
             }
           },
           "STARLIMS.selectedServer": {
@@ -709,6 +748,76 @@
             "type": "string",
             "default": "origin",
             "description": "Git remote name"
+          },
+          "STARLIMS.git.commitMessageGenerator": {
+            "type": "string",
+            "enum": [
+              "fast",
+              "copilot"
+            ],
+            "enumDescriptions": [
+              "Use a fast local fallback message such as 'Update frmTest [Code Behind]' without calling Copilot.",
+              "Use Copilot to generate the message, with a short timeout fallback to the fast local message."
+            ],
+            "default": "fast",
+            "description": "How Copilot generates check-in and Git commit messages."
+          },
+          "STARLIMS.git.copilotCommitMessageModel": {
+            "type": "string",
+            "default": "",
+            "description": "Optional exact Copilot chat model name to use for generated check-in and Git commit messages, for example 'Raptor Mini (Preview)'. Leave empty to use the default available Copilot model."
+          },
+          "STARLIMS.git.copilotCommitMessageSystemPrompt": {
+            "type": "string",
+            "default": "You write STARLIMS commit messages. Describe the changes in detail. Mention the main item or items based on the diffs. Use bullets where applicable. ",
+            "markdownDescription": "Top-level instruction text sent to Copilot before the STARLIMS item context when generating check-in and Git commit messages."
+          },
+          "STARLIMS.git.commitMessageDetailLevel": {
+            "type": "string",
+            "enum": [
+              "short",
+              "standard",
+              "detailed"
+            ],
+            "enumDescriptions": [
+              "Keep messages compact and focused on the item name and change details.",
+              "Include balanced context such as item type or change details when helpful.",
+              "Prefer richer descriptions that include item name and the change details."
+            ],
+            "default": "standard",
+            "description": "How much detail to include in generated STARLIMS commit messages."
+          },
+          "STARLIMS.git.commitMessageMaxLength": {
+            "type": "number",
+            "default": 512,
+            "minimum": 100,
+            "description": "Maximum length for generated STARLIMS commit messages."
+          },
+          "STARLIMS.git.commitMessagePrefix": {
+            "type": "string",
+            "default": "",
+            "description": "Optional prefix added to generated STARLIMS commit messages, for example a ticket or team tag."
+          },
+          "STARLIMS.git.includeItemTypeInCommitMessage": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include the STARLIMS item type in generated commit messages when using standard or detailed modes."
+          },
+          "STARLIMS.git.includeLanguageInCommitMessage": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include the STARLIMS language in generated commit messages when available."
+          },
+          "STARLIMS.git.includeFileNameInCommitMessage": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include the local file name in generated commit messages when available."
+          },
+          "STARLIMS.git.copilotCommitMessageTimeoutMs": {
+            "type": "number",
+            "default": 4000,
+            "minimum": 500,
+            "description": "Maximum time in milliseconds to wait for Copilot commit message generation before falling back to the fast local message."
           }
         }
       }
@@ -783,34 +892,40 @@
     "@types/glob": "^7.2.0",
     "@types/jsdom": "^21.1.6",
     "@types/mocha": "^9.1.1",
-    "@types/node": "^14.18.63",
+    "@types/node": "^20.0.0",
     "@types/node-fetch": "^2.6.11",
-    "@types/vscode": "^1.86.0",
+    "@types/vscode": "^1.110.0",
     "@types/vscode-webview": "^1.57.5",
     "@types/xmldom": "^0.1.34",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
     "@vscode/test-electron": "^2.3.9",
-    "copy-webpack-plugin": "^11.0.0",
+    "copy-webpack-plugin": "^14.0.0",
     "css-loader": "^6.10.0",
     "dotenv": "^16.4.5",
-    "esbuild": "^0.17.19",
+    "esbuild": "^0.27.4",
     "eslint": "^8.56.0",
     "express": "^4.19.2",
     "glob": "^7.2.3",
-    "mocha": "^9.2.2",
+    "mocha": "^11.7.5",
     "run-script-os": "^1.1.6",
     "style-loader": "^3.3.4",
     "ts-loader": "^9.5.1",
-    "typescript": "^4.9.5",
+    "typescript": "5.1.6",
     "webpack": "^5.90.3",
     "webpack-cli": "^4.10.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@vscode/webview-ui-toolkit": "^1.4.0",
-    "@xmldom/xmldom": "^0.7.13",
-    "jsdom": "^22.1.0",
+    "@xmldom/xmldom": "^0.9.9",
+    "jsdom": "^29.0.1",
     "node-fetch": "^2.7.0",
-    "react": "^18.2.0"
+    "react": "^18.2.0",
+    "zod": "^4.3.6"
+  },
+  "overrides": {
+    "diff": "8.0.3",
+    "serialize-javascript": "7.0.5"
   }
 }
