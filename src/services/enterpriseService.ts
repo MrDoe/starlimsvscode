@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import { IEnterpriseService } from "./iEnterpriseService";
+import { EnterpriseItemCodeRecord, EnterpriseItemRecord, EnterpriseOperationResult, LocalCopyResult } from "./starlimsAutomationTypes";
 import { connectBridge } from "../utilities/bridge";
 import { cleanUrl, isJson } from "../utilities/miscUtils";
 import { DOMParser } from "@xmldom/xmldom";
@@ -17,6 +18,7 @@ import * as crypto from 'crypto';
 export class EnterpriseService implements IEnterpriseService {
   private config: any;
   private baseUrl: string;
+  private currentUser: string = "";
   private rootPath: string = "";
   private refreshSessionInterval: NodeJS.Timeout | undefined;
   private SLVSCODE_FOLDER: string = "SLVSCODE";
@@ -26,7 +28,7 @@ export class EnterpriseService implements IEnterpriseService {
    * STARLIMS web service request url suffix
    */
   private urlSuffix: string = "lims";
-  public languages: string[] = [];
+  public languages: string[][] = [];
   private currentServerName: string = ""; // Track current server for secret key
 
   /**
@@ -37,6 +39,7 @@ export class EnterpriseService implements IEnterpriseService {
     this.config = config;
     this.secretStorage = secretStorage;
     this.baseUrl = cleanUrl(config.url);
+    this.currentUser = (config.user as string) || "";
     if (config.urlSuffix) {
       this.urlSuffix = config.urlSuffix;
     }
@@ -50,7 +53,16 @@ export class EnterpriseService implements IEnterpriseService {
   public updateServerConfig(serverConfig: { url: string; user?: string; urlSuffix?: string }, serverName: string) {
     this.baseUrl = cleanUrl(serverConfig.url);
     this.urlSuffix = serverConfig.urlSuffix || "lims";
+    this.currentUser = serverConfig.user || (this.config.user as string) || "";
     this.currentServerName = serverName;
+  }
+
+  /**
+   * Get the currently active user
+   * @returns active user name used for API calls
+   */
+  public getCurrentUser(): string {
+    return this.currentUser;
   }
 
   /**
@@ -74,49 +86,144 @@ export class EnterpriseService implements IEnterpriseService {
   }
 
   /**
+   * Normalize enterprise URIs so local path translation does not duplicate the server name.
+   */
+  private normalizeEnterpriseUri(uri: string): string {
+    if (!uri) {
+      return "";
+    }
+
+    let normalizedUri = uri.replace(/\\/g, "/");
+    if (!normalizedUri.startsWith("/")) {
+      normalizedUri = `/${normalizedUri}`;
+    }
+
+    if (!this.currentServerName) {
+      return normalizedUri;
+    }
+
+    const escapedServerName = this.currentServerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const duplicateServerPrefix = new RegExp(`^(?:/${escapedServerName})+(/|$)`, "i");
+    normalizedUri = normalizedUri.replace(duplicateServerPrefix, "/");
+
+    return normalizedUri === "" ? "/" : normalizedUri;
+  }
+
+  /**
+   * Extract a readable error message from an HTML response body.
+   */
+  private getHtmlTitle(text: string): string | null {
+    const titleMatch = text.match(/<title>(.*?)<\/title>/is);
+    if (titleMatch && titleMatch[1]) {
+      return titleMatch[1].trim();
+    }
+    return null;
+  }
+
+  /**
    * Safely parse a response as JSON, handling errors gracefully
    * @param response The fetch response object
    * @returns The parsed JSON object or null if parsing fails
    */
-  private async safeParseJson(response: any): Promise<any> {
+  private async safeParseJsonInternal(response: any, showErrors: boolean): Promise<any> {
     const contentType = response.headers?.get?.('content-type') || '';
-    
+
+    // Read the body once to avoid stream re-read errors after parse failures.
+    const text = await response.text();
+    const compactPreview = text.replace(/\s+/g, ' ').trim().substring(0, 200);
+    const parsedJson = isJson(text) ? JSON.parse(text) : null;
+
     // Check if response status is not ok
     if (!response.ok) {
-      const text = await response.text();
-      // Try to parse as JSON, otherwise treat as error text
-      if (contentType.includes('application/json') && isJson(text)) {
-        try {
-          return JSON.parse(text);
-        } catch (e) {
-          vscode.window.showErrorMessage(`Server error (${response.status}): Unable to parse error response`);
-          console.error('Failed to parse error response:', text);
-          return null;
-        }
-      } else {
-        // Server returned non-JSON error (likely HTML error page)
-        vscode.window.showErrorMessage(`Server error (${response.status}): ${response.statusText}`);
-        console.error('Server returned non-JSON response:', text.substring(0, 200));
-        return null;
+      if (parsedJson) {
+        return parsedJson;
+      }
+
+      const htmlTitle = this.getHtmlTitle(text);
+      const errorMessage = htmlTitle || response.statusText;
+      if (showErrors) {
+        vscode.window.showErrorMessage(`Server error (${response.status}): ${errorMessage}`);
+      }
+      console.error('Server returned non-JSON response:', compactPreview);
+      return null;
+    }
+
+    if (parsedJson) {
+      return parsedJson;
+    }
+
+    const htmlTitle = this.getHtmlTitle(text);
+    if (htmlTitle) {
+      if (showErrors) {
+        vscode.window.showErrorMessage(`Server error: ${htmlTitle}`);
+      }
+      console.error('Server returned HTML response:', compactPreview);
+      return null;
+    }
+
+    if (showErrors) {
+      vscode.window.showErrorMessage(`Server returned non-JSON response: ${contentType || 'unknown content type'}`);
+    }
+    console.error('Response content type:', contentType, 'Body:', compactPreview);
+    return null;
+  }
+
+  private async safeParseJson(response: any): Promise<any> {
+    return this.safeParseJsonInternal(response, true);
+  }
+
+  private getOperationErrorMessage(data: unknown, fallbackMessage: string): string {
+    if (typeof data === "string" && data.trim().length > 0) {
+      return data.trim();
+    }
+
+    if (data && typeof data === "object") {
+      const message = "message" in data && typeof (data as { message?: unknown }).message === "string"
+        ? (data as { message: string }).message.trim()
+        : "";
+      if (message.length > 0) {
+        return message;
       }
     }
-    
-    // Response status is ok, try to parse as JSON
-    if (!contentType.includes('application/json')) {
-      const text = await response.text();
-      vscode.window.showErrorMessage(`Server returned non-JSON response: ${contentType || 'unknown content type'}`);
-      console.error('Response content type:', contentType, 'Body:', text.substring(0, 200));
-      return null;
+
+    return fallbackMessage;
+  }
+
+  private async writeLocalCopy(uri: string, workspaceFolder: string, item: EnterpriseItemCodeRecord): Promise<LocalCopyResult> {
+    const localFilePath = path.join(
+      workspaceFolder,
+      `${this.normalizeEnterpriseUri(uri)}.${item.language.toLowerCase().replace("sql", "slsql")}`
+    );
+    const localFolder = path.dirname(localFilePath);
+    fs.mkdirSync(localFolder, { recursive: true });
+    fs.writeFileSync(localFilePath, item.code, {
+      encoding: "utf8"
+    });
+
+    return {
+      code: item.code,
+      language: item.language,
+      localFilePath
+    };
+  }
+
+  /**
+   * Resolve password for API calls using server-specific key first and legacy key as fallback.
+   */
+  private async getAuthPassword(): Promise<string> {
+    const workspaceKey = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "default";
+    const workspaceId = crypto.createHash('sha1').update(workspaceKey).digest('hex');
+    const legacySecretKey = `${workspaceId}:userPassword`;
+
+    if (this.currentServerName) {
+      const serverSecretKey = `${workspaceId}:${this.currentServerName}:userPassword`;
+      const serverPassword = await this.secretStorage.get(serverSecretKey);
+      if (serverPassword) {
+        return serverPassword;
+      }
     }
-    
-    try {
-      return await response.json();
-    } catch (e: any) {
-      const text = await response.text();
-      vscode.window.showErrorMessage(`Failed to parse JSON response: ${e.message}`);
-      console.error('Failed to parse JSON:', text.substring(0, 200));
-      return null;
-    }
+
+    return (await this.secretStorage.get(legacySecretKey)) || "";
   }
 
   async moveItem(uri: string, destination: string) {
@@ -198,13 +305,11 @@ export class EnterpriseService implements IEnterpriseService {
     }
     const readStream = fs.createReadStream(sdpPackage);
     
-    const workspaceKey = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "default";
-    const workspaceId = crypto.createHash('sha1').update(workspaceKey).digest('hex');
-    const secretKey = `${workspaceId}:userPassword`;
+    const authPassword = await this.getAuthPassword();
 
     const headers = new Headers([
-      ["STARLIMSUser", this.config.user],
-      ["STARLIMSPass", await this.secretStorage.get(secretKey)],
+      ["STARLIMSUser", this.currentUser],
+      ["STARLIMSPass", authPassword],
       ["Accept", "*/*"],
       ["Accept-Encoding", "gzip, deflate, br"],
       ["Content-length", stats.size.toString()]
@@ -422,6 +527,19 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns A descriptor object with the following properties: name, type, uri, language, isFolder
    */
   public async getEnterpriseItems(uri: string, bSilent: boolean = false) {
+    const result = await this.getEnterpriseItemsResult(uri);
+    if (result.ok) {
+      return result.data ?? [];
+    }
+
+    if (!bSilent) {
+      vscode.window.showErrorMessage(result.error ?? "Could not retrieve enterprise items.");
+    }
+
+    return [];
+  }
+
+  public async getEnterpriseItemsResult(uri: string): Promise<EnterpriseOperationResult<EnterpriseItemRecord[]>> {
     const params = new URLSearchParams([["URI", uri]]);
     const url = `${this.baseUrl}/SCM_API.GetEnterpriseItems.${this.urlSuffix}?${params}`;
     const headers = new Headers(await this.getAPIHeaders());
@@ -432,26 +550,23 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const result = await this.safeParseJson(response);
+      const result = await this.safeParseJsonInternal(response, false);
       if (!result) {
-        return [];
+        return { ok: false, error: "Could not retrieve enterprise items." };
       }
+
       const { success, data } = result;
       if (success) {
-        return data.items;
-      } else {
-        if (!bSilent) {
-          vscode.window.showErrorMessage("Could not retrieve enterprise items.");
-          console.log(data);
-        }
-        return [];
+        return { ok: true, data: Array.isArray(data?.items) ? data.items : [] };
       }
+
+      return {
+        ok: false,
+        error: this.getOperationErrorMessage(data, "Could not retrieve enterprise items.")
+      };
     } catch (e: any) {
-      if (!bSilent) {
-        console.error(e);
-        vscode.window.showErrorMessage("Could not retrieve enterprise items.");
-      }
-      return [];
+      console.error(e);
+      return { ok: false, error: "Could not retrieve enterprise items." };
     }
   }
 
@@ -462,6 +577,19 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns an object with Language: string and Code: string
    */
   public async getEnterpriseItemCode(uri: string, language: string | undefined) {
+    const result = await this.getEnterpriseItemCodeResult(uri, language);
+    if (result.ok) {
+      return result.data ?? null;
+    }
+
+    vscode.window.showErrorMessage(result.error ?? "Could not retrieve item code.");
+    return null;
+  }
+
+  public async getEnterpriseItemCodeResult(
+    uri: string,
+    language: string | undefined
+  ): Promise<EnterpriseOperationResult<EnterpriseItemCodeRecord>> {
     const params = new URLSearchParams([
       ["URI", uri],
       ["UserLang", language ?? ""]
@@ -475,22 +603,28 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
-      if (success) {
-        if (data.language === "JS") {
-          // comment out all occurences of '#include' in order for eslint to work
-          data.code = data.code.replace(/^#include/gm, "//#include");
-        }
-        return data;
-      } else {
-        vscode.window.showErrorMessage("Could not retrieve item code.");
-        console.log(data);
-        return null;
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        return { ok: false, error: "Could not retrieve item code." };
       }
+
+      const { success, data }: { success: boolean; data: EnterpriseItemCodeRecord } = result;
+      if (success) {
+        const normalizedData = { ...data };
+        if (normalizedData.language === "JS") {
+          normalizedData.code = normalizedData.code.replace(/^#include/gm, "//#include");
+        }
+
+        return { ok: true, data: normalizedData };
+      }
+
+      return {
+        ok: false,
+        error: this.getOperationErrorMessage(data, "Could not retrieve item code.")
+      };
     } catch (e: any) {
       console.error(e);
-      vscode.window.showErrorMessage("Could not retrieve item code.");
-      return null;
+      return { ok: false, error: "Could not retrieve item code." };
     }
   }
 
@@ -500,6 +634,20 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns  true if the item was checked out successfully, false otherwise.
    */
   public async checkOutItem(uri: string, language: string | undefined) {
+    const result = await this.checkOutItemResult(uri, language);
+    if (result.ok) {
+      vscode.window.showInformationMessage("Enterprise item checked out successfully.");
+      return true;
+    }
+
+    vscode.window.showErrorMessage(result.error ?? "Could not check out enterprise item.");
+    return false;
+  }
+
+  public async checkOutItemResult(
+    uri: string,
+    language: string | undefined
+  ): Promise<EnterpriseOperationResult<boolean>> {
     const params = new URLSearchParams([
       ["URI", uri],
       ["UserLang", language ?? ""]
@@ -513,19 +661,24 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success }: { success: boolean } = await response.json();
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        return { ok: false, error: "Could not check out enterprise item." };
+      }
+
+      const { success, data }: { success: boolean; data: unknown } = result;
       if (success) {
         this.setCheckedOut(uri, "");
-        vscode.window.showInformationMessage("Enterprise item checked out successfully.");
-        return true;
-      } else {
-        vscode.window.showErrorMessage("Could not check out enterprise item.");
-        return false;
+        return { ok: true, data: true };
       }
+
+      return {
+        ok: false,
+        error: this.getOperationErrorMessage(data, "Could not check out enterprise item.")
+      };
     } catch (e: any) {
       console.error(e);
-      vscode.window.showErrorMessage("Could not check out enterprise item.");
-      return false;
+      return { ok: false, error: "Could not check out enterprise item." };
     }
   }
 
@@ -584,34 +737,44 @@ export class EnterpriseService implements IEnterpriseService {
     returnCode: boolean = false,
     language: string
   ): Promise<string | null> {
-    const item = await this.getEnterpriseItemCode(uri, language);
-    if (item) {
-      // create local file path
-      const localFilePath = path.join(workspaceFolder, `${uri}.${item.language.toLowerCase().replace("sql", "slsql")}`);
-
-      try {
-        // create local folder if it does not exist
-        const localFolder = path.dirname(localFilePath);
-        fs.mkdirSync(localFolder, { recursive: true });
-
-        // comment out all occurences of '#include' for eslint to work
-        item.code = item.code.replace(/^#include/gm, "//#include");
-
-        fs.writeFileSync(localFilePath, item.code, {
-          encoding: "utf8"
-        });
-
-        if (returnCode) {
-          return item.code;
-        } else {
-          return localFilePath;
-        }
-      } catch (e) {
-        vscode.window.showErrorMessage(`Cannot write file ${localFilePath}.`);
-        console.error(e);
+    const result = await this.getLocalCopyResult(uri, workspaceFolder, language);
+    if (!result.ok || !result.data) {
+      if (result.error) {
+        vscode.window.showErrorMessage(result.error);
       }
+      return null;
     }
-    return null;
+
+    return returnCode ? result.data.code : result.data.localFilePath;
+  }
+
+  public async getLocalCopyResult(
+    uri: string,
+    workspaceFolder: string,
+    language: string
+  ): Promise<EnterpriseOperationResult<LocalCopyResult>> {
+    const normalizedUri = this.normalizeEnterpriseUri(uri);
+    const itemResult = await this.getEnterpriseItemCodeResult(normalizedUri, language);
+    if (!itemResult.ok || !itemResult.data) {
+      return {
+        ok: false,
+        error: itemResult.error ?? "Could not retrieve item code."
+      };
+    }
+
+    try {
+      return {
+        ok: true,
+        data: await this.writeLocalCopy(normalizedUri, workspaceFolder, itemResult.data)
+      };
+    } catch (e) {
+      console.error(e);
+      const localFilePath = this.getLocalFilePath(normalizedUri, workspaceFolder, itemResult.data.language);
+      return {
+        ok: false,
+        error: `Cannot write file ${localFilePath}.`
+      };
+    }
   }
 
   /** Get local file path from remote uri
@@ -620,6 +783,7 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns the local file path
    */
   public getLocalFilePath(uri: string, workspaceFolder: string, extension: string): string {
+    uri = this.normalizeEnterpriseUri(uri);
     const localFilePath = path.join(workspaceFolder, `${uri}.${extension.toLowerCase().replace("sql", "slsql")}`);
     return localFilePath;
   }
@@ -665,16 +829,11 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns an array of string arrays with header name and value.
    */
   private async getAPIHeaders(): Promise<string[][]> {
-    const workspaceKey = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "default";
-    const workspaceId = crypto.createHash('sha1').update(workspaceKey).digest('hex');
-    // Use server-specific secret key if available, otherwise fall back to legacy key
-    const secretKey = this.currentServerName 
-      ? `${workspaceId}:${this.currentServerName}:userPassword`
-      : `${workspaceId}:userPassword`;
+    const authPassword = await this.getAuthPassword();
     
     return [
-      ["STARLIMSUser", this.config.user],
-      ["STARLIMSPass", await this.secretStorage.get(secretKey)],
+      ["STARLIMSUser", this.currentUser],
+      ["STARLIMSPass", authPassword],
       ["Content-Type", "application/json"],
       ["Accept", "*/*"]
     ];
@@ -743,7 +902,7 @@ export class EnterpriseService implements IEnterpriseService {
 
     // remove workspace folder path from file path
     filePath = filePath.replace(new RegExp(rootPath, "ig"), "");
-    return filePath;
+    return this.normalizeEnterpriseUri(filePath);
   }
 
   /**
@@ -765,10 +924,29 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns the enterprise item found
    */
   public async searchForItems(itemName: string, itemType: string, isExactMatch: boolean = false): Promise<any> {
-    let url = `${this.baseUrl}/SCM_API.Search.${this.urlSuffix}?itemName=${itemName}&exactMatch=${isExactMatch}`;
-    if (itemType !== "") {
-      url += `&itemType=${itemType}`;
+    const result = await this.searchForItemsResult(itemName, itemType, isExactMatch);
+    if (result.ok) {
+      return result.data ?? [];
     }
+
+    vscode.window.showErrorMessage(result.error ?? "Item not found.");
+    return [];
+  }
+
+  public async searchForItemsResult(
+    itemName: string,
+    itemType: string,
+    isExactMatch: boolean = false
+  ): Promise<EnterpriseOperationResult<EnterpriseItemRecord[]>> {
+    const params = new URLSearchParams([
+      ["itemName", itemName],
+      ["exactMatch", String(isExactMatch)]
+    ]);
+    if (itemType !== "") {
+      params.set("itemType", itemType);
+    }
+
+    const url = `${this.baseUrl}/SCM_API.Search.${this.urlSuffix}?${params}`;
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
       method: "GET",
@@ -777,18 +955,23 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
-      if (success) {
-        return data.items;
-      } else {
-        vscode.window.showErrorMessage("Item not found.");
-        console.error(data);
-        return [];
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        return { ok: false, error: "Item not found." };
       }
+
+      const { success, data }: { success: boolean; data: any } = result;
+      if (success) {
+        return { ok: true, data: Array.isArray(data?.items) ? data.items : [] };
+      }
+
+      return {
+        ok: false,
+        error: this.getOperationErrorMessage(data, "Item not found.")
+      };
     } catch (e: any) {
-      vscode.window.showErrorMessage("Item not found.");
       console.error(e);
-      return [];
+      return { ok: false, error: "Item not found." };
     }
   }
 
@@ -808,7 +991,24 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns the enterprise items found
    */
   public async globalSearch(searchString: string, itemTypes: string): Promise<any> {
-    const url = `${this.baseUrl}/SCM_API.GlobalSearch.${this.urlSuffix}?searchString=${searchString}&itemTypes=${itemTypes}`;
+    const result = await this.globalSearchResult(searchString, itemTypes);
+    if (result.ok) {
+      return result.data ?? [];
+    }
+
+    vscode.window.showErrorMessage(result.error ?? "No items found!");
+    return [];
+  }
+
+  public async globalSearchResult(
+    searchString: string,
+    itemTypes: string
+  ): Promise<EnterpriseOperationResult<EnterpriseItemRecord[]>> {
+    const params = new URLSearchParams([
+      ["searchString", searchString],
+      ["itemTypes", itemTypes]
+    ]);
+    const url = `${this.baseUrl}/SCM_API.GlobalSearch.${this.urlSuffix}?${params}`;
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
       method: "GET",
@@ -817,18 +1017,23 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
-      if (success) {
-        return data.items;
-      } else {
-        vscode.window.showErrorMessage("No items found!");
-        console.error(data);
-        return [];
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        return { ok: false, error: "No items found!" };
       }
+
+      const { success, data }: { success: boolean; data: any } = result;
+      if (success) {
+        return { ok: true, data: Array.isArray(data?.items) ? data.items : [] };
+      }
+
+      return {
+        ok: false,
+        error: this.getOperationErrorMessage(data, "No items found!")
+      };
     } catch (e: any) {
-      vscode.window.showErrorMessage("No items found!");
       console.error(e);
-      return [];
+      return { ok: false, error: "No items found!" };
     }
   }
 
@@ -1014,7 +1219,7 @@ export class EnterpriseService implements IEnterpriseService {
     let remotePath = hasFolderPath
       ? uri.slice(uri.lastIndexOf(this.SLVSCODE_FOLDER) + this.SLVSCODE_FOLDER.length)
       : uri;
-    return remotePath;
+    return this.normalizeEnterpriseUri(remotePath);
   }
 
   /**
@@ -1138,6 +1343,16 @@ export class EnterpriseService implements IEnterpriseService {
    * Get available languages and store them in config
    */
   public async getLanguages() {
+    const result = await this.getLanguagesResult();
+    if (result.ok) {
+      return true;
+    }
+
+    vscode.window.showErrorMessage(result.error ?? "Could not retrieve languages.");
+    return false;
+  }
+
+  public async getLanguagesResult(): Promise<EnterpriseOperationResult<string[][]>> {
     const url = `${this.baseUrl}/SCM_API.GetLanguages.${this.urlSuffix}`;
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
@@ -1146,20 +1361,28 @@ export class EnterpriseService implements IEnterpriseService {
     };
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        return { ok: false, error: "Could not retrieve languages." };
+      }
+
+      const { success, data }: { success: boolean; data: any } = result;
 
       if (success) {
         this.languages = isJson(data) ? JSON.parse(data) : data;
-        return true;
-      } else {
-        vscode.window.showErrorMessage("Could not retrieve languages.");
-        console.error(data);
-        return false;
+        return {
+          ok: true,
+          data: Array.isArray(this.languages) ? this.languages : []
+        };
       }
+
+      return {
+        ok: false,
+        error: this.getOperationErrorMessage(data, "Could not retrieve languages.")
+      };
     } catch (e: any) {
       console.error(e);
-      vscode.window.showErrorMessage("Could not retrieve languages.");
-      return false;
+      return { ok: false, error: "Could not retrieve languages." };
     }
   }
 
@@ -1173,6 +1396,11 @@ export class EnterpriseService implements IEnterpriseService {
     let resourcesData = await this.getEnterpriseItemCode(uri, language);
 
     if (resourcesData) {
+      if (!resourcesData.code || typeof resourcesData.code !== "string") {
+        vscode.window.showErrorMessage("Could not load form resources: invalid XML response.");
+        return;
+      }
+
       const formName = uri.split("/").pop();
 
       // Create a new DOMParser
