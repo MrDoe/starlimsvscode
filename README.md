@@ -56,6 +56,7 @@ Features:
 - Syntax color theme and highlighting for SSL and SSL SQL data sources
 - Global, full text search in scripts / code with code item type selection
 - Search code items by name
+- Local MCP endpoint for GitHub Copilot agents to allow using STARLIMS browse, search, code read, and checkout tools
 - Explore tables and view table schema
 - HTML Form Designer (alpha version)
 
@@ -82,6 +83,36 @@ This extension contributes the following settings:
 - `STARLIMS.password`: User password STARLIMS authentication
 - `STARLIMS.browser`: Browser for debugging forms (only Chrome or Edge supported)
 - `STARLIMS.rootPath`: Path for storing temporary files (downloaded forms and scripts)
+- `STARLIMS.mcp.enabled`: Enables the local loopback MCP endpoint for Copilot agents
+- `STARLIMS.mcp.maxItems`: Caps the number of items returned by a single MCP browse/search request
+- `STARLIMS.mcp.port`: Loopback TCP port for the MCP endpoint; defaults to 3001 so it does not share the form callback port
+- `STARLIMS.mcp.maxCodeCharacters`: Caps the number of code characters returned by a single MCP read request
+
+## Copilot MCP Integration
+
+The extension can expose a local MCP endpoint for GitHub Copilot agents on `http://127.0.0.1:3001/mcp` by default.
+
+Security model:
+
+- The MCP endpoint is hosted by the running extension instance and binds to loopback only.
+- The endpoint is disabled by default and must be enabled with `STARLIMS.mcp.enabled`.
+- The MCP endpoint uses a dedicated loopback port and does not share the form callback server on port 3000.
+- Only the following STARLIMS operations are exposed: tree browse, search by name, global code search, read item code, and checkout with local sync.
+- Check-in, delete, save code, rename, move, undo checkout, script execution, and form launch are not exposed through MCP.
+- MCP requests use the currently selected STARLIMS server.
+
+Setup:
+
+1. Enable `STARLIMS.mcp.enabled` in VS Code settings.
+2. Make sure the extension is running and connected to the desired STARLIMS server.
+3. The extension creates `SLVSCODE/.vscode/mcp.json` automatically if it is missing.
+4. If you need a custom workspace MCP setup, point the HTTP server entry to the local endpoint.
+
+Notes:
+
+- If you are developing the extension from source, the MCP endpoint is available from the running extension instance, such as an installed build or an Extension Development Host session.
+- If `SLVSCODE/.vscode/mcp.json` already exists, the extension leaves it unchanged.
+- Form checkout through MCP requires either an explicit language argument or `STARLIMS.defaultFormLanguage` to be configured.
 
 ## Known Issues
 
