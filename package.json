@@ -28,10 +28,7 @@
     "Themes"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onView:STARLIMSServerSelector",
-    "onView:STARLIMSMainTree",
-    "onView:STARLIMSCheckedOutTree"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -660,6 +657,30 @@
             "default": "",
             "description": "Default language to use when checking out STARLIMS form items."
           },
+          "STARLIMS.mcp.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable the local STARLIMS MCP endpoint on the built-in loopback HTTP server. Only browse, search, code retrieval, and checkout are exposed. Check-in, delete, and other destructive operations remain unavailable."
+          },
+          "STARLIMS.mcp.maxItems": {
+            "type": "number",
+            "default": 100,
+            "minimum": 1,
+            "description": "Maximum number of STARLIMS items returned by a single MCP browse or search request."
+          },
+          "STARLIMS.mcp.port": {
+            "type": "number",
+            "default": 3001,
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Loopback TCP port used by the STARLIMS MCP endpoint. This is separate from the form callback server on port 3000."
+          },
+          "STARLIMS.mcp.maxCodeCharacters": {
+            "type": "number",
+            "default": 20000,
+            "minimum": 100,
+            "description": "Maximum number of code characters returned by a single STARLIMS MCP read request."
+          },
           "STARLIMS.servers": {
             "type": "array",
             "default": [],
@@ -863,11 +884,13 @@
     "webpack-cli": "^4.10.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@vscode/webview-ui-toolkit": "^1.4.0",
     "@xmldom/xmldom": "^0.9.9",
     "jsdom": "^29.0.1",
     "node-fetch": "^2.7.0",
-    "react": "^18.2.0"
+    "react": "^18.2.0",
+    "zod": "^4.3.6"
   },
   "overrides": {
     "diff": "8.0.3",

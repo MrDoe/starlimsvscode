@@ -8,6 +8,8 @@ import { EnterpriseFileDecorationProvider } from "./providers/enterpriseFileDeco
 import { EnterpriseItemType, EnterpriseTreeDataProvider, TreeEnterpriseItem } from "./providers/enterpriseTreeDataProvider";
 import { EnterpriseService } from "./services/enterpriseService";
 import { ExpressServer } from "./services/expressServer";
+import { StarlimsAutomationService } from "./services/starlimsAutomationService";
+import { StarlimsMcpServer } from "./services/starlimsMcpServer";
 import { EnterpriseTextDocumentContentProvider } from "./providers/enterpriseTextContentProvider";
 import path = require("path");
 import { ResourcesDataViewPanel } from "./panels/ResourcesDataViewPanel";
@@ -88,6 +90,33 @@ async function ensureSLVSCODEWorkspace(slvscodePath: string): Promise<void> {
   }
 }
 
+function ensureSLVSCODEMcpConfig(slvscodePath: string, mcpPort: number): void {
+  const vscodeFolderPath = path.join(slvscodePath, ".vscode");
+  const mcpConfigPath = path.join(vscodeFolderPath, "mcp.json");
+
+  if (fs.existsSync(mcpConfigPath)) {
+    return;
+  }
+
+  fs.mkdirSync(vscodeFolderPath, { recursive: true });
+  fs.writeFileSync(
+    mcpConfigPath,
+    JSON.stringify(
+      {
+        servers: {
+          starlims: {
+            type: "http",
+            url: `http://127.0.0.1:${mcpPort}/mcp`
+          }
+        }
+      },
+      null,
+      2
+    ) + "\n",
+    { encoding: "utf8" }
+  );
+}
+
 export async function activate(context: vscode.ExtensionContext) {
 
   setTimeout(() => {
@@ -161,7 +190,8 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   function resolveDefaultFormLanguage(): string | undefined {
-    const configuredLanguage = (config.get<string>("defaultFormLanguage", "") || "").trim();
+    const latestConfig = vscode.workspace.getConfiguration("STARLIMS");
+    const configuredLanguage = (latestConfig.get<string>("defaultFormLanguage", "") || "").trim();
     if (!configuredLanguage) {
       return undefined;
     }
@@ -1019,14 +1049,42 @@ export async function activate(context: vscode.ExtensionContext) {
     activeUser = user || activeUser;
   }
 
-  const expressServer = new ExpressServer();
-  expressServer.start();
-
   // create output channel for the extension
   const outputChannel = vscode.window.createOutputChannel("STARLIMS", 'log');
 
   // create output channel for the log
   const logChannel = vscode.window.createOutputChannel("STARLIMS Log", 'log');
+
+  const getMcpConfig = () => vscode.workspace.getConfiguration("STARLIMS");
+  ensureSLVSCODEMcpConfig(rootPath, getMcpConfig().get<number>("mcp.port", 3001));
+  const automationService = new StarlimsAutomationService(enterpriseService, {
+    getDefaultFormLanguage: resolveDefaultFormLanguage,
+    getMaxCodeCharacters: () => getMcpConfig().get<number>("mcp.maxCodeCharacters", 20000),
+    getMaxItems: () => getMcpConfig().get<number>("mcp.maxItems", 100),
+    getWorkspaceRoot: () => rootPath
+  });
+  const starlimsMcpServer = new StarlimsMcpServer(automationService, {
+    getEnabled: () => getMcpConfig().get<boolean>("mcp.enabled", false),
+    getVersion: () => version,
+    logError: (message: string, error?: unknown) => {
+      outputChannel.appendLine(`[MCP] ${message}`);
+      if (error) {
+        outputChannel.appendLine(`[MCP] ${error instanceof Error ? error.stack || error.message : String(error)}`);
+      }
+    },
+    logInfo: (message: string) => {
+      outputChannel.appendLine(`[MCP] ${message}`);
+    }
+  });
+  const expressServer = new ExpressServer({
+    mcpPort: getMcpConfig().get<number>("mcp.port", 3001),
+    mcpServer: starlimsMcpServer,
+    onOpenCodeBehind: async (formId: string, functionName: string) => {
+      await vscode.commands.executeCommand("STARLIMS.OpenCodeBehind", formId, functionName);
+    }
+  });
+  context.subscriptions.push(expressServer);
+  expressServer.start();
 
   // install ESlint to SLVSCODE folder if not already installed
   // check for .eslintrc.json file
