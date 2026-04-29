@@ -1,931 +1,993 @@
 {
-  "name": "vscode-starlims",
-  "displayName": "STARLIMS VS Code Extension",
-  "description": "Unofficial dictionary explorer (and more) for STARLIMS.",
-  "license": "SEE LICENSE IN LICENSE.md",
-  "version": "1.4.0",
-  "icon": "resources/extension/starlimsvscode.png",
-  "publisher": "Christoph Döllinger",
-  "author": {
-    "name": "Christoph Döllinger, Marius Popovici, Jan Bouecke"
-  },
-  "keywords": [
-    "STARLIMS",
-    "SSL",
-    "STARLIMS Scripting Language"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/mariuspopovici/starlimsvscode"
-  },
-  "engines": {
-    "vscode": "^1.110.0"
-  },
-  "categories": [
-    "Other",
-    "SCM Providers",
-    "Programming Languages",
-    "Themes"
-  ],
-  "activationEvents": [
-    "onStartupFinished"
-  ],
-  "main": "./dist/extension.js",
-  "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "STARLIMSVSCode",
-          "title": "STARLIMS VS Code",
-          "icon": "resources/extension/star_gray.png",
-          "alwaysShow": true
-        }
-      ]
-    },
-    "views": {
-      "STARLIMSVSCode": [
-        {
-          "id": "STARLIMSServerSelector",
-          "name": "Server Selection",
-          "type": "webview",
-          "icon": "resources/dark/sql.svg",
-          "visibility": "collapsed"
-        },
-        {
-          "id": "STARLIMSMainTree",
-          "name": "STARLIMS Enterprise",
-          "type": "tree",
-          "icon": "resources/dark/treeview.svg"
-        },
-        {
-          "id": "STARLIMSCheckedOutTree",
-          "name": "Checked Out Items",
-          "type": "tree",
-          "icon": "resources/dark/treeview.svg"
-        }
-      ]
-    },
-    "commands": [
-      {
-        "command": "STARLIMS.Refresh",
-        "title": "Refresh Explorer"
-      },
-      {
-        "command": "STARLIMS.CheckOut",
-        "title": "Check Out"
-      },
-      {
-        "command": "STARLIMS.Checkin",
-        "title": "Check In"
-      },
-      {
-        "command": "STARLIMS.Connect",
-        "title": "Connect to STARLIMS"
-      },
-      {
-        "command": "STARLIMS.OpenTestView",
-        "title": "Open STARLIMS Test View"
-      },
-      {
-        "command": "STARLIMS.Compare",
-        "title": "Compare with Remote Version"
-      },
-      {
-        "command": "STARLIMS.RunScript",
-        "title": "Run Script"
-      },
-      {
-        "command": "STARLIMS.RunDataSource",
-        "title": "Run Data Source"
-      },
-      {
-        "command": "STARLIMS.Save",
-        "title": "Save File"
-      },
-      {
-        "command": "STARLIMS.ClearLog",
-        "title": "Clear Log"
-      },
-      {
-        "command": "STARLIMS.selectEnterpriseItem",
-        "title": "Refresh Log"
-      },
-      {
-        "command": "STARLIMS.Search",
-        "title": "Search for Items...",
-        "icon": {
-          "dark": "resources/dark/search.svg",
-          "light": "resources/light/search.svg"
-        }
-      },
-      {
-        "command": "STARLIMS.ShowTreeView",
-        "title": "Show/Refresh Tree View",
-        "icon": {
-          "dark": "resources/dark/treeview.svg",
-          "light": "resources/light/treeview.svg"
-        }
-      },
-      {
-        "command": "STARLIMS.OpenForm",
-        "title": "Open Form"
-      },
-      {
-        "command": "STARLIMS.OpenXFDForm",
-        "title": "Open Form"
-      },
-      {
-        "command": "STARLIMS.DebugForm",
-        "title": "Debug Form"
-      },
-      {
-        "command": "STARLIMS.DesignHTMLForm",
-        "title": "Design Form"
-      },
-      {
-        "command": "STARLIMS.Add",
-        "title": "Add new...",
-        "icon": {
-          "dark": "resources/dark/add.svg",
-          "light": "resources/light/add.svg"
-        }
-      },
-      {
-        "command": "STARLIMS.Delete",
-        "title": "Delete",
-        "icon": {
-          "dark": "resources/dark/delete.svg",
-          "light": "resources/light/delete.svg"
-        }
-      },
-      {
-        "command": "STARLIMS.SendNameToEditor",
-        "title": "Send To Editor"
-      },
-      {
-        "command": "STARLIMS.GenerateTableSelect",
-        "title": "Generate SELECT"
-      },
-      {
-        "command": "STARLIMS.GenerateTableInsert",
-        "title": "Generate INSERT"
-      },
-      {
-        "command": "STARLIMS.GenerateTableUpdate",
-        "title": "Generate UPDATE"
-      },
-      {
-        "command": "STARLIMS.GenerateTableDelete",
-        "title": "Generate DELETE"
-      },
-      {
-        "command": "STARLIMS.GoToServerScript",
-        "title": "Server Script"
-      },
-      {
-        "command": "STARLIMS.GoToClientScript",
-        "title": "Client Script"
-      },
-      {
-        "command": "STARLIMS.GoToDataSource",
-        "title": "Data Source"
-      },
-      {
-        "command": "STARLIMS.GoToForm",
-        "title": "Form (Code Behind)"
-      },
-      {
-        "command": "STARLIMS.GoToItem",
-        "title": "Autodetect Item Type"
-      },
-      {
-        "command": "STARLIMS.GetCheckedOutItems",
-        "title": "Refresh my checked out items",
-        "icon": {
-          "dark": "resources/dark/refresh.svg",
-          "light": "resources/light/refresh.svg"
-        }
-      },
-      {
-        "command": "STARLIMS.GetAllCheckedOutItems",
-        "title": "View checked out items of all users",
-        "icon": {
-          "dark": "resources/dark/users.svg",
-          "light": "resources/light/users.svg"
-        }
-      },
-      {
-        "command": "STARLIMS.CheckInAllItems",
-        "title": "Check in all my items",
-        "icon": {
-          "dark": "resources/dark/checkinall.svg",
-          "light": "resources/light/checkinall.svg"
-        }
-      },
-      {
-        "command": "STARLIMS.UndoCheckOut",
-        "title": "Undo Check Out"
-      },
-      {
-        "command": "STARLIMS.RefreshLogChannel",
-        "title": "Refresh"
-      },
-      {
-        "command": "STARLIMS.ClearLogChannel",
-        "title": "Clear"
-      },
-      {
-        "command": "STARLIMS.GlobalCodeSearch",
-        "title": "Search in Code...",
-        "icon": {
-          "dark": "resources/dark/codesearch.svg",
-          "light": "resources/light/codesearch.svg"
-        }
-      },
-      {
-        "command": "STARLIMS.setPassword",
-        "title": "Set user password"
-      },
-      {
-        "command": "STARLIMS.Rename",
-        "title": "Rename"
-      },
-      {
-        "command": "STARLIMS.Move",
-        "title": "Move"
-      },
-      {
-        "command": "STARLIMS.OpenCodeBehind",
-        "title": "Open Form Code Behind"
-      },
-      {
-        "command": "STARLIMS.configureServer",
-        "title": "Configure Server",
-        "icon": {
-          "dark": "resources/dark/settings.svg",
-          "light": "resources/light/settings.svg"
-        }
-      },
-      {
-        "command": "STARLIMS.selectServer",
-        "title": "Select Server"
-      },
-      {
-        "command": "STARLIMS.ExportAllCheckouts",
-        "title": "Export all checked out items to SDP",
-        "icon": {
-          "dark": "resources/dark/export.svg",
-          "light": "resources/light/export.svg"
-        }
-      },
-      {
-        "command": "STARLIMS.InitializeGitRepo",
-        "title": "STARLIMS: Initialize Git Repository",
-        "icon": {
-          "dark": "resources/dark/git.svg",
-          "light": "resources/light/git.svg"
-        }
-      },
-      {
-        "command": "STARLIMS.ConfigureGitRemote",
-        "title": "STARLIMS: Configure Git Remote"
-      }
-    ],
-    "keybindings": [
-      {
-        "command": "STARLIMS.GoToItem",
-        "key": "f11",
-        "when": "editorTextFocus && (resourceDirname =~ /SLVSCODE/ && editorLangId != 'log' && editorLangId != 'SLSQL') || (focusedView == 'workbench.panel.output' && resourceExtname == '.vscode-starlims-#2-STARLIMS Log')"
-      },
-      {
-        "command": "STARLIMS.RunScript",
-        "key": "f5",
-        "when": "editorTextFocus && resourceDirname =~ /SLVSCODE/ && editorLangId == 'SSL' && !(resourcePath =~ /DataSources/)"
-      },
-      {
-        "command": "STARLIMS.RunDataSource",
-        "key": "f5",
-        "when": "editorTextFocus && resourceDirname =~ /SLVSCODE/ && (editorLangId == 'SLSQL' || resourcePath =~ /DataSources/)"
-      },
-      {
-        "command": "STARLIMS.DebugForm",
-        "key": "f5",
-        "when": "editorTextFocus && resourceDirname =~ /SLVSCODE/ && resourcePath =~ /HTMLForms/"
-      },
-      {
-        "command": "STARLIMS.OpenForm",
-        "key": "ctrl+f5",
-        "when": "editorTextFocus && resourceDirname =~ /SLVSCODE/ && resourcePath =~ /Forms/"
-      },
-      {
-        "command": "STARLIMS.OpenXFDForm",
-        "key": "ctrl+f5",
-        "when": "editorTextFocus && resourceDirname =~ /SLVSCODE/ && resourcePath =~ /XFDForms/"
-      },
-      {
-        "command": "STARLIMS.DesignHTMLForm",
-        "key": "ctrl+f6",
-        "when": "editorTextFocus && resourceDirname =~ /SLVSCODE/ && resourcePath =~ /HTMLForms/"
-      },
-      {
-        "command": "STARLIMS.RefreshLogChannel",
-        "key": "f5",
-        "when": "focusedView == 'workbench.panel.output' && resourceExtname == '.vscode-starlims-#2-STARLIMS Log'"
-      },
-      {
-        "command": "STARLIMS.ClearLogChannel",
-        "key": "ctrl+f5",
-        "when": "focusedView == 'workbench.panel.output' && resourceExtname == '.vscode-starlims-#2-STARLIMS Log'"
-      },
-      {
-        "command": "STARLIMS.GlobalCodeSearch",
-        "key": "ctrl+alt+f",
-        "when": "view == STARLIMSMainTree || (editorTextFocus && resourceDirname =~ /SLVSCODE/)"
-      }
-    ],
-    "menus": {
-      "view/title": [
-        {
-          "command": "STARLIMS.ShowTreeView",
-          "when": "view == STARLIMSMainTree",
-          "group": "navigation"
-        },
-        {
-          "command": "STARLIMS.Search",
-          "when": "view == STARLIMSMainTree",
-          "group": "navigation"
-        },
-        {
-          "command": "STARLIMS.GlobalCodeSearch",
-          "when": "view == STARLIMSMainTree",
-          "group": "navigation"
-        },
-        {
-          "command": "STARLIMS.Add",
-          "when": "view == STARLIMSMainTree",
-          "group": "navigation"
-        },
-        {
-          "command": "STARLIMS.Delete",
-          "when": "view == STARLIMSMainTree",
-          "group": "navigation"
-        },
-        {
-          "command": "STARLIMS.GetCheckedOutItems",
-          "when": "view == STARLIMSCheckedOutTree",
-          "group": "navigation"
-        },
-        {
-          "command": "STARLIMS.GetAllCheckedOutItems",
-          "when": "view == STARLIMSCheckedOutTree",
-          "group": "navigation"
-        },
-        {
-          "command": "STARLIMS.CheckInAllItems",
-          "when": "view == STARLIMSCheckedOutTree",
-          "group": "navigation"
-        },
-        {
-          "command": "STARLIMS.ExportAllCheckouts",
-          "when": "view == STARLIMSCheckedOutTree",
-          "group": "navigation"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "STARLIMS.Refresh",
-          "when": "view == STARLIMSMainTree",
-          "group": "z_navigation"
-        },
-        {
-          "command": "STARLIMS.RunScript",
-          "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && (viewItem == SS || viewItem == APPSS)",
-          "group": "run"
-        },
-        {
-          "command": "STARLIMS.RunDataSource",
-          "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && (viewItem == DS || viewItem == APPDS)",
-          "group": "run"
-        },
-        {
-          "command": "STARLIMS.CheckOut",
-          "when": "view == STARLIMSMainTree && viewItem != SERVERLOG && viewItem != CATEGORY && viewItem != APP && viewItem != ENT_TABLES_DATABASE && viewItem != ENT_TABLES_DICTIONARY && viewItem != ENT_TABLES_DATABASE && viewItem != ENT_TABLES_DICTIONARY",
-          "group": "sourceControl"
-        },
-        {
-          "command": "STARLIMS.Checkin",
-          "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && viewItem != SERVERLOG && !(viewItem =~ /CAT/) && viewItem != APP && viewItem != ENT_TABLES_DATABASE && viewItem != ENT_TABLES_DICTIONARY",
-          "group": "sourceControl"
-        },
-        {
-          "command": "STARLIMS.UndoCheckOut",
-          "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && viewItem != SERVERLOG && !(viewItem =~ /CAT/) && viewItem != APP && viewItem != ENT_TABLES_DATABASE && viewItem != ENT_TABLES_DICTIONARY",
-          "group": "sourceControl"
-        },
-        {
-          "command": "STARLIMS.selectEnterpriseItem",
-          "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && viewItem == SERVERLOG"
-        },
-        {
-          "command": "STARLIMS.OpenForm",
-          "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && (viewItem == HTMLFORMXML || viewItem == HTMLFORMCODE)",
-          "group": "run"
-        },
-        {
-          "command": "STARLIMS.DebugForm",
-          "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && (viewItem == HTMLFORMXML || viewItem == HTMLFORMCODE)",
-          "group": "run"
-        },
-        {
-          "command": "STARLIMS.DesignHTMLForm",
-          "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && (viewItem == HTMLFORMXML || viewItem == HTMLFORMCODE)",
-          "group": "run"
-        },
-        {
-          "command": "STARLIMS.Delete",
-          "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && viewItem != SERVERLOG && viewItem != APPLICATION && !(viewItem =~ /category/i)",
-          "group": "addRemove"
-        },
-        {
-          "command": "STARLIMS.Add",
-          "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && (viewItem =~ /cat/i || viewItem != APPLICATION) && viewItem != TABLE && viewItem != SERVERLOG && viewItem != ENT_TABLES_DATABASE && viewItem != ENT_TABLES_DICTIONARY",
-          "group": "addRemove"
-        },
-        {
-          "command": "STARLIMS.OpenXFDForm",
-          "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && (viewItem == XFDFORMXML || viewItem == XFDFORMCODE)",
-          "group": "run"
-        },
-        {
-          "command": "STARLIMS.SendNameToEditor",
-          "when": "view == STARLIMSMainTree && viewItem == TABLE",
-          "group": "all"
-        },
-        {
-          "command": "STARLIMS.GenerateTableSelect",
-          "when": "view == STARLIMSMainTree && viewItem == TABLE",
-          "group": "table"
-        },
-        {
-          "command": "STARLIMS.GenerateTableInsert",
-          "when": "view == STARLIMSMainTree && viewItem == TABLE",
-          "group": "table"
-        },
-        {
-          "command": "STARLIMS.GenerateTableUpdate",
-          "when": "view == STARLIMSMainTree && viewItem == TABLE",
-          "group": "table"
-        },
-        {
-          "command": "STARLIMS.GenerateTableDelete",
-          "when": "view == STARLIMSMainTree && (viewItem == TABLE)",
-          "group": "table"
-        },
-        {
-          "command": "STARLIMS.Rename",
-          "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && viewItem != SERVERLOG && viewItem != CATEGORY && viewItem != TABLE && viewItem != ENT_TABLES_DATABASE && viewItem != ENT_TABLES_DICTIONARY",
-          "group": "addRemove"
-        },
-        {
-          "command": "STARLIMS.Move",
-          "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && viewItem != SERVERLOG && viewItem != CATEGORY && viewItem != TABLE && viewItem != ENT_TABLES_DATABASE && viewItem != ENT_TABLES_DICTIONARY && !(viewItem =~ /cat/i)",
-          "group": "addRemove"
-        }
-      ],
-      "explorer/context": [
-        {
-          "command": "STARLIMS.Compare",
-          "when": "view != STARLIMS",
-          "group": "sourceControl"
-        },
-        {
-          "command": "STARLIMS.CheckOut",
-          "when": "view == STARLIMSMainTree",
-          "group": "sourceControl"
-        },
-        {
-          "command": "STARLIMS.Checkin",
-          "when": "view == STARLIMSMainTree",
-          "group": "sourceControl"
-        }
-      ],
-      "editor/context": [
-        {
-          "command": "STARLIMS.Compare",
-          "when": "resourceDirname =~ /SLVSCODE/ && !editorReadonly && editorLangId != 'log'",
-          "group": "sourceControl"
-        },
-        {
-          "command": "STARLIMS.RunScript",
-          "when": "resourceDirname =~ /SLVSCODE/ && editorLangId == 'SSL' && !(resourcePath =~ /DataSources/)",
-          "group": "run"
-        },
-        {
-          "command": "STARLIMS.RunDataSource",
-          "when": "resourceDirname =~ /SLVSCODE/ && (editorLangId == 'SLSQL' || (editorLangId == 'SSL' && resourcePath =~ /DataSources/))",
-          "group": "run"
-        },
-        {
-          "command": "STARLIMS.selectEnterpriseItem",
-          "when": "resourceDirname =~ /SLVSCODE/ && editorLangId == 'log'"
-        },
-        {
-          "command": "STARLIMS.ClearLog",
-          "when": "resourceDirname =~ /SLVSCODE/ && editorLangId == 'log'"
-        },
-        {
-          "command": "STARLIMS.OpenXFDForm",
-          "when": "resourceDirname =~ /SLVSCODE/ && resourcePath =~ /XFDForms/"
-        },
-        {
-          "command": "STARLIMS.OpenForm",
-          "when": "resourceDirname =~ /SLVSCODE/ && resourcePath =~ /HTMLForms/",
-          "group": "run"
-        },
-        {
-          "command": "STARLIMS.DesignHTMLForm",
-          "when": "resourceDirname =~ /SLVSCODE/ && resourcePath =~ /HTMLForms/",
-          "group": "run"
-        },
-        {
-          "command": "STARLIMS.DebugForm",
-          "when": "resourceDirname =~ /SLVSCODE/ && resourcePath =~ /HTMLForms/",
-          "group": "run"
-        },
-        {
-          "command": "STARLIMS.CheckOut",
-          "when": "resourceDirname =~ /SLVSCODE/ && editorLangId != 'log'",
-          "group": "sourceControl"
-        },
-        {
-          "command": "STARLIMS.Checkin",
-          "when": "resourceDirname =~ /SLVSCODE/ && editorLangId != 'log'",
-          "group": "sourceControl"
-        },
-        {
-          "command": "STARLIMS.UndoCheckOut",
-          "when": "resourceDirname =~ /SLVSCODE/ && editorLangId != 'log'",
-          "group": "sourceControl"
-        },
-        {
-          "submenu": "STARLIMS.GoTo",
-          "when": "resourceDirname =~ /SLVSCODE/ && editorLangId != 'log' && editorLangId != 'SLSQL'",
-          "group": "navigation"
-        },
-        {
-          "submenu": "STARLIMS.ServerLog",
-          "when": "focusedView == 'workbench.panel.output' && resourceExtname == '.vscode-starlims-#2-STARLIMS Log'",
-          "group": "ServerLog"
-        }
-      ],
-      "STARLIMS.GoTo": [
-        {
-          "command": "STARLIMS.GoToItem",
-          "group": "navigation"
-        },
-        {
-          "command": "STARLIMS.GoToServerScript",
-          "group": "navigation"
-        },
-        {
-          "command": "STARLIMS.GoToClientScript",
-          "group": "navigation"
-        },
-        {
-          "command": "STARLIMS.GoToDataSource",
-          "group": "navigation"
-        },
-        {
-          "command": "STARLIMS.GoToForm",
-          "group": "navigation"
-        }
-      ],
-      "STARLIMS.ServerLog": [
-        {
-          "command": "STARLIMS.RefreshLogChannel",
-          "group": "ServerLog"
-        },
-        {
-          "command": "STARLIMS.ClearLogChannel",
-          "group": "ServerLog"
-        }
-      ]
-    },
-    "submenus": [
-      {
-        "id": "STARLIMS.GoTo",
-        "label": "Go to"
-      },
-      {
-        "id": "STARLIMS.ServerLog",
-        "label": "STARLIMS Log"
-      }
-    ],
-    "configuration": [
-      {
-        "type": "object",
-        "title": "STARLIMS VSCode Configuration",
-        "properties": {
-          "STARLIMS.url": {
-            "type": "string",
-            "default": "",
-            "description": "STARLIMS Installation URL. For example: https://my.starlims.server.com/STARLIMS/"
-          },
-          "STARLIMS.user": {
-            "type": "string",
-            "default": "",
-            "description": "STARLIMS User Name"
-          },
-          "STARLIMS.userPassword": {
-            "type": "null",
-            "description": "STARLIMS User Password. This value is not stored in the settings file.",
-            "markdownDescription": "[Set Password](command:STARLIMS.setPassword)"
-          },
-          "STARLIMS.rootPath": {
-            "type": "string",
-            "default": "",
-            "description": "Root path for downloaded STARLIMS files. For example: C:\\STARLIMS\\. SLVSCODE will be appended to this path."
-          },
-          "STARLIMS.browser": {
-            "type": "string",
-            "enum": [
-              "chrome",
-              "msedge"
-            ],
-            "enumDescriptions": [
-              "Google Chrome",
-              "Microsoft Edge"
-            ],
-            "default": "chrome",
-            "description": "Browser to use for debugging STARLIMS forms. Possible values: chrome, msedge"
-          },
-          "STARLIMS.urlSuffix": {
-            "type": "string",
-            "default": "lims",
-            "description": "The web service request url suffix. Use lims2 with older versions of the STARLIMS Technology Platform which don't recognize the HTTPServices web.config setting key"
-          },
-          "STARLIMS.defaultFormLanguage": {
-            "type": "string",
-            "default": "",
-            "description": "Default language to use when checking out STARLIMS form items."
-          },
-          "STARLIMS.mcp.enabled": {
-            "type": "boolean",
-            "default": false,
-            "description": "Enable the local STARLIMS MCP endpoint on the built-in loopback HTTP server. Only browse, search, code retrieval, and checkout are exposed. Check-in, delete, and other destructive operations remain unavailable."
-          },
-          "STARLIMS.mcp.maxItems": {
-            "type": "number",
-            "default": 100,
-            "minimum": 1,
-            "description": "Maximum number of STARLIMS items returned by a single MCP browse or search request."
-          },
-          "STARLIMS.mcp.port": {
-            "type": "number",
-            "default": 3001,
-            "minimum": 1,
-            "maximum": 65535,
-            "description": "Loopback TCP port used by the STARLIMS MCP endpoint. This is separate from the form callback server on port 3000."
-          },
-          "STARLIMS.mcp.maxCodeCharacters": {
-            "type": "number",
-            "default": 20000,
-            "minimum": 100,
-            "description": "Maximum number of code characters returned by a single STARLIMS MCP read request."
-          },
-          "STARLIMS.servers": {
-            "type": "array",
-            "default": [],
-            "description": "List of configured STARLIMS servers",
-            "items": {
-              "type": "object",
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "description": "Display name for the server"
+    "name":  "vscode-starlims",
+    "displayName":  "STARLIMS VS Code Extension",
+    "description":  "Unofficial dictionary explorer (and more) for STARLIMS.",
+    "license":  "SEE LICENSE IN LICENSE.md",
+    "version":  "1.4.6",
+    "icon":  "resources/extension/starlimsvscode.png",
+    "publisher":  "Christoph Döllinger",
+    "author":  {
+                   "name":  "Christoph Döllinger, Marius Popovici, Jan Bouecke"
+               },
+    "keywords":  [
+                     "STARLIMS",
+                     "SSL",
+                     "STARLIMS Scripting Language"
+                 ],
+    "repository":  {
+                       "type":  "git",
+                       "url":  "https://github.com/mariuspopovici/starlimsvscode"
+                   },
+    "engines":  {
+                    "vscode":  "^1.110.0"
                 },
-                "url": {
-                  "type": "string",
-                  "description": "STARLIMS Installation URL"
+    "categories":  [
+                       "Other",
+                       "SCM Providers",
+                       "Programming Languages",
+                       "Themes"
+                   ],
+    "activationEvents":  [
+                             "onStartupFinished"
+                         ],
+    "main":  "./dist/extension.js",
+    "contributes":  {
+                        "viewsContainers":  {
+                                                "activitybar":  [
+                                                                    {
+                                                                        "id":  "STARLIMSVSCode",
+                                                                        "title":  "STARLIMS VS Code",
+                                                                        "icon":  "resources/extension/star_gray.png",
+                                                                        "alwaysShow":  true
+                                                                    }
+                                                                ]
+                                            },
+                        "views":  {
+                                      "STARLIMSVSCode":  [
+                                                             {
+                                                                 "id":  "STARLIMSServerSelector",
+                                                                 "name":  "Server Selection",
+                                                                 "type":  "webview",
+                                                                 "icon":  "resources/dark/sql.svg",
+                                                                 "visibility":  "collapsed"
+                                                             },
+                                                             {
+                                                                 "id":  "STARLIMSMainTree",
+                                                                 "name":  "STARLIMS Enterprise",
+                                                                 "type":  "tree",
+                                                                 "icon":  "resources/dark/treeview.svg"
+                                                             },
+                                                             {
+                                                                 "id":  "STARLIMSCheckedOutTree",
+                                                                 "name":  "Checked Out Items",
+                                                                 "type":  "tree",
+                                                                 "icon":  "resources/dark/treeview.svg"
+                                                             },
+                                                             {
+                                                                 "id":  "STARLIMSTicketsTree",
+                                                                 "name":  "Tickets",
+                                                                 "type":  "tree",
+                                                                 "icon":  "resources/dark/users.svg"
+                                                             }
+                                                         ]
+                                  },
+                        "commands":  [
+                                         {
+                                             "command":  "STARLIMS.Refresh",
+                                             "title":  "Refresh Explorer"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.CheckOut",
+                                             "title":  "Check Out"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.Checkin",
+                                             "title":  "Check In"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.Connect",
+                                             "title":  "Connect to STARLIMS"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.OpenTestView",
+                                             "title":  "Open STARLIMS Test View"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.Compare",
+                                             "title":  "Compare with Remote Version"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.RunScript",
+                                             "title":  "Run Script"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.RunDataSource",
+                                             "title":  "Run Data Source"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.Save",
+                                             "title":  "Save File"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.ClearLog",
+                                             "title":  "Clear Log"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.selectEnterpriseItem",
+                                             "title":  "Refresh Log"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.Search",
+                                             "title":  "Search for Items...",
+                                             "icon":  {
+                                                          "dark":  "resources/dark/search.svg",
+                                                          "light":  "resources/light/search.svg"
+                                                      }
+                                         },
+                                         {
+                                             "command":  "STARLIMS.ShowTreeView",
+                                             "title":  "Show/Refresh Tree View",
+                                             "icon":  {
+                                                          "dark":  "resources/dark/treeview.svg",
+                                                          "light":  "resources/light/treeview.svg"
+                                                      }
+                                         },
+                                         {
+                                             "command":  "STARLIMS.OpenForm",
+                                             "title":  "Open Form"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.OpenXFDForm",
+                                             "title":  "Open Form"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.DebugForm",
+                                             "title":  "Debug Form"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.DesignHTMLForm",
+                                             "title":  "Design Form"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.Add",
+                                             "title":  "Add new...",
+                                             "icon":  {
+                                                          "dark":  "resources/dark/add.svg",
+                                                          "light":  "resources/light/add.svg"
+                                                      }
+                                         },
+                                         {
+                                             "command":  "STARLIMS.Delete",
+                                             "title":  "Delete",
+                                             "icon":  {
+                                                          "dark":  "resources/dark/delete.svg",
+                                                          "light":  "resources/light/delete.svg"
+                                                      }
+                                         },
+                                         {
+                                             "command":  "STARLIMS.SendNameToEditor",
+                                             "title":  "Send To Editor"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.GenerateTableSelect",
+                                             "title":  "Generate SELECT"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.GenerateTableInsert",
+                                             "title":  "Generate INSERT"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.GenerateTableUpdate",
+                                             "title":  "Generate UPDATE"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.GenerateTableDelete",
+                                             "title":  "Generate DELETE"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.GoToServerScript",
+                                             "title":  "Server Script"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.GoToClientScript",
+                                             "title":  "Client Script"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.GoToDataSource",
+                                             "title":  "Data Source"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.GoToForm",
+                                             "title":  "Form (Code Behind)"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.GoToItem",
+                                             "title":  "Autodetect Item Type"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.GetCheckedOutItems",
+                                             "title":  "Refresh my checked out items",
+                                             "icon":  {
+                                                          "dark":  "resources/dark/refresh.svg",
+                                                          "light":  "resources/light/refresh.svg"
+                                                      }
+                                         },
+                                         {
+                                             "command":  "STARLIMS.GetAllCheckedOutItems",
+                                             "title":  "View checked out items of all users",
+                                             "icon":  {
+                                                          "dark":  "resources/dark/users.svg",
+                                                          "light":  "resources/light/users.svg"
+                                                      }
+                                         },
+                                         {
+                                             "command":  "STARLIMS.CheckInAllItems",
+                                             "title":  "Check in all my items",
+                                             "icon":  {
+                                                          "dark":  "resources/dark/checkinall.svg",
+                                                          "light":  "resources/light/checkinall.svg"
+                                                      }
+                                         },
+                                         {
+                                             "command":  "STARLIMS.UndoCheckOut",
+                                             "title":  "Undo Check Out"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.RefreshLogChannel",
+                                             "title":  "Refresh"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.ClearLogChannel",
+                                             "title":  "Clear"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.GlobalCodeSearch",
+                                             "title":  "Search in Code...",
+                                             "icon":  {
+                                                          "dark":  "resources/dark/codesearch.svg",
+                                                          "light":  "resources/light/codesearch.svg"
+                                                      }
+                                         },
+                                         {
+                                             "command":  "STARLIMS.setPassword",
+                                             "title":  "Set user password"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.Rename",
+                                             "title":  "Rename"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.Move",
+                                             "title":  "Move"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.OpenCodeBehind",
+                                             "title":  "Open Form Code Behind"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.configureServer",
+                                             "title":  "Configure Server",
+                                             "icon":  {
+                                                          "dark":  "resources/dark/settings.svg",
+                                                          "light":  "resources/light/settings.svg"
+                                                      }
+                                         },
+                                         {
+                                             "command":  "STARLIMS.selectServer",
+                                             "title":  "Select Server"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.ExportAllCheckouts",
+                                             "title":  "Export all checked out items to SDP",
+                                             "icon":  {
+                                                          "dark":  "resources/dark/export.svg",
+                                                          "light":  "resources/light/export.svg"
+                                                      }
+                                         },
+                                         {
+                                             "command":  "STARLIMS.InitializeGitRepo",
+                                             "title":  "STARLIMS: Initialize Git Repository",
+                                             "icon":  {
+                                                          "dark":  "resources/dark/git.svg",
+                                                          "light":  "resources/light/git.svg"
+                                                      }
+                                         },
+                                         {
+                                             "command":  "STARLIMS.ConfigureGitRemote",
+                                             "title":  "STARLIMS: Configure Git Remote"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.RefreshTickets",
+                                             "title":  "Refresh tickets",
+                                             "icon":  {
+                                                          "dark":  "resources/dark/refresh.svg",
+                                                          "light":  "resources/light/refresh.svg"
+                                                      }
+                                         },
+                                         {
+                                             "command":  "STARLIMS.SelectActiveTicket",
+                                             "title":  "Use Ticket For Check-In"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.UndertakeTicket",
+                                             "title":  "Undertake ticket"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.ClearActiveTicket",
+                                             "title":  "Clear Active Ticket",
+                                             "icon":  {
+                                                          "dark":  "resources/dark/delete.svg",
+                                                          "light":  "resources/light/delete.svg"
+                                                      }
+                                         }
+                                     ],
+                        "keybindings":  [
+                                            {
+                                                "command":  "STARLIMS.GoToItem",
+                                                "key":  "f11",
+                                                "when":  "editorTextFocus \u0026\u0026 (resourceDirname =~ /SLVSCODE/ \u0026\u0026 editorLangId != \u0027log\u0027 \u0026\u0026 editorLangId != \u0027SLSQL\u0027) || (focusedView == \u0027workbench.panel.output\u0027 \u0026\u0026 resourceExtname == \u0027.vscode-starlims-#2-STARLIMS Log\u0027)"
+                                            },
+                                            {
+                                                "command":  "STARLIMS.RunScript",
+                                                "key":  "f5",
+                                                "when":  "editorTextFocus \u0026\u0026 resourceDirname =~ /SLVSCODE/ \u0026\u0026 editorLangId == \u0027SSL\u0027 \u0026\u0026 !(resourcePath =~ /DataSources/)"
+                                            },
+                                            {
+                                                "command":  "STARLIMS.RunDataSource",
+                                                "key":  "f5",
+                                                "when":  "editorTextFocus \u0026\u0026 resourceDirname =~ /SLVSCODE/ \u0026\u0026 (editorLangId == \u0027SLSQL\u0027 || resourcePath =~ /DataSources/)"
+                                            },
+                                            {
+                                                "command":  "STARLIMS.DebugForm",
+                                                "key":  "f5",
+                                                "when":  "editorTextFocus \u0026\u0026 resourceDirname =~ /SLVSCODE/ \u0026\u0026 resourcePath =~ /HTMLForms/"
+                                            },
+                                            {
+                                                "command":  "STARLIMS.OpenForm",
+                                                "key":  "ctrl+f5",
+                                                "when":  "editorTextFocus \u0026\u0026 resourceDirname =~ /SLVSCODE/ \u0026\u0026 resourcePath =~ /Forms/"
+                                            },
+                                            {
+                                                "command":  "STARLIMS.OpenXFDForm",
+                                                "key":  "ctrl+f5",
+                                                "when":  "editorTextFocus \u0026\u0026 resourceDirname =~ /SLVSCODE/ \u0026\u0026 resourcePath =~ /XFDForms/"
+                                            },
+                                            {
+                                                "command":  "STARLIMS.DesignHTMLForm",
+                                                "key":  "ctrl+f6",
+                                                "when":  "editorTextFocus \u0026\u0026 resourceDirname =~ /SLVSCODE/ \u0026\u0026 resourcePath =~ /HTMLForms/"
+                                            },
+                                            {
+                                                "command":  "STARLIMS.RefreshLogChannel",
+                                                "key":  "f5",
+                                                "when":  "focusedView == \u0027workbench.panel.output\u0027 \u0026\u0026 resourceExtname == \u0027.vscode-starlims-#2-STARLIMS Log\u0027"
+                                            },
+                                            {
+                                                "command":  "STARLIMS.ClearLogChannel",
+                                                "key":  "ctrl+f5",
+                                                "when":  "focusedView == \u0027workbench.panel.output\u0027 \u0026\u0026 resourceExtname == \u0027.vscode-starlims-#2-STARLIMS Log\u0027"
+                                            },
+                                            {
+                                                "command":  "STARLIMS.GlobalCodeSearch",
+                                                "key":  "ctrl+alt+f",
+                                                "when":  "view == STARLIMSMainTree || (editorTextFocus \u0026\u0026 resourceDirname =~ /SLVSCODE/)"
+                                            }
+                                        ],
+                        "menus":  {
+                                      "view/title":  [
+                                                         {
+                                                             "command":  "STARLIMS.ShowTreeView",
+                                                             "when":  "view == STARLIMSMainTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
+                                                             "command":  "STARLIMS.Search",
+                                                             "when":  "view == STARLIMSMainTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
+                                                             "command":  "STARLIMS.GlobalCodeSearch",
+                                                             "when":  "view == STARLIMSMainTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
+                                                             "command":  "STARLIMS.Add",
+                                                             "when":  "view == STARLIMSMainTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
+                                                             "command":  "STARLIMS.Delete",
+                                                             "when":  "view == STARLIMSMainTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
+                                                             "command":  "STARLIMS.GetCheckedOutItems",
+                                                             "when":  "view == STARLIMSCheckedOutTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
+                                                             "command":  "STARLIMS.GetAllCheckedOutItems",
+                                                             "when":  "view == STARLIMSCheckedOutTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
+                                                             "command":  "STARLIMS.CheckInAllItems",
+                                                             "when":  "view == STARLIMSCheckedOutTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
+                                                             "command":  "STARLIMS.ExportAllCheckouts",
+                                                             "when":  "view == STARLIMSCheckedOutTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
+                                                             "command":  "STARLIMS.RefreshTickets",
+                                                             "when":  "view == STARLIMSTicketsTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                        {
+                                                            "command": "STARLIMS.UndertakeTicket",
+                                                            "when": "view == STARLIMSTicketsTree",
+                                                            "group": "navigation"
+                                                        },
+                                                         {
+                                                             "command":  "STARLIMS.ClearActiveTicket",
+                                                             "when":  "view == STARLIMSTicketsTree",
+                                                             "group":  "navigation"
+                                                         }
+                                                     ],
+                                      "view/item/context":  [
+                                                                {
+                                                                    "command":  "STARLIMS.Refresh",
+                                                                    "when":  "view == STARLIMSMainTree",
+                                                                    "group":  "z_navigation"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.RunScript",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 (viewItem == SS || viewItem == APPSS)",
+                                                                    "group":  "run"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.RunDataSource",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 (viewItem == DS || viewItem == APPDS)",
+                                                                    "group":  "run"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.CheckOut",
+                                                                    "when":  "view == STARLIMSMainTree \u0026\u0026 viewItem != SERVERLOG \u0026\u0026 viewItem != CATEGORY \u0026\u0026 viewItem != APP \u0026\u0026 viewItem != ENT_TABLES_DATABASE \u0026\u0026 viewItem != ENT_TABLES_DICTIONARY \u0026\u0026 viewItem != ENT_TABLES_DATABASE \u0026\u0026 viewItem != ENT_TABLES_DICTIONARY",
+                                                                    "group":  "sourceControl"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.Checkin",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 viewItem != SERVERLOG \u0026\u0026 !(viewItem =~ /CAT/) \u0026\u0026 viewItem != APP \u0026\u0026 viewItem != ENT_TABLES_DATABASE \u0026\u0026 viewItem != ENT_TABLES_DICTIONARY",
+                                                                    "group":  "sourceControl"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.UndoCheckOut",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 viewItem != SERVERLOG \u0026\u0026 !(viewItem =~ /CAT/) \u0026\u0026 viewItem != APP \u0026\u0026 viewItem != ENT_TABLES_DATABASE \u0026\u0026 viewItem != ENT_TABLES_DICTIONARY",
+                                                                    "group":  "sourceControl"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.selectEnterpriseItem",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 viewItem == SERVERLOG"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.OpenForm",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 (viewItem == HTMLFORMXML || viewItem == HTMLFORMCODE)",
+                                                                    "group":  "run"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.DebugForm",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 (viewItem == HTMLFORMXML || viewItem == HTMLFORMCODE)",
+                                                                    "group":  "run"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.DesignHTMLForm",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 (viewItem == HTMLFORMXML || viewItem == HTMLFORMCODE)",
+                                                                    "group":  "run"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.Delete",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 viewItem != SERVERLOG \u0026\u0026 viewItem != APPLICATION \u0026\u0026 !(viewItem =~ /category/i)",
+                                                                    "group":  "addRemove"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.Add",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 (viewItem =~ /cat/i || viewItem != APPLICATION) \u0026\u0026 viewItem != TABLE \u0026\u0026 viewItem != SERVERLOG \u0026\u0026 viewItem != ENT_TABLES_DATABASE \u0026\u0026 viewItem != ENT_TABLES_DICTIONARY",
+                                                                    "group":  "addRemove"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.OpenXFDForm",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 (viewItem == XFDFORMXML || viewItem == XFDFORMCODE)",
+                                                                    "group":  "run"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.SendNameToEditor",
+                                                                    "when":  "view == STARLIMSMainTree \u0026\u0026 viewItem == TABLE",
+                                                                    "group":  "all"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.GenerateTableSelect",
+                                                                    "when":  "view == STARLIMSMainTree \u0026\u0026 viewItem == TABLE",
+                                                                    "group":  "table"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.GenerateTableInsert",
+                                                                    "when":  "view == STARLIMSMainTree \u0026\u0026 viewItem == TABLE",
+                                                                    "group":  "table"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.GenerateTableUpdate",
+                                                                    "when":  "view == STARLIMSMainTree \u0026\u0026 viewItem == TABLE",
+                                                                    "group":  "table"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.GenerateTableDelete",
+                                                                    "when":  "view == STARLIMSMainTree \u0026\u0026 (viewItem == TABLE)",
+                                                                    "group":  "table"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.Rename",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 viewItem != SERVERLOG \u0026\u0026 viewItem != CATEGORY \u0026\u0026 viewItem != TABLE \u0026\u0026 viewItem != ENT_TABLES_DATABASE \u0026\u0026 viewItem != ENT_TABLES_DICTIONARY",
+                                                                    "group":  "addRemove"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.Move",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 viewItem != SERVERLOG \u0026\u0026 viewItem != CATEGORY \u0026\u0026 viewItem != TABLE \u0026\u0026 viewItem != ENT_TABLES_DATABASE \u0026\u0026 viewItem != ENT_TABLES_DICTIONARY \u0026\u0026 !(viewItem =~ /cat/i)",
+                                                                    "group":  "addRemove"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.SelectActiveTicket",
+                                                                    "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == ticket || viewItem == activeTicket)",
+                                                                    "group":  "navigation"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.UndertakeTicket",
+                                                                    "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == ticket || viewItem == activeTicket)",
+                                                                    "group":  "navigation"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.ClearActiveTicket",
+                                                                    "when":  "view == STARLIMSTicketsTree \u0026\u0026 viewItem == activeTicket",
+                                                                    "group":  "navigation"
+                                                                }
+                                                            ],
+                                      "explorer/context":  [
+                                                               {
+                                                                   "command":  "STARLIMS.Compare",
+                                                                   "when":  "view != STARLIMS",
+                                                                   "group":  "sourceControl"
+                                                               },
+                                                               {
+                                                                   "command":  "STARLIMS.CheckOut",
+                                                                   "when":  "view == STARLIMSMainTree",
+                                                                   "group":  "sourceControl"
+                                                               },
+                                                               {
+                                                                   "command":  "STARLIMS.Checkin",
+                                                                   "when":  "view == STARLIMSMainTree",
+                                                                   "group":  "sourceControl"
+                                                               }
+                                                           ],
+                                      "editor/context":  [
+                                                             {
+                                                                 "command":  "STARLIMS.Compare",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 !editorReadonly \u0026\u0026 editorLangId != \u0027log\u0027",
+                                                                 "group":  "sourceControl"
+                                                             },
+                                                             {
+                                                                 "command":  "STARLIMS.RunScript",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 editorLangId == \u0027SSL\u0027 \u0026\u0026 !(resourcePath =~ /DataSources/)",
+                                                                 "group":  "run"
+                                                             },
+                                                             {
+                                                                 "command":  "STARLIMS.RunDataSource",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 (editorLangId == \u0027SLSQL\u0027 || (editorLangId == \u0027SSL\u0027 \u0026\u0026 resourcePath =~ /DataSources/))",
+                                                                 "group":  "run"
+                                                             },
+                                                             {
+                                                                 "command":  "STARLIMS.selectEnterpriseItem",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 editorLangId == \u0027log\u0027"
+                                                             },
+                                                             {
+                                                                 "command":  "STARLIMS.ClearLog",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 editorLangId == \u0027log\u0027"
+                                                             },
+                                                             {
+                                                                 "command":  "STARLIMS.OpenXFDForm",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 resourcePath =~ /XFDForms/"
+                                                             },
+                                                             {
+                                                                 "command":  "STARLIMS.OpenForm",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 resourcePath =~ /HTMLForms/",
+                                                                 "group":  "run"
+                                                             },
+                                                             {
+                                                                 "command":  "STARLIMS.DesignHTMLForm",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 resourcePath =~ /HTMLForms/",
+                                                                 "group":  "run"
+                                                             },
+                                                             {
+                                                                 "command":  "STARLIMS.DebugForm",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 resourcePath =~ /HTMLForms/",
+                                                                 "group":  "run"
+                                                             },
+                                                             {
+                                                                 "command":  "STARLIMS.CheckOut",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 editorLangId != \u0027log\u0027",
+                                                                 "group":  "sourceControl"
+                                                             },
+                                                             {
+                                                                 "command":  "STARLIMS.Checkin",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 editorLangId != \u0027log\u0027",
+                                                                 "group":  "sourceControl"
+                                                             },
+                                                             {
+                                                                 "command":  "STARLIMS.UndoCheckOut",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 editorLangId != \u0027log\u0027",
+                                                                 "group":  "sourceControl"
+                                                             },
+                                                             {
+                                                                 "submenu":  "STARLIMS.GoTo",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 editorLangId != \u0027log\u0027 \u0026\u0026 editorLangId != \u0027SLSQL\u0027",
+                                                                 "group":  "navigation"
+                                                             },
+                                                             {
+                                                                 "submenu":  "STARLIMS.ServerLog",
+                                                                 "when":  "focusedView == \u0027workbench.panel.output\u0027 \u0026\u0026 resourceExtname == \u0027.vscode-starlims-#2-STARLIMS Log\u0027",
+                                                                 "group":  "ServerLog"
+                                                             }
+                                                         ],
+                                      "STARLIMS.GoTo":  [
+                                                            {
+                                                                "command":  "STARLIMS.GoToItem",
+                                                                "group":  "navigation"
+                                                            },
+                                                            {
+                                                                "command":  "STARLIMS.GoToServerScript",
+                                                                "group":  "navigation"
+                                                            },
+                                                            {
+                                                                "command":  "STARLIMS.GoToClientScript",
+                                                                "group":  "navigation"
+                                                            },
+                                                            {
+                                                                "command":  "STARLIMS.GoToDataSource",
+                                                                "group":  "navigation"
+                                                            },
+                                                            {
+                                                                "command":  "STARLIMS.GoToForm",
+                                                                "group":  "navigation"
+                                                            }
+                                                        ],
+                                      "STARLIMS.ServerLog":  [
+                                                                 {
+                                                                     "command":  "STARLIMS.RefreshLogChannel",
+                                                                     "group":  "ServerLog"
+                                                                 },
+                                                                 {
+                                                                     "command":  "STARLIMS.ClearLogChannel",
+                                                                     "group":  "ServerLog"
+                                                                 }
+                                                             ]
+                                  },
+                        "submenus":  [
+                                         {
+                                             "id":  "STARLIMS.GoTo",
+                                             "label":  "Go to"
+                                         },
+                                         {
+                                             "id":  "STARLIMS.ServerLog",
+                                             "label":  "STARLIMS Log"
+                                         }
+                                     ],
+                        "configuration":  [
+                                              {
+                                                  "type":  "object",
+                                                  "title":  "STARLIMS VSCode Configuration",
+                                                  "properties":  {
+                                                                     "STARLIMS.url":  {
+                                                                                          "type":  "string",
+                                                                                          "default":  "",
+                                                                                          "description":  "STARLIMS Installation URL. For example: https://my.starlims.server.com/STARLIMS/"
+                                                                                      },
+                                                                     "STARLIMS.user":  {
+                                                                                           "type":  "string",
+                                                                                           "default":  "",
+                                                                                           "description":  "STARLIMS User Name"
+                                                                                       },
+                                                                     "STARLIMS.userPassword":  {
+                                                                                                   "type":  "null",
+                                                                                                   "description":  "STARLIMS User Password. This value is not stored in the settings file.",
+                                                                                                   "markdownDescription":  "[Set Password](command:STARLIMS.setPassword)"
+                                                                                               },
+                                                                     "STARLIMS.rootPath":  {
+                                                                                               "type":  "string",
+                                                                                               "default":  "",
+                                                                                               "description":  "Root path for downloaded STARLIMS files. For example: C:\\STARLIMS\\. SLVSCODE will be appended to this path."
+                                                                                           },
+                                                                     "STARLIMS.browser":  {
+                                                                                              "type":  "string",
+                                                                                              "enum":  [
+                                                                                                           "chrome",
+                                                                                                           "msedge"
+                                                                                                       ],
+                                                                                              "enumDescriptions":  [
+                                                                                                                       "Google Chrome",
+                                                                                                                       "Microsoft Edge"
+                                                                                                                   ],
+                                                                                              "default":  "chrome",
+                                                                                              "description":  "Browser to use for debugging STARLIMS forms. Possible values: chrome, msedge"
+                                                                                          },
+                                                                     "STARLIMS.urlSuffix":  {
+                                                                                                "type":  "string",
+                                                                                                "default":  "lims",
+                                                                                                "description":  "The web service request url suffix. Use lims2 with older versions of the STARLIMS Technology Platform which don\u0027t recognize the HTTPServices web.config setting key"
+                                                                                            },
+                                                                     "STARLIMS.defaultFormLanguage":  {
+                                                                                                          "type":  "string",
+                                                                                                          "default":  "",
+                                                                                                          "description":  "Default language to use when checking out STARLIMS form items."
+                                                                                                      },
+                                                                     "STARLIMS.mcp.enabled":  {
+                                                                                                  "type":  "boolean",
+                                                                                                  "default":  false,
+                                                                                                  "description":  "Enable the local STARLIMS MCP endpoint on the built-in loopback HTTP server. Only browse, search, code retrieval, and checkout are exposed. Check-in, delete, and other destructive operations remain unavailable."
+                                                                                              },
+                                                                     "STARLIMS.mcp.maxItems":  {
+                                                                                                   "type":  "number",
+                                                                                                   "default":  100,
+                                                                                                   "minimum":  1,
+                                                                                                   "description":  "Maximum number of STARLIMS items returned by a single MCP browse or search request."
+                                                                                               },
+                                                                     "STARLIMS.mcp.port":  {
+                                                                                               "type":  "number",
+                                                                                               "default":  3001,
+                                                                                               "minimum":  1,
+                                                                                               "maximum":  65535,
+                                                                                               "description":  "Loopback TCP port used by the STARLIMS MCP endpoint. This is separate from the form callback server on port 3000."
+                                                                                           },
+                                                                     "STARLIMS.mcp.maxCodeCharacters":  {
+                                                                                                            "type":  "number",
+                                                                                                            "default":  20000,
+                                                                                                            "minimum":  100,
+                                                                                                            "description":  "Maximum number of code characters returned by a single STARLIMS MCP read request."
+                                                                                                        },
+                                                                     "STARLIMS.servers":  {
+                                                                                              "type":  "array",
+                                                                                              "default":  [
+
+                                                                                                          ],
+                                                                                              "description":  "List of configured STARLIMS servers",
+                                                                                              "items":  {
+                                                                                                            "type":  "object",
+                                                                                                            "properties":  {
+                                                                                                                               "name":  {
+                                                                                                                                            "type":  "string",
+                                                                                                                                            "description":  "Display name for the server"
+                                                                                                                                        },
+                                                                                                                               "url":  {
+                                                                                                                                           "type":  "string",
+                                                                                                                                           "description":  "STARLIMS Installation URL"
+                                                                                                                                       },
+                                                                                                                               "user":  {
+                                                                                                                                            "type":  "string",
+                                                                                                                                            "description":  "STARLIMS User Name"
+                                                                                                                                        },
+                                                                                                                               "urlSuffix":  {
+                                                                                                                                                 "type":  "string",
+                                                                                                                                                 "default":  "lims",
+                                                                                                                                                 "description":  "The web service request url suffix"
+                                                                                                                                             }
+                                                                                                                           },
+                                                                                                            "required":  [
+                                                                                                                             "name",
+                                                                                                                             "url"
+                                                                                                                         ]
+                                                                                                        }
+                                                                                          },
+                                                                     "STARLIMS.selectedServer":  {
+                                                                                                     "type":  "string",
+                                                                                                     "default":  "",
+                                                                                                     "description":  "Currently selected server name"
+                                                                                                 },
+                                                                     "STARLIMS.git.enabled":  {
+                                                                                                  "type":  "boolean",
+                                                                                                  "default":  false,
+                                                                                                  "description":  "Enable git integration for STARLIMS check-in operations"
+                                                                                              },
+                                                                     "STARLIMS.git.autoPush":  {
+                                                                                                   "type":  "boolean",
+                                                                                                   "default":  true,
+                                                                                                   "description":  "Automatically push commits to remote repository after check-in"
+                                                                                               },
+                                                                     "STARLIMS.git.remoteUrl":  {
+                                                                                                    "type":  "string",
+                                                                                                    "default":  "",
+                                                                                                    "description":  "Git remote repository URL (optional, can be configured separately)"
+                                                                                                },
+                                                                     "STARLIMS.git.remoteName":  {
+                                                                                                     "type":  "string",
+                                                                                                     "default":  "origin",
+                                                                                                     "description":  "Git remote name"
+                                                                                                 },
+                                                                     "STARLIMS.git.commitMessageGenerator":  {
+                                                                                                                 "type":  "string",
+                                                                                                                 "enum":  [
+                                                                                                                              "fast",
+                                                                                                                              "copilot"
+                                                                                                                          ],
+                                                                                                                 "enumDescriptions":  [
+                                                                                                                                          "Use a fast local fallback message such as \u0027Update frmTest [Code Behind]\u0027 without calling Copilot.",
+                                                                                                                                          "Use Copilot to generate the message, with a short timeout fallback to the fast local message."
+                                                                                                                                      ],
+                                                                                                                 "default":  "fast",
+                                                                                                                 "description":  "How Copilot generates check-in and Git commit messages."
+                                                                                                             },
+                                                                     "STARLIMS.git.copilotCommitMessageModel":  {
+                                                                                                                    "type":  "string",
+                                                                                                                    "default":  "",
+                                                                                                                    "description":  "Optional exact Copilot chat model name to use for generated check-in and Git commit messages, for example \u0027Raptor Mini (Preview)\u0027. Leave empty to use the default available Copilot model."
+                                                                                                                },
+                                                                     "STARLIMS.git.copilotCommitMessageSystemPrompt":  {
+                                                                                                                           "type":  "string",
+                                                                                                                           "default":  "You write STARLIMS commit messages. Describe the changes in detail. Mention the main item or items based on the diffs. Use bullets where applicable. ",
+                                                                                                                           "markdownDescription":  "Top-level instruction text sent to Copilot before the STARLIMS item context when generating check-in and Git commit messages."
+                                                                                                                       },
+                                                                     "STARLIMS.git.commitMessageDetailLevel":  {
+                                                                                                                   "type":  "string",
+                                                                                                                   "enum":  [
+                                                                                                                                "short",
+                                                                                                                                "standard",
+                                                                                                                                "detailed"
+                                                                                                                            ],
+                                                                                                                   "enumDescriptions":  [
+                                                                                                                                            "Keep messages compact and focused on the item name and change details.",
+                                                                                                                                            "Include balanced context such as item type or change details when helpful.",
+                                                                                                                                            "Prefer richer descriptions that include item name and the change details."
+                                                                                                                                        ],
+                                                                                                                   "default":  "standard",
+                                                                                                                   "description":  "How much detail to include in generated STARLIMS commit messages."
+                                                                                                               },
+                                                                     "STARLIMS.git.commitMessageMaxLength":  {
+                                                                                                                 "type":  "number",
+                                                                                                                 "default":  512,
+                                                                                                                 "minimum":  100,
+                                                                                                                 "description":  "Maximum length for generated STARLIMS commit messages."
+                                                                                                             },
+                                                                     "STARLIMS.git.commitMessagePrefix":  {
+                                                                                                              "type":  "string",
+                                                                                                              "default":  "",
+                                                                                                              "description":  "Optional prefix added to generated STARLIMS commit messages, for example a ticket or team tag."
+                                                                                                          },
+                                                                     "STARLIMS.git.includeItemTypeInCommitMessage":  {
+                                                                                                                         "type":  "boolean",
+                                                                                                                         "default":  true,
+                                                                                                                         "description":  "Include the STARLIMS item type in generated commit messages when using standard or detailed modes."
+                                                                                                                     },
+                                                                     "STARLIMS.git.includeLanguageInCommitMessage":  {
+                                                                                                                         "type":  "boolean",
+                                                                                                                         "default":  true,
+                                                                                                                         "description":  "Include the STARLIMS language in generated commit messages when available."
+                                                                                                                     },
+                                                                     "STARLIMS.git.includeFileNameInCommitMessage":  {
+                                                                                                                         "type":  "boolean",
+                                                                                                                         "default":  false,
+                                                                                                                         "description":  "Include the local file name in generated commit messages when available."
+                                                                                                                     },
+                                                                     "STARLIMS.git.copilotCommitMessageTimeoutMs":  {
+                                                                                                                        "type":  "number",
+                                                                                                                        "default":  4000,
+                                                                                                                        "minimum":  500,
+                                                                                                                        "description":  "Maximum time in milliseconds to wait for Copilot commit message generation before falling back to the fast local message."
+                                                                                                                    }
+                                                                 }
+                                              }
+                                          ],
+                        "languages":  [
+                                          {
+                                              "id":  "SSL",
+                                              "aliases":  [
+                                                              "Starlims Scripting Language",
+                                                              "ssl"
+                                                          ],
+                                              "extensions":  [
+                                                                 ".ssl",
+                                                                 ".srvscr"
+                                                             ],
+                                              "configuration":  "./language-configuration-ssl.json"
+                                          },
+                                          {
+                                              "id":  "SLSQL",
+                                              "aliases":  [
+                                                              "Starlims SQL",
+                                                              "slsql"
+                                                          ],
+                                              "extensions":  [
+                                                                 ".slsql"
+                                                             ],
+                                              "configuration":  "./language-configuration-slsql.json"
+                                          }
+                                      ],
+                        "grammars":  [
+                                         {
+                                             "language":  "SLSQL",
+                                             "scopeName":  "source.slsql",
+                                             "path":  "./syntaxes/slsql.tmLanguage.json"
+                                         },
+                                         {
+                                             "language":  "SSL",
+                                             "scopeName":  "source.ssl",
+                                             "path":  "./syntaxes/ssl.tmLanguage.json"
+                                         }
+                                     ],
+                        "snippets":  [
+                                         {
+                                             "language":  "SSL",
+                                             "path":  "./snippets/snippets.json"
+                                         }
+                                     ],
+                        "themes":  [
+                                       {
+                                           "label":  "SSL Language Theme (Dark)",
+                                           "uiTheme":  "vs-dark",
+                                           "path":  "./themes/SSL Theme-color-theme.json"
+                                       }
+                                   ]
+                    },
+    "scripts":  {
+                    "vscode:prepublish":  "npm run package",
+                    "compile":  "webpack",
+                    "watch":  "webpack --watch",
+                    "package":  "webpack --mode production --devtool hidden-source-map",
+                    "compile-tests":  "tsc -p . --outDir out",
+                    "watch-tests":  "tsc -p . -w --outDir out",
+                    "pretest":  "npm run compile-tests \u0026\u0026 npm run compile \u0026\u0026 npm run lint",
+                    "lint":  "eslint src --ext ts",
+                    "test":  "node ./out/test/runTest.js",
+                    "build":  "(rm -rf out || true) \u0026\u0026 mkdir out \u0026\u0026 cp package.json out \u0026\u0026 cd ./src/backend \u0026\u0026 ./create-packages.sh \u0026\u0026 cd ../.. \u0026\u0026 vsce package",
+                    "build-windows":  "if exist out rmdir /s /q out \u0026 mkdir out \u0026 copy package.json out \u0026 cd .\\src\\backend \u0026 .\\create-packages.sh \u0026 cd ..\\.. \u0026 vsce package",
+                    "vsce":  "vsce"
                 },
-                "user": {
-                  "type": "string",
-                  "description": "STARLIMS User Name"
-                },
-                "urlSuffix": {
-                  "type": "string",
-                  "default": "lims",
-                  "description": "The web service request url suffix"
-                }
-              },
-              "required": [
-                "name",
-                "url"
-              ]
-            }
-          },
-          "STARLIMS.selectedServer": {
-            "type": "string",
-            "default": "",
-            "description": "Currently selected server name"
-          },
-          "STARLIMS.git.enabled": {
-            "type": "boolean",
-            "default": false,
-            "description": "Enable git integration for STARLIMS check-in operations"
-          },
-          "STARLIMS.git.autoPush": {
-            "type": "boolean",
-            "default": true,
-            "description": "Automatically push commits to remote repository after check-in"
-          },
-          "STARLIMS.git.remoteUrl": {
-            "type": "string",
-            "default": "",
-            "description": "Git remote repository URL (optional, can be configured separately)"
-          },
-          "STARLIMS.git.remoteName": {
-            "type": "string",
-            "default": "origin",
-            "description": "Git remote name"
-          },
-          "STARLIMS.git.commitMessageGenerator": {
-            "type": "string",
-            "enum": [
-              "fast",
-              "copilot"
-            ],
-            "enumDescriptions": [
-              "Use a fast local fallback message such as 'Update frmTest [Code Behind]' without calling Copilot.",
-              "Use Copilot to generate the message, with a short timeout fallback to the fast local message."
-            ],
-            "default": "fast",
-            "description": "How Copilot generates check-in and Git commit messages."
-          },
-          "STARLIMS.git.copilotCommitMessageModel": {
-            "type": "string",
-            "default": "",
-            "description": "Optional exact Copilot chat model name to use for generated check-in and Git commit messages, for example 'Raptor Mini (Preview)'. Leave empty to use the default available Copilot model."
-          },
-          "STARLIMS.git.copilotCommitMessageSystemPrompt": {
-            "type": "string",
-            "default": "You write STARLIMS commit messages. Describe the changes in detail. Mention the main item or items based on the diffs. Use bullets where applicable. ",
-            "markdownDescription": "Top-level instruction text sent to Copilot before the STARLIMS item context when generating check-in and Git commit messages."
-          },
-          "STARLIMS.git.commitMessageDetailLevel": {
-            "type": "string",
-            "enum": [
-              "short",
-              "standard",
-              "detailed"
-            ],
-            "enumDescriptions": [
-              "Keep messages compact and focused on the item name and change details.",
-              "Include balanced context such as item type or change details when helpful.",
-              "Prefer richer descriptions that include item name and the change details."
-            ],
-            "default": "standard",
-            "description": "How much detail to include in generated STARLIMS commit messages."
-          },
-          "STARLIMS.git.commitMessageMaxLength": {
-            "type": "number",
-            "default": 512,
-            "minimum": 100,
-            "description": "Maximum length for generated STARLIMS commit messages."
-          },
-          "STARLIMS.git.commitMessagePrefix": {
-            "type": "string",
-            "default": "",
-            "description": "Optional prefix added to generated STARLIMS commit messages, for example a ticket or team tag."
-          },
-          "STARLIMS.git.includeItemTypeInCommitMessage": {
-            "type": "boolean",
-            "default": true,
-            "description": "Include the STARLIMS item type in generated commit messages when using standard or detailed modes."
-          },
-          "STARLIMS.git.includeLanguageInCommitMessage": {
-            "type": "boolean",
-            "default": true,
-            "description": "Include the STARLIMS language in generated commit messages when available."
-          },
-          "STARLIMS.git.includeFileNameInCommitMessage": {
-            "type": "boolean",
-            "default": false,
-            "description": "Include the local file name in generated commit messages when available."
-          },
-          "STARLIMS.git.copilotCommitMessageTimeoutMs": {
-            "type": "number",
-            "default": 4000,
-            "minimum": 500,
-            "description": "Maximum time in milliseconds to wait for Copilot commit message generation before falling back to the fast local message."
-          }
-        }
-      }
-    ],
-    "languages": [
-      {
-        "id": "SSL",
-        "aliases": [
-          "Starlims Scripting Language",
-          "ssl"
-        ],
-        "extensions": [
-          ".ssl",
-          ".srvscr"
-        ],
-        "configuration": "./language-configuration-ssl.json"
-      },
-      {
-        "id": "SLSQL",
-        "aliases": [
-          "Starlims SQL",
-          "slsql"
-        ],
-        "extensions": [
-          ".slsql"
-        ],
-        "configuration": "./language-configuration-slsql.json"
-      }
-    ],
-    "grammars": [
-      {
-        "language": "SLSQL",
-        "scopeName": "source.slsql",
-        "path": "./syntaxes/slsql.tmLanguage.json"
-      },
-      {
-        "language": "SSL",
-        "scopeName": "source.ssl",
-        "path": "./syntaxes/ssl.tmLanguage.json"
-      }
-    ],
-    "snippets": [
-      {
-        "language": "SSL",
-        "path": "./snippets/snippets.json"
-      }
-    ],
-    "themes": [
-      {
-        "label": "SSL Language Theme (Dark)",
-        "uiTheme": "vs-dark",
-        "path": "./themes/SSL Theme-color-theme.json"
-      }
-    ]
-  },
-  "scripts": {
-    "vscode:prepublish": "npm run package",
-    "compile": "webpack",
-    "watch": "webpack --watch",
-    "package": "webpack --mode production --devtool hidden-source-map",
-    "compile-tests": "tsc -p . --outDir out",
-    "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
-    "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js",
-    "build": "(rm -rf out || true) && mkdir out && cp package.json out && cd ./src/backend && ./create-packages.sh && cd ../.. && vsce package",
-    "build-windows": "if exist out rmdir /s /q out & mkdir out & copy package.json out & cd .\\src\\backend & .\\create-packages.sh & cd ..\\.. & vsce package",
-    "vsce": "vsce"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/glob": "^7.2.0",
-    "@types/jsdom": "^21.1.6",
-    "@types/mocha": "^9.1.1",
-    "@types/node": "^20.0.0",
-    "@types/node-fetch": "^2.6.11",
-    "@types/vscode": "^1.110.0",
-    "@types/vscode-webview": "^1.57.5",
-    "@types/xmldom": "^0.1.34",
-    "@typescript-eslint/eslint-plugin": "^5.62.0",
-    "@typescript-eslint/parser": "^5.62.0",
-    "@vscode/test-electron": "^2.3.9",
-    "copy-webpack-plugin": "^14.0.0",
-    "css-loader": "^6.10.0",
-    "dotenv": "^16.4.5",
-    "esbuild": "^0.27.4",
-    "eslint": "^8.56.0",
-    "express": "^4.19.2",
-    "glob": "^7.2.3",
-    "mocha": "^11.7.5",
-    "run-script-os": "^1.1.6",
-    "style-loader": "^3.3.4",
-    "ts-loader": "^9.5.1",
-    "typescript": "5.1.6",
-    "webpack": "^5.90.3",
-    "webpack-cli": "^4.10.0"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "@vscode/webview-ui-toolkit": "^1.4.0",
-    "@xmldom/xmldom": "^0.9.9",
-    "jsdom": "^29.0.1",
-    "node-fetch": "^2.7.0",
-    "react": "^18.2.0",
-    "zod": "^4.3.6"
-  },
-  "overrides": {
-    "diff": "8.0.3",
-    "serialize-javascript": "7.0.5"
-  }
+    "devDependencies":  {
+                            "@types/express":  "^4.17.21",
+                            "@types/glob":  "^7.2.0",
+                            "@types/jsdom":  "^21.1.6",
+                            "@types/mocha":  "^9.1.1",
+                            "@types/node":  "^20.0.0",
+                            "@types/node-fetch":  "^2.6.11",
+                            "@types/vscode":  "^1.110.0",
+                            "@types/vscode-webview":  "^1.57.5",
+                            "@types/xmldom":  "^0.1.34",
+                            "@typescript-eslint/eslint-plugin":  "^5.62.0",
+                            "@typescript-eslint/parser":  "^5.62.0",
+                            "@vscode/test-electron":  "^2.3.9",
+                            "copy-webpack-plugin":  "^14.0.0",
+                            "css-loader":  "^6.10.0",
+                            "dotenv":  "^16.4.5",
+                            "esbuild":  "^0.27.4",
+                            "eslint":  "^8.56.0",
+                            "express":  "^4.19.2",
+                            "glob":  "^7.2.3",
+                            "mocha":  "^11.7.5",
+                            "run-script-os":  "^1.1.6",
+                            "style-loader":  "^3.3.4",
+                            "ts-loader":  "^9.5.1",
+                            "typescript":  "5.1.6",
+                            "webpack":  "^5.90.3",
+                            "webpack-cli":  "^4.10.0"
+                        },
+    "dependencies":  {
+                         "@modelcontextprotocol/sdk":  "^1.29.0",
+                         "@vscode/webview-ui-toolkit":  "^1.4.0",
+                         "@xmldom/xmldom":  "^0.9.9",
+                         "jsdom":  "^29.0.1",
+                         "node-fetch":  "^2.7.0",
+                         "react":  "^18.2.0",
+                         "zod":  "^4.3.6"
+                     },
+    "overrides":  {
+                      "diff":  "8.0.3",
+                      "serialize-javascript":  "7.0.5"
+                  }
 }

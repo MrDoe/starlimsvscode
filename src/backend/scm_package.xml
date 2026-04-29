@@ -581,6 +581,18 @@
           <IsReferred>false</IsReferred>
         </ServerScript>
         <ServerScript>
+          <ItemID>F7A13A66-7D9E-4B16-8F1D-4E4C2BA4B7CF</ItemID>
+          <ItemName>TicketManagement</ItemName>
+          <LayerId>300</LayerId>
+          <ItemDescription />
+          <ItemCategory>SCM_API</ItemCategory>
+          <IsMandatory>false</IsMandatory>
+          <ItemBehaviour>overwrite</ItemBehaviour>
+          <ItemProgrammingLanguage>STARLIMS</ItemProgrammingLanguage>
+          <ItemIsOwned>N</ItemIsOwned>
+          <IsReferred>false</IsReferred>
+        </ServerScript>
+        <ServerScript>
           <ItemID>1AA29CAF-8AD0-4707-BC7D-35F8E040D11F</ItemID>
           <ItemName>UndoCheckOut</ItemName>
           <LayerId>300</LayerId>

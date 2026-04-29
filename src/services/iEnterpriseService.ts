@@ -7,7 +7,7 @@ export interface IEnterpriseService {
   getLocalCopy(uri: string, workspaceFolder: string, returnCode: boolean, language: string): Promise<string | null>;
   getConfig(): any;
   saveEnterpriseItemCode(uri: string, code: string, language: string): any;
-  runScript(uri: string): any;
+  runScript(uri: string, parameters?: unknown[], outputType?: string, entryPoint?: string): any;
   clearLog(uri: string): any;
   getEnterpriseItemUri(uri: string, rootPath: string): any;
   scrollToBottom(): any;

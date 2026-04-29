@@ -3,6 +3,15 @@
 # Get the new version from package.json
 new_version=$(grep -E '"version":' ../../package.json | awk -F '"' '{print $4}' | sed 's/^v//')
 
+# increment the patch version
+IFS='.' read -r major minor patch <<< "$new_version"
+patch=$((patch + 1))
+new_version="$major.$minor.$patch"
+
+# write back to package.json
+echo "Patching package.json with version $new_version ..."
+sed -i -r "s/\"version\": \"[^\"]+\"/\"version\": \"$new_version\"/" ../../package.json
+
 # Use sed to replace the sVersion value in the Version endpoint script
 printf  "Patching Version.srvscr with version $new_version from package.json\n"
 version_script_file="./SCM_API/Server Scripts/SCM_API/Version.srvscr"

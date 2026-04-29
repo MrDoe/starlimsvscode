@@ -10,6 +10,17 @@ import { connectBridge } from "../utilities/bridge";
 import { cleanUrl, isJson } from "../utilities/miscUtils";
 import { DOMParser } from "@xmldom/xmldom";
 import * as crypto from 'crypto';
+import {
+  RemoteScriptExecutionOptions,
+  RemoteScriptOutputType,
+  TicketOverview,
+  TicketStatusGroupName
+} from "./ticketManagementTypes";
+
+const TICKET_MANAGEMENT_APP_ROOT = "/Applications/BMBH_Modules/BMBH_Ticketmanagement";
+const TICKETS_DATASOURCE_URI = `${TICKET_MANAGEMENT_APP_ROOT}/DataSources/dsTickets`;
+const TICKET_DATA_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scGetTicketData`;
+const SCM_API_TICKET_MANAGEMENT_SCRIPT_URI = "/ServerScripts/SCM_API/TicketManagement";
 
 /**
  * STARLIMS Enterprise Designer service. Provides main services for the VS Code extensions,
@@ -224,6 +235,286 @@ export class EnterpriseService implements IEnterpriseService {
     }
 
     return (await this.secretStorage.get(legacySecretKey)) || "";
+  }
+
+  private normalizeRemoteScriptOptions(options?: RemoteScriptExecutionOptions): Required<RemoteScriptExecutionOptions> {
+    const rawParameters = options?.parameters;
+    const parameters = Array.isArray(rawParameters) ? rawParameters : [];
+    const outputType = (options?.outputType || "ARRAY").toUpperCase() as RemoteScriptOutputType;
+    const entryPoint = (options?.entryPoint || "").trim();
+    return {
+      parameters,
+      outputType,
+      entryPoint
+    };
+  }
+
+  private async executeRemoteScriptResult(
+    uri: string,
+    options?: RemoteScriptExecutionOptions
+  ): Promise<EnterpriseOperationResult<unknown>> {
+    const normalizedOptions = this.normalizeRemoteScriptOptions(options);
+    const url = `${this.baseUrl}/SCM_API.RunScript.${this.urlSuffix}`;
+    const headers = new Headers(await this.getAPIHeaders());
+    const requestBody: Record<string, unknown> = {
+      URI: uri,
+      Parameters: normalizedOptions.parameters,
+      OutputType: normalizedOptions.outputType
+    };
+
+    if (normalizedOptions.entryPoint.length > 0) {
+      requestBody.EntryPoint = normalizedOptions.entryPoint;
+    }
+
+    const optionsObject: any = {
+      method: "POST",
+      headers,
+      body: JSON.stringify(requestBody)
+    };
+
+    try {
+      const response = await fetch(url, optionsObject);
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        return { ok: false, error: "Failed to execute remote script." };
+      }
+
+      const { success, data } = result;
+      if (success) {
+        return { ok: true, data };
+      }
+
+      return {
+        ok: false,
+        error: this.getOperationErrorMessage(data, "Failed to execute remote script.")
+      };
+    } catch (e: any) {
+      console.error(e);
+      return { ok: false, error: "Failed to execute remote script." };
+    }
+  }
+
+  private normalizeArrayResultRows(data: unknown): Array<Record<string, unknown>> {
+    if (!Array.isArray(data) || data.length === 0) {
+      return [];
+    }
+
+    const [headerRow, ...valueRows] = data;
+    if (!Array.isArray(headerRow)) {
+      return [];
+    }
+
+    return valueRows
+      .filter((row): row is unknown[] => Array.isArray(row))
+      .map((row) => headerRow.reduce<Record<string, unknown>>((record, columnName, index) => {
+        record[String(columnName)] = row[index];
+        return record;
+      }, {}));
+  }
+
+  private normalizeString(value: unknown): string | undefined {
+    if (value === null || value === undefined) {
+      return undefined;
+    }
+
+    const normalizedValue = String(value).trim();
+    return normalizedValue.length > 0 ? normalizedValue : undefined;
+  }
+
+  private normalizeNumber(value: unknown): number | undefined {
+    if (Array.isArray(value) && value.length > 0) {
+      const firstItem = value[0];
+      if (Array.isArray(firstItem) && firstItem.length > 0) {
+        return this.normalizeNumber(firstItem[0]);
+      }
+
+      return this.normalizeNumber(firstItem);
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    }
+
+    return undefined;
+  }
+
+  private normalizeTicketStatusKey(statusName: string): string {
+    return statusName
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLocaleLowerCase();
+  }
+
+  private resolveTicketStatusGroupName(statusName: string | undefined): TicketStatusGroupName | undefined {
+    if (!statusName) {
+      return undefined;
+    }
+
+    switch (this.normalizeTicketStatusKey(statusName)) {
+      case "offen":
+        return "Offen";
+      case "fertig":
+      case "abgeschlossen":
+      case "geschlossen":
+        return "Fertig";
+      case "zuruckgestellt":
+        return "Zurückgestellt";
+      case "in bearbeitung":
+        return "In Bearbeitung";
+      case "in prufung":
+      case "in pruefung":
+        return "In Prüfung";
+      default:
+        return undefined;
+    }
+  }
+
+  private async getTicketDescriptionResult(
+    ticketId: number,
+    stackTraceId: number | undefined
+  ): Promise<EnterpriseOperationResult<string | undefined>> {
+    const result = await this.executeRemoteScriptResult(TICKET_DATA_SCRIPT_URI, {
+      parameters: [stackTraceId ?? -1, ticketId]
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not retrieve description for ticket #${ticketId}.`
+      };
+    }
+
+    if (!Array.isArray(result.data) || result.data.length < 2) {
+      return { ok: true, data: undefined };
+    }
+
+    return {
+      ok: true,
+      data: this.normalizeString(result.data[1])
+    };
+  }
+
+  public async getTicketsForUserResult(currentUser: string): Promise<EnterpriseOperationResult<TicketOverview[]>> {
+    const result = await this.executeRemoteScriptResult(TICKETS_DATASOURCE_URI, {
+      parameters: [[], []],
+      outputType: "ARRAY"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? "Could not retrieve tickets."
+      };
+    }
+
+    const normalizedCurrentUser = currentUser.trim().toLocaleLowerCase();
+    const rows = this.normalizeArrayResultRows(result.data);
+    const tickets = rows
+      .map<TicketOverview | undefined>((row) => {
+        const id = this.normalizeNumber(row.ORIGREC);
+        const title = this.normalizeString(row.TITLE);
+        const statusName = this.normalizeString(row.STATUS_NAME);
+        const statusGroupName = this.resolveTicketStatusGroupName(statusName);
+
+        if (!id || !title || !statusName || !statusGroupName) {
+          return undefined;
+        }
+
+        return {
+          id,
+          title,
+          statusName,
+          statusGroupName,
+          statusCode: this.normalizeNumber(row.NUM_STATUS),
+          typeName: this.normalizeString(row.TYPE_NAME),
+          priorityName: this.normalizeString(row.PRIORITY_NAME),
+          severityName: this.normalizeString(row.SEVERITY_NAME),
+          author: this.normalizeString(row.AUTHOR),
+          assignedTo: this.normalizeString(row.ASIGNEDTO),
+          createdOn: this.normalizeString(row.CREATEDON),
+          modifiedOn: this.normalizeString(row.MODIFIEDON),
+          dueOn: this.normalizeString(row.DUEON),
+          reportCount: this.normalizeNumber(row.REPORT_COUNT),
+          isAdminTicket: String(row.ADMIN_TICKET || "").toUpperCase() === "Y",
+          stackTraceId: this.normalizeNumber(row.STACKTRACE_ID)
+        };
+      })
+      .filter((ticket): ticket is TicketOverview => ticket !== undefined)
+      .filter((ticket) => {
+        const assignedTo = (ticket.assignedTo || "").trim().toLocaleLowerCase();
+        return assignedTo.length === 0 || assignedTo === normalizedCurrentUser;
+      });
+
+    const enrichedTickets = await Promise.all(
+      tickets.map(async (ticket) => {
+        const descriptionResult = await this.getTicketDescriptionResult(ticket.id, ticket.stackTraceId);
+        return descriptionResult.ok
+          ? { ...ticket, fullDescription: descriptionResult.data }
+          : ticket;
+      })
+    );
+
+    return {
+      ok: true,
+      data: enrichedTickets
+    };
+  }
+
+  public async getOpenTicketsForUserResult(currentUser: string): Promise<EnterpriseOperationResult<TicketOverview[]>> {
+    return this.getTicketsForUserResult(currentUser);
+  }
+
+  public async addTicketMeasureResult(
+    ticketId: number,
+    title: string,
+    description: string
+  ): Promise<EnterpriseOperationResult<number>> {
+    const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+      parameters: [ticketId, title, description],
+      entryPoint: "AddCompletedMeasure"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? "Could not create ticket measure."
+      };
+    }
+
+    const measureId = this.normalizeNumber(result.data);
+    if (!measureId) {
+      return {
+        ok: false,
+        error: "Ticket measure was created but no measure id was returned."
+      };
+    }
+
+    return {
+      ok: true,
+      data: measureId
+    };
+  }
+
+  public async setTicketInProgressResult(ticketId: number, username: string): Promise<EnterpriseOperationResult<boolean>> {
+    const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+      parameters: [ticketId, username],
+      entryPoint: "SetTicketInProgress"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not update ticket #${ticketId} to In Bearbeitung.`
+      };
+    }
+
+    return {
+      ok: true,
+      data: true
+    };
   }
 
   async moveItem(uri: string, destination: string) {
@@ -486,32 +777,30 @@ export class EnterpriseService implements IEnterpriseService {
    * Execute script remotely.
    * @param uri the URI of the remote script.
    */
-  async runScript(uri: string) {
-    const url = `${this.baseUrl}/SCM_API.RunScript.${this.urlSuffix}`;
-    const headers = new Headers(await this.getAPIHeaders());
-    const options: any = {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        URI: uri
-      })
-    };
+  async runScript(
+    uri: string,
+    parameters: unknown[] = [],
+    outputType: string = "ARRAY",
+    entryPoint?: string
+  ) {
+    const result = await this.executeRemoteScriptResult(uri, {
+      parameters,
+      outputType: (outputType || "ARRAY").toUpperCase() as RemoteScriptOutputType,
+      entryPoint
+    });
 
-    try {
-      const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
-      return {
-        success: success,
-        data: data instanceof Object ? JSON.stringify(data, null, 2) : data
-      };
-    } catch (e: any) {
-      console.error(e);
-      vscode.window.showErrorMessage("Failed to execute HTTP call to remote service.");
+    if (!result.ok) {
+      vscode.window.showErrorMessage(result.error ?? "Failed to execute HTTP call to remote service.");
       return {
         success: false,
-        data: "An unexpected error ocurred while calling remote service."
+        data: result.error ?? "An unexpected error ocurred while calling remote service."
       };
     }
+
+    return {
+      success: true,
+      data: result.data instanceof Object ? JSON.stringify(result.data, null, 2) : result.data
+    };
   }
 
   /**

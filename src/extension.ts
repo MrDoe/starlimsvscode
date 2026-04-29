@@ -16,8 +16,10 @@ import { ResourcesDataViewPanel } from "./panels/ResourcesDataViewPanel";
 import { GenericDataViewPanel } from "./panels/GenericDataViewPanel";
 import { cleanUrl, executeWithProgress } from "./utilities/miscUtils";
 import { CheckedOutTreeDataProvider } from "./providers/checkedOutTreeDataProvider";
+import { TicketTreeItem, TicketsTreeDataProvider } from "./providers/ticketsTreeDataProvider";
 import { ServerSelectorWebviewProvider, ServerConfig } from "./providers/serverSelectorWebviewProvider";
 import { GitService } from "./services/gitService";
+import { TicketMeasureDraft, TicketOverview, TicketReference } from "./services/ticketManagementTypes";
 import * as crypto from 'crypto';
 import { promisify } from "util";
 
@@ -31,12 +33,23 @@ const MAX_CHECKIN_FILE_EXCERPT_LINES = 20;
 const MAX_CHECKIN_FILE_EXCERPT_CHARACTERS = 2000;
 const DEFAULT_COMMIT_MESSAGE_TIMEOUT_MS = 4000;
 const DEFAULT_COMMIT_MESSAGE_MAX_LENGTH = 200;
+const ACTIVE_TICKET_STATE_PREFIX = "ticketManagement.activeTicket";
+const MAX_TICKET_REFERENCE_TITLE_LENGTH = 80;
+const MAX_TICKET_MEASURE_TITLE_LENGTH = 120;
 const DEFAULT_COPILOT_COMMIT_MESSAGE_SYSTEM_PROMPT = [
   "You write STARLIMS check-in and git commit messages.",
   "Return plain text only.",
   "Use exactly one sentence.",
   "Mention the main item or items and the intent of the change.",
   "Do not use bullets, quotes, markdown, or prefixes."
+].join("\n");
+const DEFAULT_COPILOT_TICKET_MEASURE_SYSTEM_PROMPT = [
+  "You write STARLIMS ticket measures for completed development work.",
+  "Return valid JSON only.",
+  "Use the exact schema {\"title\":\"...\",\"description\":\"...\"}.",
+  "The title must be short and actionable.",
+  "The description must summarize the implemented changes in plain language.",
+  "Do not use markdown or code fences."
 ].join("\n");
 const execFile = promisify(execFileCallback);
 
@@ -159,9 +172,12 @@ export async function activate(context: vscode.ExtensionContext) {
   let activeUser: string = user || "";
   let reloadConfig = false;
   let selectedItem: TreeEnterpriseItem | undefined;
+  let activeTicket: TicketReference | undefined;
   let languages: any[] = [];
   let enterpriseService!: EnterpriseService;
   let enterpriseTreeProvider!: EnterpriseTreeDataProvider;
+  let ticketsTreeDataProvider!: TicketsTreeDataProvider;
+  let ticketsTreeView: vscode.TreeView<TicketTreeItem> | undefined;
 
   const workspaceKey = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "default";
   const workspaceId = crypto.createHash('sha1').update(workspaceKey).digest('hex');
@@ -180,24 +196,31 @@ export async function activate(context: vscode.ExtensionContext) {
   let serverConfig: ServerConfig | undefined = selectedServerFromConfig;
 
   const serverSelectorProvider = new ServerSelectorWebviewProvider(context.extensionUri, context, () => {
-    // Callback to update server config in enterprise service and refresh tree when server selection changes
-    const selectedServer = serverSelectorProvider.getSelectedServer();
-    if (!selectedServer) {
-      return;
-    }
-
-    serverConfig = selectedServer;
-
-    try {
-      enterpriseService.updateServerConfig(serverConfig, serverConfig.name);
-      if (enterpriseTreeProvider) {
-        enterpriseTreeProvider.refresh();
-        vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
+    void (async () => {
+      // Callback to update server config in enterprise service and refresh tree when server selection changes
+      const selectedServer = serverSelectorProvider.getSelectedServer();
+      if (!selectedServer) {
+        return;
       }
-    } catch (error) {
-      console.error('Error switching to server:', error);
-      vscode.window.showErrorMessage(`Failed to connect to server: ${serverConfig.name}`);
-    }
+
+      serverConfig = selectedServer;
+      activeUser = selectedServer.user || activeUser;
+
+      try {
+        enterpriseService.updateServerConfig(serverConfig, serverConfig.name);
+        await loadStoredActiveTicketForCurrentServer();
+        if (enterpriseTreeProvider) {
+          enterpriseTreeProvider.refresh();
+          vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
+        }
+        if (ticketsTreeDataProvider) {
+          ticketsTreeDataProvider.refresh();
+        }
+      } catch (error) {
+        console.error('Error switching to server:', error);
+        vscode.window.showErrorMessage(`Failed to connect to server: ${serverConfig.name}`);
+      }
+    })();
   });
 
   function toDisplayLabel(item: TreeEnterpriseItem): string {
@@ -239,6 +262,10 @@ export async function activate(context: vscode.ExtensionContext) {
     return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
   }
 
+  function escapeRegExp(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
   function getSavedLocalPath(item: TreeEnterpriseItem, language: string | undefined): string | undefined {
     if (!language || !rootPath) {
       return item.filePath && fs.existsSync(item.filePath) ? item.filePath : undefined;
@@ -256,6 +283,169 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     return undefined;
+  }
+
+  function getCurrentStarlimsUser(): string {
+    return enterpriseService.getCurrentUser() || activeUser || user || "";
+  }
+
+  function getCurrentStarlimsServerName(): string {
+    return enterpriseService.getCurrentServerName() || serverConfig?.name || selectedServerNameFromConfig || "Default";
+  }
+
+  function getActiveTicketStorageKey(serverName: string = getCurrentStarlimsServerName()): string {
+    return `${ACTIVE_TICKET_STATE_PREFIX}.${serverName}`;
+  }
+
+  function normalizeTicketReference(ticket: TicketOverview | TicketReference): TicketReference {
+    return {
+      id: ticket.id,
+      title: ticket.title,
+      statusName: ticket.statusName,
+      typeName: ticket.typeName,
+      priorityName: ticket.priorityName,
+      assignedTo: ticket.assignedTo,
+      serverName: getCurrentStarlimsServerName()
+    };
+  }
+
+  async function loadStoredActiveTicketForCurrentServer(): Promise<void> {
+    activeTicket = context.workspaceState.get<TicketReference>(getActiveTicketStorageKey());
+    if (activeTicket) {
+      activeTicket = {
+        ...activeTicket,
+        serverName: getCurrentStarlimsServerName()
+      };
+    }
+  }
+
+  async function persistActiveTicket(ticket: TicketReference | undefined): Promise<void> {
+    activeTicket = ticket;
+    await context.workspaceState.update(getActiveTicketStorageKey(), ticket);
+  }
+
+  async function clearActiveTicketSelection(silent: boolean = false): Promise<void> {
+    await persistActiveTicket(undefined);
+    if (ticketsTreeDataProvider) {
+      ticketsTreeDataProvider.refresh();
+    }
+    if (!silent) {
+      vscode.window.showInformationMessage("Cleared the active STARLIMS ticket selection.");
+    }
+  }
+
+  async function setActiveTicketSelection(ticket: TicketOverview | TicketReference, silent: boolean = false): Promise<void> {
+    const normalizedTicket = normalizeTicketReference(ticket);
+    await persistActiveTicket(normalizedTicket);
+    if (ticketsTreeDataProvider) {
+      ticketsTreeDataProvider.refresh();
+    }
+    if (!silent) {
+      vscode.window.showInformationMessage(`Using ticket #${normalizedTicket.id} for STARLIMS check-in and Git commit messages.`);
+    }
+  }
+
+  async function undertakeTicket(ticket: TicketOverview | TicketReference): Promise<void> {
+    const normalizedTicket = normalizeTicketReference(ticket);
+    const currentStarlimsUser = getCurrentStarlimsUser();
+    const updateResult = await enterpriseService.setTicketInProgressResult(normalizedTicket.id, currentStarlimsUser);
+
+    if (!updateResult.ok) {
+      vscode.window.showWarningMessage(updateResult.error ?? `Could not undertake ticket #${normalizedTicket.id}.`);
+      return;
+    }
+
+    normalizedTicket.statusName = "In Bearbeitung";
+    normalizedTicket.assignedTo = currentStarlimsUser;
+    await persistActiveTicket(normalizedTicket);
+    if (ticketsTreeDataProvider) {
+      ticketsTreeDataProvider.refresh();
+    }
+
+    vscode.window.showInformationMessage(`Undertook ticket #${normalizedTicket.id} for ${currentStarlimsUser}.`);
+  }
+
+  async function reconcileActiveTicketSelection(tickets: TicketOverview[]): Promise<void> {
+    if (!activeTicket) {
+      return;
+    }
+
+    const matchingTicket = tickets.find((ticket) => ticket.id === activeTicket?.id);
+    if (!matchingTicket) {
+      const staleTicket = activeTicket;
+      await persistActiveTicket(undefined);
+      vscode.window.showWarningMessage(`The active STARLIMS ticket #${staleTicket.id} is no longer open or visible and has been cleared.`);
+      return;
+    }
+
+    const normalizedTicket = normalizeTicketReference(matchingTicket);
+    if (
+      normalizedTicket.title !== activeTicket.title ||
+      normalizedTicket.statusName !== activeTicket.statusName ||
+      normalizedTicket.assignedTo !== activeTicket.assignedTo ||
+      normalizedTicket.typeName !== activeTicket.typeName ||
+      normalizedTicket.priorityName !== activeTicket.priorityName
+    ) {
+      await persistActiveTicket(normalizedTicket);
+    }
+  }
+
+  function buildTicketReferencePrefix(ticket: TicketReference | undefined, maxTitleLength: number = MAX_TICKET_REFERENCE_TITLE_LENGTH): string {
+    if (!ticket) {
+      return "";
+    }
+
+    const normalizedTitle = ticket.title.replace(/\s+/g, " ").trim();
+    return `[#${ticket.id} ${truncateText(normalizedTitle, maxTitleLength)}]`;
+  }
+
+  function stripTicketReferenceFromMessage(message: string, ticket: TicketReference | undefined = activeTicket): string {
+    const trimmedMessage = message.trim();
+    if (!ticket || trimmedMessage.length === 0) {
+      return trimmedMessage;
+    }
+
+    const exactPrefix = buildTicketReferencePrefix(ticket);
+    const exactPrefixPattern = new RegExp(`^${escapeRegExp(exactPrefix)}\\s*[:\\-]?\\s*`, "i");
+    const loosePrefixPattern = new RegExp(`^\\[?\\s*(ticket\\s*)?#${ticket.id}\\b[^\\]]*\\]?\\s*[:\\-]?\\s*`, "i");
+
+    return trimmedMessage.replace(exactPrefixPattern, "").replace(loosePrefixPattern, "").trim();
+  }
+
+  function ensureTicketReferenceInMessage(message: string, ticket: TicketReference | undefined = activeTicket): string {
+    const normalizedMessage = stripTicketReferenceFromMessage(message, ticket);
+    if (!ticket) {
+      return normalizedMessage;
+    }
+
+    const ticketPrefix = buildTicketReferencePrefix(ticket);
+    return `${ticketPrefix} ${normalizedMessage}`.trim();
+  }
+
+  function buildActiveTicketContextLines(ticket: TicketReference | undefined = activeTicket): string[] {
+    if (!ticket) {
+      return [];
+    }
+
+    const contextLines = [`Active ticket: #${ticket.id} ${ticket.title}`];
+
+    if (ticket.statusName) {
+      contextLines.push(`Ticket status: ${ticket.statusName}`);
+    }
+
+    if (ticket.typeName) {
+      contextLines.push(`Ticket type: ${ticket.typeName}`);
+    }
+
+    if (ticket.priorityName) {
+      contextLines.push(`Ticket priority: ${ticket.priorityName}`);
+    }
+
+    if (ticket.assignedTo) {
+      contextLines.push(`Ticket assigned to: ${ticket.assignedTo}`);
+    }
+
+    return contextLines;
   }
 
   function getCommitMessageGeneratorMode(): "fast" | "copilot" {
@@ -316,7 +506,15 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   function formatMessageWithPrefix(message: string, options: CommitMessageOptions): string {
-    const prefixedMessage = options.prefix ? `${options.prefix} ${message}` : message;
+    const normalizedMessage = stripTicketReferenceFromMessage(message);
+    const maxTicketTitleLength = Math.max(24, Math.min(MAX_TICKET_REFERENCE_TITLE_LENGTH, Math.floor(options.maxLength / 2)));
+    const ticketPrefix = buildTicketReferencePrefix(activeTicket, maxTicketTitleLength);
+    const prefixes = [ticketPrefix, options.prefix]
+      .filter((part): part is string => typeof part === "string" && part.trim().length > 0);
+    const prefixedMessage = [...prefixes, normalizedMessage]
+      .filter((part) => part.trim().length > 0)
+      .join(" ");
+
     return truncateText(prefixedMessage.trim(), options.maxLength);
   }
 
@@ -618,6 +816,13 @@ export async function activate(context: vscode.ExtensionContext) {
   function buildCopilotCommitMessagePrompt(changeContext: string, options: CommitMessageOptions): string {
     const instructionLines = [options.systemPrompt.trim()];
 
+    if (activeTicket) {
+      instructionLines.push(
+        `The active ticket is #${activeTicket.id} ${activeTicket.title}.`,
+        "Do not repeat or prepend the ticket reference in the generated sentence because it is added automatically."
+      );
+    }
+
     instructionLines.push(
       options.detailLevel === "short"
         ? "Keep it compact and direct."
@@ -628,11 +833,16 @@ export async function activate(context: vscode.ExtensionContext) {
 
     instructionLines.push(
       `Keep it under ${Math.max(60, options.maxLength - Math.max(0, options.prefix.length + 1))} characters when possible and never exceed ${options.maxLength} characters after formatting.`,
-      "",
-      changeContext
     );
 
-    return instructionLines.join("\n");
+    const ticketContextLines = buildActiveTicketContextLines();
+    const promptSections = [...instructionLines, ""];
+    if (ticketContextLines.length > 0) {
+      promptSections.push(...ticketContextLines, "");
+    }
+    promptSections.push(changeContext);
+
+    return promptSections.join("\n");
   }
 
   async function generateCheckInReasonWithCopilot(
@@ -684,7 +894,11 @@ export async function activate(context: vscode.ExtensionContext) {
   async function buildSingleItemCheckInReason(item: TreeEnterpriseItem): Promise<string> {
     const options = getCommitMessageOptions();
     const fallbackReason = buildSingleItemFallbackReason(item, options);
-    const changeContext = await buildItemChangeContext(item);
+    const itemContext = await buildItemChangeContext(item);
+    const ticketContextLines = buildActiveTicketContextLines();
+    const changeContext = ticketContextLines.length > 0
+      ? [...ticketContextLines, "", itemContext].join("\n")
+      : itemContext;
     return vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Window,
@@ -698,40 +912,58 @@ export async function activate(context: vscode.ExtensionContext) {
     );
   }
 
-  async function buildAllItemsCheckInReason(): Promise<string> {
+  async function getCurrentUserCheckedOutLeafItems(): Promise<TreeEnterpriseItem[]> {
     const checkedOutItems = await enterpriseService.getCheckedOutItems(false);
     if (typeof checkedOutItems !== "string" || checkedOutItems.length === 0) {
-      return "Checked in all items from VSCode";
+      return [];
     }
 
-    const currentUser = enterpriseService.getCurrentUser() || activeUser || user || "";
     const allLeafItems = await getCheckedOutLeafItems(checkedOutItems);
-    const userLeafItems = allLeafItems.filter((item) => item.checkedOutBy === currentUser);
-    if (userLeafItems.length === 0) {
-      return "Checked in all items from VSCode";
+    const currentUser = getCurrentStarlimsUser();
+    return allLeafItems.filter((item) => item.checkedOutBy === currentUser);
+  }
+
+  async function buildAllItemsTicketMeasureContext(userLeafItems?: TreeEnterpriseItem[]): Promise<string> {
+    const items = userLeafItems ?? await getCurrentUserCheckedOutLeafItems();
+    if (items.length === 0) {
+      return "No STARLIMS item-level context is available for this check-in.";
     }
 
-    const options = getCommitMessageOptions();
-    const itemNames = userLeafItems.map((item) => toDisplayLabel(item));
-    const fallbackReason = buildAllItemsFallbackReason(userLeafItems, options);
-
+    const itemNames = items.map((item) => toDisplayLabel(item));
     const contextItems = await Promise.all(
-      userLeafItems.slice(0, MAX_CHECKIN_ITEMS_FOR_CONTEXT).map((item) => buildItemChangeContext(item))
+      items.slice(0, MAX_CHECKIN_ITEMS_FOR_CONTEXT).map((item) => buildItemChangeContext(item))
     );
 
     const changeContext = [
-      `Checked in ${userLeafItems.length} STARLIMS items for user ${currentUser}.`,
+      `Checked in ${items.length} STARLIMS items for user ${getCurrentStarlimsUser()}.`,
       `Items: ${itemNames.join(", ")}`,
       "",
       ...contextItems
     ];
 
-    if (userLeafItems.length > MAX_CHECKIN_ITEMS_FOR_CONTEXT) {
+    if (items.length > MAX_CHECKIN_ITEMS_FOR_CONTEXT) {
       changeContext.push(
         "",
-        `Additional checked out items not expanded here: ${userLeafItems.slice(MAX_CHECKIN_ITEMS_FOR_CONTEXT).map((item) => toDisplayLabel(item)).join(", ")}`
+        `Additional checked out items not expanded here: ${items.slice(MAX_CHECKIN_ITEMS_FOR_CONTEXT).map((item) => toDisplayLabel(item)).join(", ")}`
       );
     }
+
+    return changeContext.join("\n");
+  }
+
+  async function buildAllItemsCheckInReason(): Promise<string> {
+    const userLeafItems = await getCurrentUserCheckedOutLeafItems();
+    if (userLeafItems.length === 0) {
+      return "Checked in all items from VSCode";
+    }
+
+    const options = getCommitMessageOptions();
+    const fallbackReason = buildAllItemsFallbackReason(userLeafItems, options);
+    const ticketContextLines = buildActiveTicketContextLines();
+    const itemContext = await buildAllItemsTicketMeasureContext(userLeafItems);
+    const changeContext = ticketContextLines.length > 0
+      ? [...ticketContextLines, "", itemContext].join("\n")
+      : itemContext;
 
     return vscode.window.withProgress(
       {
@@ -741,9 +973,161 @@ export async function activate(context: vscode.ExtensionContext) {
       },
       async (progress) => {
         progress.report({ message: "Generating check-in description with Copilot..." });
-        return generateCheckInReasonWithCopilot(changeContext.join("\n"), fallbackReason, options);
+        return generateCheckInReasonWithCopilot(changeContext, fallbackReason, options);
       }
     );
+  }
+
+  function sanitizeTicketMeasureField(text: string, maxLength: number): string {
+    const normalizedText = text
+      .replace(/\r?\n+/g, " ")
+      .replace(/^['"`]+|['"`]+$/g, "")
+      .trim();
+
+    return normalizedText.length > 0 ? truncateText(normalizedText, maxLength) : "";
+  }
+
+  function buildTicketMeasureFallback(ticket: TicketReference, checkinReason: string): TicketMeasureDraft {
+    const normalizedReason = stripTicketReferenceFromMessage(checkinReason, ticket);
+    const fallbackTitle = sanitizeTicketMeasureField(
+      normalizedReason || `Document changes for ticket #${ticket.id}`,
+      MAX_TICKET_MEASURE_TITLE_LENGTH
+    );
+
+    return {
+      title: fallbackTitle.length > 0 ? fallbackTitle : `Document changes for ticket #${ticket.id}`,
+      description: [
+        `Implemented changes for ticket #${ticket.id} ${ticket.title}.`,
+        `Check-in message: ${normalizedReason || checkinReason.trim() || "Checked in from VSCode."}`
+      ].join("\n\n")
+    };
+  }
+
+  function buildCopilotTicketMeasurePrompt(ticket: TicketReference, checkinReason: string, changeContext: string): string {
+    const sections = [
+      DEFAULT_COPILOT_TICKET_MEASURE_SYSTEM_PROMPT,
+      "",
+      `Ticket: #${ticket.id} ${ticket.title}`
+    ];
+
+    if (ticket.statusName) {
+      sections.push(`Ticket status: ${ticket.statusName}`);
+    }
+
+    if (ticket.typeName) {
+      sections.push(`Ticket type: ${ticket.typeName}`);
+    }
+
+    if (ticket.priorityName) {
+      sections.push(`Ticket priority: ${ticket.priorityName}`);
+    }
+
+    if (ticket.assignedTo) {
+      sections.push(`Ticket assigned to: ${ticket.assignedTo}`);
+    }
+
+    sections.push(
+      "",
+      `Approved check-in message: ${stripTicketReferenceFromMessage(checkinReason, ticket) || checkinReason}`,
+      "",
+      "Change context:",
+      changeContext
+    );
+
+    return sections.join("\n");
+  }
+
+  function parseTicketMeasureResponse(responseText: string, fallback: TicketMeasureDraft): TicketMeasureDraft {
+    const normalizedText = responseText
+      .replace(/```json/ig, "")
+      .replace(/```/g, "")
+      .trim();
+
+    if (!normalizedText) {
+      return fallback;
+    }
+
+    try {
+      const parsed = JSON.parse(normalizedText) as Partial<TicketMeasureDraft>;
+      const title = sanitizeTicketMeasureField(parsed.title || "", MAX_TICKET_MEASURE_TITLE_LENGTH);
+      const description = (parsed.description || "").trim();
+      if (!title || !description) {
+        return fallback;
+      }
+
+      return {
+        title,
+        description
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  async function generateTicketMeasureWithCopilot(
+    ticket: TicketReference,
+    checkinReason: string,
+    changeContext: string
+  ): Promise<TicketMeasureDraft> {
+    const options = getCommitMessageOptions();
+    const fallbackMeasure = buildTicketMeasureFallback(ticket, checkinReason);
+    if (options.generatorMode !== "copilot") {
+      return fallbackMeasure;
+    }
+
+    try {
+      const model = await selectCopilotCommitMessageModel(options);
+      if (!model) {
+        return fallbackMeasure;
+      }
+
+      const canSendRequest = context.languageModelAccessInformation.canSendRequest(model);
+      if (canSendRequest === false) {
+        return fallbackMeasure;
+      }
+
+      const messages = [
+        vscode.LanguageModelChatMessage.User(buildCopilotTicketMeasurePrompt(ticket, checkinReason, changeContext))
+      ];
+
+      const cancellationSource = new vscode.CancellationTokenSource();
+      const timeoutHandle = setTimeout(() => cancellationSource.cancel(), options.timeoutMs);
+      let generatedText = "";
+
+      try {
+        const response = await model.sendRequest(messages, {}, cancellationSource.token);
+        for await (const fragment of response.text) {
+          generatedText += fragment;
+        }
+      } finally {
+        clearTimeout(timeoutHandle);
+        cancellationSource.dispose();
+      }
+
+      return parseTicketMeasureResponse(generatedText, fallbackMeasure);
+    } catch (error) {
+      console.warn("Falling back to default STARLIMS ticket measure text.", error);
+      return fallbackMeasure;
+    }
+  }
+
+  async function createTicketMeasureForCheckIn(
+    ticket: TicketReference | undefined,
+    checkinReason: string,
+    changeContext: string | undefined
+  ): Promise<string | undefined> {
+    if (!ticket || !changeContext) {
+      return undefined;
+    }
+
+    const measureDraft = await generateTicketMeasureWithCopilot(ticket, checkinReason, changeContext);
+    const result = await enterpriseService.addTicketMeasureResult(ticket.id, measureDraft.title, measureDraft.description);
+    if (!result.ok) {
+      return result.error ?? `Could not create a ticket measure for ticket #${ticket.id}.`;
+    }
+
+    outputChannel.appendLine(`Created STARLIMS ticket measure ${result.data} for ticket #${ticket.id}.`);
+    return undefined;
   }
 
   function normalizePathForComparison(filePath: string): string {
@@ -1259,7 +1643,69 @@ export async function activate(context: vscode.ExtensionContext) {
     enterpriseService.updateServerConfig(selectedServerConfig, selectedServerConfig.name);
     activeUser = selectedServerConfig.user || activeUser;
   }
+  await loadStoredActiveTicketForCurrentServer();
+
+  ticketsTreeDataProvider = new TicketsTreeDataProvider({
+    getActiveTicket: () => activeTicket,
+    loadTickets: async () => {
+      const ticketsResult = await enterpriseService.getTicketsForUserResult(getCurrentStarlimsUser());
+      if (!ticketsResult.ok) {
+        throw new Error(ticketsResult.error ?? "Could not retrieve tickets.");
+      }
+
+      const tickets = ticketsResult.data ?? [];
+      await reconcileActiveTicketSelection(tickets);
+      return tickets;
+    }
+  });
+  ticketsTreeView = vscode.window.createTreeView("STARLIMSTicketsTree", {
+    treeDataProvider: ticketsTreeDataProvider,
+    showCollapseAll: false
+  });
+  context.subscriptions.push(ticketsTreeView);
   serverSelectorProvider.refresh();
+
+  vscode.commands.registerCommand(
+    "STARLIMS.RefreshTickets",
+    async () => {
+      ticketsTreeDataProvider.refresh();
+    }
+  );
+
+  vscode.commands.registerCommand(
+    "STARLIMS.SelectActiveTicket",
+    async (item: TicketTreeItem | TicketOverview | undefined) => {
+      const ticket = item instanceof TicketTreeItem ? item.ticket : item;
+      if (!ticket) {
+        return;
+      }
+
+      await setActiveTicketSelection(ticket);
+    }
+  );
+
+  vscode.commands.registerCommand(
+    "STARLIMS.UndertakeTicket",
+    async (item: TicketTreeItem | TicketOverview | undefined) => {
+      const selectedTreeItem = ticketsTreeView?.selection?.[0];
+      const ticket = item instanceof TicketTreeItem
+        ? item.ticket
+        : item || selectedTreeItem?.ticket || (activeTicket ? { ...activeTicket } : undefined);
+      if (!ticket) {
+        vscode.window.showInformationMessage("Select a ticket first.");
+        return;
+      }
+
+      await undertakeTicket(ticket);
+    }
+  );
+
+  vscode.commands.registerCommand(
+    "STARLIMS.ClearActiveTicket",
+    async () => {
+      await clearActiveTicketSelection();
+    }
+  );
 
   vscode.commands.registerCommand(
     "STARLIMS.GetCheckedOutItems",
@@ -1311,14 +1757,35 @@ export async function activate(context: vscode.ExtensionContext) {
         await saveActiveDocumentBeforeCheckIn();
       }
 
-      const checkinReason = await vscode.window.showInputBox({
+      const selectedTicket = activeTicket ? { ...activeTicket } : undefined;
+      const ticketMeasureContext = selectedTicket
+        ? await buildAllItemsTicketMeasureContext()
+        : undefined;
+
+      const enteredCheckinReason = await vscode.window.showInputBox({
         title: "Check in all items",
         prompt: "Enter check in reason:",
         value: await buildAllItemsCheckInReason(),
         ignoreFocusOut: true,
       });
 
+      const checkinReason = selectedTicket
+        ? ensureTicketReferenceInMessage(enteredCheckinReason || "Checked in all items from VSCode", selectedTicket)
+        : enteredCheckinReason || "Checked in all items from VSCode";
+
       const checkInSuccess = await enterpriseService.checkInAllItems(checkinReason);
+      if (checkInSuccess) {
+        const measureError = await createTicketMeasureForCheckIn(
+          selectedTicket,
+          checkinReason || "Checked in all items from VSCode",
+          ticketMeasureContext
+        );
+        if (measureError) {
+          outputChannel.appendLine(`[TicketManagement] ${measureError}`);
+          vscode.window.showWarningMessage(`STARLIMS items were checked in, but the ticket measure could not be created: ${measureError}`);
+        }
+      }
+
       if (checkInSuccess && gitAutomationReady) {
         try {
           if (gitFilePaths.length === 0) {
@@ -1707,7 +2174,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
           // append script output to output channel
           outputChannel.appendLine("### Script output: ###");
-          outputChannel.appendLine(result.data);
+          outputChannel.appendLine(String(result.data));
 
           outputChannel.show(true);
         }
@@ -1817,6 +2284,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
       await saveActiveDocumentBeforeCheckIn(gitFilePath);
 
+      const selectedTicket = activeTicket ? { ...activeTicket } : undefined;
+      const ticketMeasureContext = selectedTicket
+        ? await buildItemChangeContext(item)
+        : undefined;
+
       let checkinReason: string =
         (await vscode.window.showInputBox({
           title: "Check in STARLIMS Enterprise Item",
@@ -1825,9 +2297,21 @@ export async function activate(context: vscode.ExtensionContext) {
           ignoreFocusOut: true,
         })) || "Checked in from VSCode";
 
+      if (selectedTicket) {
+        checkinReason = ensureTicketReferenceInMessage(checkinReason, selectedTicket);
+      }
+
       const gitAutomationReady = await ensureGitAutomationRepositoryReady();
 
       let bSuccess = await enterpriseService.checkInItem(item.uri, checkinReason, item.language);
+      if (bSuccess) {
+        const measureError = await createTicketMeasureForCheckIn(selectedTicket, checkinReason, ticketMeasureContext);
+        if (measureError) {
+          outputChannel.appendLine(`[TicketManagement] ${measureError}`);
+          vscode.window.showWarningMessage(`STARLIMS item was checked in, but the ticket measure could not be created: ${measureError}`);
+        }
+      }
+
       if (bSuccess && gitAutomationReady) {
         try {
           await commitAndPushGitFile(checkinReason, gitFilePath);
@@ -2445,7 +2929,7 @@ export async function activate(context: vscode.ExtensionContext) {
             title: `Data Source Output: ${dataSourceName}`
           });
         }
-        outputChannel.appendLine(result.data);
+        outputChannel.appendLine(String(result.data));
         outputChannel.show();
       }, "Executing data source...");
     }
