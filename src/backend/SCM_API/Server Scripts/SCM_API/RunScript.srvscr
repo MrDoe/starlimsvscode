@@ -24,8 +24,9 @@ oResponse := CreateUDObject({
 	:RETURN oResponse;
 :ENDTRY;
 
-:DECLARE sURI, aParams, String, sOutputType;
+:DECLARE sURI, aParams, String, sOutputType, sEntryPoint;
 String := "";
+sEntryPoint := "";
 
 :IF !Empty(oPayload) .AND. oPayload:IsProperty("URI");
 	:DECLARE oUtils;
@@ -52,10 +53,14 @@ String := "";
     aParams := {};
 :ENDIF;
 
+:IF !Empty(oPayload) .AND. oPayload:IsProperty("EntryPoint");
+	sEntryPoint := AllTrim(LimsString(oPayload:EntryPoint));
+:ENDIF;
+
 sOutputType := "ARRAY";
-:IF !Empty(oPayload) .AND. oPayload:IsProperty("Parameters");
+	:IF !Empty(oPayload) .AND. oPayload:IsProperty("OutputType");
 	sOutputType := Upper(oPayload:OutputType);
-	:IF .NOT. AScanExact({"SQL", "ARRAY", "XML", "JSON"}, sOutputType) > 0;
+	:IF AScanExact({"SQL", "ARRAY", "XML", "JSON"}, sOutputType) <= 0;
 		Response:StatusCode := 400;
     oResponse:success := .F.;
 		oResponse:data := "Invalid output type. Must be one of: SQL, ARRAY, XML, JSON.";
@@ -68,10 +73,16 @@ sOutputType := "ARRAY";
 	:BEGINCASE;
 		:CASE oEnterpriseItem:Type == "APPSS";
 			sScript := oEnterpriseItem:AppName + "." + oEnterpriseItem:Name;
+			:IF !Empty(sEntryPoint);
+				sScript += "." + sEntryPoint;
+			:ENDIF;
 			oResult := ExecFunction(sScript, aParams);
 		:EXITCASE;
 		:CASE oEnterpriseItem:Type == "SS";
 			sScript := oEnterpriseItem:CategoryName + "." + oEnterpriseItem:Name;			
+			:IF !Empty(sEntryPoint);
+				sScript += "." + sEntryPoint;
+			:ENDIF;
 			oResult := ExecFunction(sScript, aParams);
 		:EXITCASE;
 		:CASE oEnterpriseItem:Type == "DS";
@@ -122,7 +133,7 @@ Response:StatusCode := 200;
 	
 	sXML := RunDS(sDataSourceName,, "XML"); 
 	
-	:IF .NOT. ("<?xml" $ sXML);
+	:IF !("<?xml" $ sXML);
 		/* most likely an error occurred;
 		oRunReturn:success := .F.;
 	:ENDIF;

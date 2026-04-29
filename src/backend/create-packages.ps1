@@ -3,7 +3,13 @@
 
 # read the extension version from package.json
 $jsonData = Get-Content -Raw -Path "..\..\package.json" | ConvertFrom-Json
-$new_version = $jsonData.version
+$new_version = [version]$jsonData.version
+$new_version = [version]::new($new_version.Major, $new_version.Minor, $new_version.Build + 1)
+
+# patch package.json with the new version
+Write-Host "Patching package.json with version $new_version ..."
+$jsonData.version = $new_version.ToString()
+$jsonData | ConvertTo-Json -Depth 10 | Set-Content -Path "..\..\package.json"
 
 # patch the version endpoint script to return the same value
 Write-Host "Patching Version.srvscr with version $new_version from package.json ..."
