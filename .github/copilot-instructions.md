@@ -116,8 +116,12 @@ Configuration and build files:
 ## CI and Pre-Checkin Parity
 
 GitHub workflows:
-- `.github/workflows/webpack.yml`: on push/PR to `master`, matrix Node `16.x`, `18.x`, `22.x`; runs `npm install` then `npx webpack`.
+- `.github/workflows/webpack.yml`: on push/PR to `master`, matrix Node `20.x`, `22.x`; runs `npm ci` then `npm run compile`.
 - `.github/workflows/publish.yml`: on push to `master`; uses Node 22, `npm ci`, version bump, VSIX publish/release.
+
+Current Node floor for dependency installation/build:
+- Use Node `20.19+` or `22.13+`.
+- Node 18 is not compatible with the current locked toolchain because packages such as `copy-webpack-plugin@14` and `jsdom@29` require newer runtime features.
 
 Recommended local parity before PR:
 
