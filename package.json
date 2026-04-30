@@ -158,11 +158,8 @@
                                          },
                                          {
                                              "command":  "STARLIMS.Delete",
-                                             "title":  "Delete",
-                                             "icon":  {
-                                                          "dark":  "resources/dark/delete.svg",
-                                                          "light":  "resources/light/delete.svg"
-                                                      }
+                                             "title":  "Release Ticket",
+                                             "icon":  "$(stop)"
                                          },
                                          {
                                              "command":  "STARLIMS.SendNameToEditor",
@@ -305,20 +302,14 @@
                                                       }
                                          },
                                          {
-                                             "command":  "STARLIMS.SelectActiveTicket",
-                                             "title":  "Use Ticket For Check-In"
-                                         },
-                                         {
                                              "command":  "STARLIMS.UndertakeTicket",
-                                             "title":  "Undertake ticket"
+                                             "title":  "Undertake ticket",
+                                             "icon":  "$(play)"
                                          },
                                          {
-                                             "command":  "STARLIMS.ClearActiveTicket",
-                                             "title":  "Clear Active Ticket",
-                                             "icon":  {
-                                                          "dark":  "resources/dark/delete.svg",
-                                                          "light":  "resources/light/delete.svg"
-                                                      }
+                                             "command":  "STARLIMS.ReleaseTicket",
+                                             "title":  "Release Ticket",
+                                             "icon":  "$(stop)"
                                          }
                                      ],
                         "keybindings":  [
@@ -427,11 +418,11 @@
                                                          },
                                                         {
                                                             "command": "STARLIMS.UndertakeTicket",
-                                                            "when": "view == STARLIMSTicketsTree",
+                                                            "when": "view == STARLIMSTicketsTree && viewItem != lockedTicket",
                                                             "group": "navigation"
                                                         },
                                                          {
-                                                             "command":  "STARLIMS.ClearActiveTicket",
+                                                             "command":  "STARLIMS.ReleaseTicket",
                                                              "when":  "view == STARLIMSTicketsTree",
                                                              "group":  "navigation"
                                                          }
@@ -543,12 +534,12 @@
                                                                 },
                                                                 {
                                                                     "command":  "STARLIMS.UndertakeTicket",
-                                                                    "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == ticket || viewItem == activeTicket)",
+                                                                    "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == ticket || viewItem == activeTicket) \u0026\u0026 viewItem != lockedTicket",
                                                                     "group":  "navigation"
                                                                 },
                                                                 {
-                                                                    "command":  "STARLIMS.ClearActiveTicket",
-                                                                    "when":  "view == STARLIMSTicketsTree \u0026\u0026 viewItem == activeTicket",
+                                                                    "command":  "STARLIMS.ReleaseTicket",
+                                                                    "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == activeTicket || viewItem == ticketInProgressByCurrentUser)",
                                                                     "group":  "navigation"
                                                                 }
                                                             ],

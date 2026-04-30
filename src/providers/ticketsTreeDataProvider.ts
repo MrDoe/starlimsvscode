@@ -8,6 +8,7 @@ import {
 
 type TicketsTreeDataProviderOptions = {
   getActiveTicket: () => TicketReference | undefined;
+  getCurrentUser: () => string;
   loadTickets: () => Promise<TicketOverview[]>;
 };
 
@@ -57,17 +58,18 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
     try {
       const tickets = await this.options.loadTickets();
       const activeTicket = this.options.getActiveTicket();
-      return this.createStatusGroupItems(tickets, activeTicket);
+      const currentUser = this.options.getCurrentUser();
+      return this.createStatusGroupItems(tickets, activeTicket, currentUser);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not load tickets.";
       return [this.createPlaceholderItem(message)];
     }
   }
 
-  private createStatusGroupItems(tickets: TicketOverview[], activeTicket: TicketReference | undefined): TicketTreeItem[] {
+  private createStatusGroupItems(tickets: TicketOverview[], activeTicket: TicketReference | undefined, currentUser: string): TicketTreeItem[] {
     return TICKET_STATUS_GROUPS.map((statusGroupName) => {
       const groupedTickets = tickets.filter((ticket) => ticket.statusGroupName === statusGroupName);
-      const children = groupedTickets.map((ticket) => this.createTicketItem(ticket, activeTicket));
+      const children = groupedTickets.map((ticket) => this.createTicketItem(ticket, activeTicket, currentUser));
       const item = new TicketTreeItem(
         statusGroupName,
         children.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
@@ -86,8 +88,18 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
     });
   }
 
-  private createTicketItem(ticket: TicketOverview, activeTicket: TicketReference | undefined): TicketTreeItem {
+  private createTicketItem(ticket: TicketOverview, activeTicket: TicketReference | undefined, currentUser: string): TicketTreeItem {
     const isActiveTicket = activeTicket?.id === ticket.id;
+    const isLockedByOtherUser = !!(
+      ticket.statusGroupName === "In Bearbeitung" && 
+      ticket.assignedTo && 
+      ticket.assignedTo.trim() !== currentUser.trim()
+    );
+    const isInProgressByCurrentUser = !!(
+      ticket.statusGroupName === "In Bearbeitung" && 
+      ticket.assignedTo && 
+      ticket.assignedTo.trim() === currentUser.trim()
+    );
     const label = `#${ticket.id} ${ticket.title}`;
     const item = new TicketTreeItem(label, vscode.TreeItemCollapsibleState.None, {
       itemKind: "ticket",
@@ -106,19 +118,43 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
     }
 
     item.description = descriptionParts.join(" | ");
-    item.contextValue = isActiveTicket ? "activeTicket" : "ticket";
-    item.iconPath = new vscode.ThemeIcon(isActiveTicket ? "check" : "issues");
-    item.tooltip = this.buildTooltip(ticket, isActiveTicket);
-    item.command = {
-      command: "STARLIMS.SelectActiveTicket",
-      title: "Use ticket for STARLIMS check-in",
-      arguments: [item]
-    };
+    item.contextValue = isActiveTicket 
+      ? "activeTicket" 
+      : (isLockedByOtherUser 
+        ? "lockedTicket" 
+        : (isInProgressByCurrentUser ? "ticketInProgressByCurrentUser" : "ticket"));
+    item.iconPath = isLockedByOtherUser 
+      ? new vscode.ThemeIcon("lock", new vscode.ThemeColor("errorForeground"))
+      : isInProgressByCurrentUser
+      ? new vscode.ThemeIcon("circle-filled", new vscode.ThemeColor("terminal.ansiGreen"))
+      : new vscode.ThemeIcon(isActiveTicket ? "check-all" : "issues");
 
+    // Reuse the same URI decoration scheme as checked-out items so label text color matches.
+    if (isInProgressByCurrentUser) {
+      item.resourceUri = vscode.Uri.parse("starlims:/checkedOutByMe");
+    } else if (isLockedByOtherUser) {
+      item.resourceUri = vscode.Uri.parse("starlims:/checkedOutByOtherUser");
+    }
+    
+    // Highlight active ticket and color own in-progress tickets green
+    if (isActiveTicket && !isInProgressByCurrentUser) {
+      item.label = {
+        label: label,
+        highlights: [[0, label.length]]
+      };
+    } else if (isLockedByOtherUser) {
+      // Add visual indicator for locked tickets (no highlighting)
+      item.label = `🔒 ${label}`;
+    } else if (isInProgressByCurrentUser) {
+      // Add green indicator for own in-progress tickets (no highlighting)
+      item.label = `✓ ${label}`;
+    }
+    
+    item.tooltip = this.buildTooltip(ticket, isActiveTicket, isLockedByOtherUser, isInProgressByCurrentUser);
     return item;
   }
 
-  private buildTooltip(ticket: TicketOverview, isActiveTicket: boolean): string {
+  private buildTooltip(ticket: TicketOverview, isActiveTicket: boolean, isLockedByOtherUser: boolean = false, isInProgressByCurrentUser: boolean = false): string {
     const normalizedDescription = (ticket.fullDescription || "").replace(/\r\n/g, "\n").trim();
     const lines = [
       `Ticket #${ticket.id}`,
@@ -153,6 +189,16 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
 
     if (isActiveTicket) {
       lines.push("", "Used for STARLIMS check-in and Git commit messages.");
+    }
+
+    if (isLockedByOtherUser) {
+      lines.push("", "⚠️ This ticket is currently being worked on by " + (ticket.assignedTo || "another user") + ".");
+      lines.push("You cannot undertake this ticket until it is released by the current assignee.");
+    }
+
+    if (isInProgressByCurrentUser && !isActiveTicket) {
+      lines.push("", "✓ You are currently working on this ticket.");
+      lines.push("You can use 'Undertake Ticket' to make it the active ticket for check-in and Git commits.");
     }
 
     return lines.join("\n");

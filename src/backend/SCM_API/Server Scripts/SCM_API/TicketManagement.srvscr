@@ -45,3 +45,25 @@ SQLExecute("UPDATE BMBH_TICKETS SET STATUS = ?nInProgressCode?, ASIGNEDTO = ?sUs
 
 :RETURN nInProgressCode;
 :ENDPROC;
+
+:PROCEDURE SetTicketOpen;
+:PARAMETERS nTicketId;
+:DEFAULT nTicketId, -1;
+
+:IF nTicketId < 0;
+	RaiseError("TicketId must be provided.", "SCM_API.TicketManagement.SetTicketOpen", -1);
+:ENDIF;
+
+:DECLARE nOpenCode;
+nOpenCode := SQLExecute("SELECT ORIGREC FROM BMBH_TICKET_STATUS WHERE STATUS_NAME = 'Offen'");
+
+:IF Empty(nOpenCode) .OR. Len(nOpenCode) == 0;
+	RaiseError("Could not resolve ticket status 'Offen'.", "SCM_API.TicketManagement.SetTicketOpen", -1);
+:ENDIF;
+
+nOpenCode := nOpenCode[1][1];
+
+SQLExecute("UPDATE BMBH_TICKETS SET STATUS = ?nOpenCode?, ASIGNEDTO = '', MODIFIEDON = GETDATE() WHERE ORIGREC = ?nTicketId?");
+
+:RETURN nOpenCode;
+:ENDPROC;

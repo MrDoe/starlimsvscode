@@ -334,6 +334,43 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
+  async function releaseTicket(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
+    const selectedTreeItem = ticketsTreeView?.selection?.[0];
+    const selectedTicket = item instanceof TicketTreeItem
+      ? item.ticket
+      : item || selectedTreeItem?.ticket || (activeTicket ? { ...activeTicket } : undefined);
+
+    if (!selectedTicket) {
+      vscode.window.showInformationMessage("Select a ticket first.");
+      return;
+    }
+
+    const ticketToRelease = normalizeTicketReference(selectedTicket);
+    const currentStarlimsUser = getCurrentStarlimsUser().trim().toLowerCase();
+    const assignedToUser = (selectedTicket.assignedTo || "").trim().toLowerCase();
+    if (assignedToUser && assignedToUser !== currentStarlimsUser) {
+      vscode.window.showWarningMessage(`Cannot release ticket #${ticketToRelease.id}. It is assigned to ${selectedTicket.assignedTo}.`);
+      return;
+    }
+
+    const updateResult = await enterpriseService.setTicketOpenResult(ticketToRelease.id);
+
+    if (!updateResult.ok) {
+      const fallbackMessage = `Could not release ticket #${ticketToRelease.id}.`;
+      const message = updateResult.error ?? fallbackMessage;
+      vscode.window.showWarningMessage(message);
+      return;
+    }
+
+    if (activeTicket?.id === ticketToRelease.id) {
+      await clearActiveTicketSelection(true);
+    }
+    if (ticketsTreeDataProvider) {
+      ticketsTreeDataProvider.refresh();
+    }
+    vscode.window.showInformationMessage(`Released ticket #${ticketToRelease.id} and set it back to Offen.`);
+  }
+
   async function setActiveTicketSelection(ticket: TicketOverview | TicketReference, silent: boolean = false): Promise<void> {
     const normalizedTicket = normalizeTicketReference(ticket);
     await persistActiveTicket(normalizedTicket);
@@ -348,6 +385,14 @@ export async function activate(context: vscode.ExtensionContext) {
   async function undertakeTicket(ticket: TicketOverview | TicketReference): Promise<void> {
     const normalizedTicket = normalizeTicketReference(ticket);
     const currentStarlimsUser = getCurrentStarlimsUser();
+    
+    // Check if ticket is already being worked on by another user
+    if (ticket instanceof Object && 'statusGroupName' in ticket && ticket.statusGroupName === "In Bearbeitung" && 
+        ticket.assignedTo && ticket.assignedTo.trim() !== currentStarlimsUser.trim()) {
+      vscode.window.showWarningMessage(`Cannot undertake ticket #${normalizedTicket.id}. It is currently being worked on by ${ticket.assignedTo}.`);
+      return;
+    }
+    
     const updateResult = await enterpriseService.setTicketInProgressResult(normalizedTicket.id, currentStarlimsUser);
 
     if (!updateResult.ok) {
@@ -358,6 +403,7 @@ export async function activate(context: vscode.ExtensionContext) {
     normalizedTicket.statusName = "In Bearbeitung";
     normalizedTicket.assignedTo = currentStarlimsUser;
     await persistActiveTicket(normalizedTicket);
+    await setActiveTicketSelection(normalizedTicket, true);
     if (ticketsTreeDataProvider) {
       ticketsTreeDataProvider.refresh();
     }
@@ -1647,6 +1693,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   ticketsTreeDataProvider = new TicketsTreeDataProvider({
     getActiveTicket: () => activeTicket,
+    getCurrentUser: () => getCurrentStarlimsUser(),
     loadTickets: async () => {
       const ticketsResult = await enterpriseService.getTicketsForUserResult(getCurrentStarlimsUser());
       if (!ticketsResult.ok) {
@@ -1701,9 +1748,17 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   vscode.commands.registerCommand(
+    "STARLIMS.ReleaseTicket",
+    async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
+      await releaseTicket(item);
+    }
+  );
+
+  // Backward-compatible alias for previous command id.
+  vscode.commands.registerCommand(
     "STARLIMS.ClearActiveTicket",
-    async () => {
-      await clearActiveTicketSelection();
+    async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
+      await releaseTicket(item);
     }
   );
 
@@ -3669,7 +3724,7 @@ async function setupGitIntegration(
         return;
       }
 
-      const commitMessage = commit.message;
+      let commitMessage = commit.message;
 
       // NOTE: Due to limitations in the Git extension API, we cannot reliably get the exact files
       // that were part of this specific commit. As a workaround, we check all STARLIMS files

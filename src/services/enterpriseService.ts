@@ -376,6 +376,15 @@ export class EnterpriseService implements IEnterpriseService {
     }
   }
 
+  private isMissingScriptEntryPointError(errorMessage: string | undefined): boolean {
+    if (!errorMessage) {
+      return false;
+    }
+
+    const normalized = errorMessage.toLocaleLowerCase();
+    return normalized.includes("unable to find method") || normalized.includes("method not found");
+  }
+
   private async getTicketDescriptionResult(
     ticketId: number,
     stackTraceId: number | undefined
@@ -514,6 +523,37 @@ export class EnterpriseService implements IEnterpriseService {
     return {
       ok: true,
       data: true
+    };
+  }
+
+  public async setTicketOpenResult(ticketId: number): Promise<EnterpriseOperationResult<boolean>> {
+    const candidateEntryPoints = ["SetTicketOpen", "SetTicketReleased", "ReleaseTicket"];
+
+    for (const entryPoint of candidateEntryPoints) {
+      const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+        parameters: [ticketId],
+        entryPoint
+      });
+
+      if (result.ok) {
+        return {
+          ok: true,
+          data: true
+        };
+      }
+
+      // Try fallback entry points only when this endpoint does not exist on the server.
+      if (!this.isMissingScriptEntryPointError(result.error)) {
+        return {
+          ok: false,
+          error: result.error ?? `Could not update ticket #${ticketId} to Offen.`
+        };
+      }
+    }
+
+    return {
+      ok: false,
+      error: "Your STARLIMS SCM_API TicketManagement script is outdated and does not expose a release entry point. Please update/deploy SCM_API so releasing can set status back to Offen."
     };
   }
 
