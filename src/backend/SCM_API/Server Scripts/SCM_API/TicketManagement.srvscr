@@ -67,3 +67,21 @@ SQLExecute("UPDATE BMBH_TICKETS SET STATUS = ?nOpenCode?, ASIGNEDTO = '', MODIFI
 
 :RETURN nOpenCode;
 :ENDPROC;
+
+:PROCEDURE RenameTicket;
+:PARAMETERS nTicketId, sNewTitle;
+:DEFAULT nTicketId, -1;
+:DEFAULT sNewTitle, "";
+
+:IF nTicketId < 0;
+	RaiseError("TicketId must be provided.", "SCM_API.TicketManagement.RenameTicket", -1);
+:ENDIF;
+
+:IF Empty(AllTrim(sNewTitle));
+	RaiseError("New title must be provided.", "SCM_API.TicketManagement.RenameTicket", -1);
+:ENDIF;
+
+SQLExecute("UPDATE BMBH_TICKETS SET TITLE = ?sNewTitle?, MODIFIEDON = GETDATE() WHERE ORIGREC = ?nTicketId?");
+
+:RETURN 1;
+:ENDPROC;

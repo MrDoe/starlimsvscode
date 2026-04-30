@@ -440,6 +440,44 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage(`Undertook ticket #${normalizedTicket.id} for ${currentStarlimsUser}.`);
   }
 
+  async function renameTicket(ticket: TicketOverview | TicketReference): Promise<void> {
+    const normalizedTicket = normalizeTicketReference(ticket);
+    
+    const newTitle = await vscode.window.showInputBox({
+      prompt: "Enter new ticket title",
+      value: normalizedTicket.title,
+      validateInput: (value) => {
+        if (!value || value.trim().length === 0) {
+          return "Title cannot be empty";
+        }
+        return null;
+      }
+    });
+
+    if (!newTitle || newTitle.trim() === normalizedTicket.title) {
+      return; // Cancelled or no change
+    }
+
+    const updateResult = await enterpriseService.renameTicketResult(normalizedTicket.id, newTitle.trim());
+
+    if (!updateResult.ok) {
+      vscode.window.showWarningMessage(updateResult.error ?? `Could not rename ticket #${normalizedTicket.id}.`);
+      return;
+    }
+
+    // Update the active ticket if it's the one being renamed
+    if (activeTicket && activeTicket.id === normalizedTicket.id) {
+      const updatedTicket = { ...activeTicket, title: newTitle.trim() };
+      await persistActiveTicket(updatedTicket);
+    }
+
+    if (ticketsTreeDataProvider) {
+      ticketsTreeDataProvider.refresh();
+    }
+
+    vscode.window.showInformationMessage(`Renamed ticket #${normalizedTicket.id} to "${newTitle.trim()}".`);
+  }
+
   async function reconcileActiveTicketSelection(tickets: TicketOverview[]): Promise<void> {
     if (!activeTicket) {
       return;
@@ -1780,6 +1818,22 @@ export async function activate(context: vscode.ExtensionContext) {
     "STARLIMS.ReleaseTicket",
     async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
       await releaseTicket(item);
+    }
+  );
+
+  vscode.commands.registerCommand(
+    "STARLIMS.RenameTicket",
+    async (item: TicketTreeItem | TicketOverview | undefined) => {
+      const selectedTreeItem = ticketsTreeView?.selection?.[0];
+      const ticket = item instanceof TicketTreeItem
+        ? item.ticket
+        : item || selectedTreeItem?.ticket || (activeTicket ? { ...activeTicket } : undefined);
+      if (!ticket) {
+        vscode.window.showInformationMessage("Select a ticket first.");
+        return;
+      }
+
+      await renameTicket(ticket);
     }
   );
 

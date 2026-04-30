@@ -557,6 +557,24 @@ export class EnterpriseService implements IEnterpriseService {
     };
   }
 
+  public async renameTicketResult(ticketId: number, newTitle: string): Promise<EnterpriseOperationResult<boolean>> {
+    const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+      parameters: [ticketId, newTitle],
+      entryPoint: "RenameTicket"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not rename ticket #${ticketId}.`
+      };
+    }
+
+    return {
+      ok: true,
+      data: true
+    };
+  }
+
   async moveItem(uri: string, destination: string) {
     const url = `${this.baseUrl}/SCM_API.Move.${this.urlSuffix}?URI=${uri}&Destination=${destination}`;
     const headers = new Headers(await this.getAPIHeaders());

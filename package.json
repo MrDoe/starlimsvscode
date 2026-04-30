@@ -310,6 +310,11 @@
                                              "command":  "STARLIMS.ReleaseTicket",
                                              "title":  "Release Ticket",
                                              "icon":  "$(stop)"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.RenameTicket",
+                                             "title":  "Rename ticket",
+                                             "icon":  "$(edit)"
                                          }
                                      ],
                         "keybindings":  [
@@ -423,6 +428,11 @@
                                                         },
                                                          {
                                                              "command":  "STARLIMS.ReleaseTicket",
+                                                             "when":  "view == STARLIMSTicketsTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
+                                                             "command":  "STARLIMS.RenameTicket",
                                                              "when":  "view == STARLIMSTicketsTree",
                                                              "group":  "navigation"
                                                          }
@@ -540,6 +550,11 @@
                                                                 {
                                                                     "command":  "STARLIMS.ReleaseTicket",
                                                                     "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == activeTicket || viewItem == ticketInProgressByCurrentUser)",
+                                                                    "group":  "navigation"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.RenameTicket",
+                                                                    "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == ticket || viewItem == activeTicket)",
                                                                     "group":  "navigation"
                                                                 }
                                                             ],
