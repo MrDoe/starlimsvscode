@@ -334,6 +334,24 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
+  function isBackendReleaseEntryPointMissing(errorMessage: string | undefined): boolean {
+    if (!errorMessage) {
+      return false;
+    }
+
+    const normalized = errorMessage.toLocaleLowerCase();
+    return normalized.includes("outdated") || normalized.includes("unable to find method") || normalized.includes("method not found");
+  }
+
+  function resolveBackendSdpPackagePath(): string | undefined {
+    const candidatePaths = [
+      context.asAbsolutePath("dist/SCM_API.sdp"),
+      context.asAbsolutePath("src/backend/SCM_API.sdp")
+    ];
+
+    return candidatePaths.find((candidatePath) => fs.existsSync(candidatePath));
+  }
+
   async function releaseTicket(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
     const selectedTreeItem = ticketsTreeView?.selection?.[0];
     const selectedTicket = item instanceof TicketTreeItem
@@ -353,7 +371,18 @@ export async function activate(context: vscode.ExtensionContext) {
       return;
     }
 
-    const updateResult = await enterpriseService.setTicketOpenResult(ticketToRelease.id);
+    let updateResult = await enterpriseService.setTicketOpenResult(ticketToRelease.id);
+
+    if (!updateResult.ok && isBackendReleaseEntryPointMissing(updateResult.error)) {
+      const sdpPackagePath = resolveBackendSdpPackagePath();
+      if (!sdpPackagePath) {
+        vscode.window.showWarningMessage("Could not find SCM_API.sdp for automatic backend upgrade. Build/package the extension backend and try again.");
+        return;
+      }
+
+      await enterpriseService.upgradeBackend(sdpPackagePath);
+      updateResult = await enterpriseService.setTicketOpenResult(ticketToRelease.id);
+    }
 
     if (!updateResult.ok) {
       const fallbackMessage = `Could not release ticket #${ticketToRelease.id}.`;
