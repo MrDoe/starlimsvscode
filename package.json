@@ -3,7 +3,7 @@
     "displayName":  "STARLIMS VS Code Extension",
     "description":  "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license":  "SEE LICENSE IN LICENSE.md",
-    "version":  "1.4.6",
+    "version":  "1.4.30",
     "icon":  "resources/extension/starlimsvscode.png",
     "publisher":  "Christoph Döllinger",
     "author":  {
@@ -312,9 +312,18 @@
                                              "icon":  "$(stop)"
                                          },
                                          {
+                                             "command":  "STARLIMS.SolveTicket",
+                                             "title":  "Ticket solved",
+                                             "icon":  "$(check)"
+                                         },
+                                         {
                                              "command":  "STARLIMS.RenameTicket",
                                              "title":  "Rename ticket",
                                              "icon":  "$(edit)"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.SelectActiveTicket",
+                                             "title":  "Select as active ticket"
                                          }
                                      ],
                         "keybindings":  [
@@ -421,13 +430,18 @@
                                                              "when":  "view == STARLIMSTicketsTree",
                                                              "group":  "navigation"
                                                          },
-                                                        {
-                                                            "command": "STARLIMS.UndertakeTicket",
-                                                            "when": "view == STARLIMSTicketsTree && viewItem != lockedTicket",
-                                                            "group": "navigation"
-                                                        },
+                                                         {
+                                                             "command":  "STARLIMS.UndertakeTicket",
+                                                             "when":  "view == STARLIMSTicketsTree \u0026\u0026 viewItem != lockedTicket",
+                                                             "group":  "navigation"
+                                                         },
                                                          {
                                                              "command":  "STARLIMS.ReleaseTicket",
+                                                             "when":  "view == STARLIMSTicketsTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
+                                                             "command":  "STARLIMS.SolveTicket",
                                                              "when":  "view == STARLIMSTicketsTree",
                                                              "group":  "navigation"
                                                          },
@@ -550,6 +564,11 @@
                                                                 {
                                                                     "command":  "STARLIMS.ReleaseTicket",
                                                                     "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == activeTicket || viewItem == ticketInProgressByCurrentUser)",
+                                                                    "group":  "navigation"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.SolveTicket",
+                                                                    "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == ticket || viewItem == activeTicket || viewItem == ticketInProgressByCurrentUser)",
                                                                     "group":  "navigation"
                                                                 },
                                                                 {

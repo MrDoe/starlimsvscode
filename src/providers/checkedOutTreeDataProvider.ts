@@ -11,6 +11,7 @@ import path from "path";
  */
 export class CheckedOutTreeDataProvider implements vscode.TreeDataProvider<TreeEnterpriseItem> {
   private treeItems: TreeEnterpriseItem[] = [];
+  private activeTicketItem: TreeEnterpriseItem | undefined;
   private _onDidChangeTreeData: vscode.EventEmitter<TreeEnterpriseItem | null> =
     new vscode.EventEmitter<TreeEnterpriseItem | null>();
   readonly onDidChangeTreeData: vscode.Event<TreeEnterpriseItem | null> = this._onDidChangeTreeData.event;
@@ -23,6 +24,34 @@ export class CheckedOutTreeDataProvider implements vscode.TreeDataProvider<TreeE
    */
   constructor(xmlDS: string, private service: EnterpriseService) {
     this.treeItems = this.getDataObject(xmlDS);
+  }
+
+  /**
+   * Set the active ticket to display prominently
+   */
+  setActiveTicket(ticketId: number, ticketTitle: string): void {
+    const ticketItem: any = {
+      label: `🎯 Active Ticket #${ticketId}: ${ticketTitle}`,
+      type: "ACTIVE_TICKET",
+      uri: `ticket://${ticketId}`,
+      iconPath: new vscode.ThemeIcon('star'),
+      children: [],
+      scriptLanguage: "",
+      language: "",
+      filePath: undefined,
+      checkedOutBy: undefined,
+      guid: undefined
+    };
+    this.activeTicketItem = ticketItem as TreeEnterpriseItem;
+    this._onDidChangeTreeData.fire(null);
+  }
+
+  /**
+   * Clear the active ticket display
+   */
+  clearActiveTicket(): void {
+    this.activeTicketItem = undefined;
+    this._onDidChangeTreeData.fire(null);
   }
 
   /**
@@ -86,7 +115,31 @@ export class CheckedOutTreeDataProvider implements vscode.TreeDataProvider<TreeE
    * @returns Children of the tree view item.
    */
   getChildren(item?: TreeEnterpriseItem): Thenable<TreeEnterpriseItem[] | undefined> {
-    return (item && Promise.resolve(item.children ?? [])) || Promise.resolve(this.treeItems);
+    if (item) {
+      return Promise.resolve(item.children ?? []);
+    }
+    
+    // Show active ticket at the top if one is set
+    const rootItems = this.activeTicketItem ? [this.activeTicketItem, ...this.treeItems] : this.treeItems;
+    return Promise.resolve(rootItems);
+  }
+
+  public getLeafItems(): TreeEnterpriseItem[] {
+    const leaves: TreeEnterpriseItem[] = [];
+
+    const visit = (items: TreeEnterpriseItem[]) => {
+      for (const item of items) {
+        if (item.children && item.children.length > 0) {
+          visit(item.children);
+          continue;
+        }
+
+        leaves.push(item);
+      }
+    };
+
+    visit(this.treeItems);
+    return leaves;
   }
 
   /**

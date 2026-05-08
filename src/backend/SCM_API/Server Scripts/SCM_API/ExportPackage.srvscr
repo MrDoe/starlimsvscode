@@ -3,16 +3,51 @@ Description.. :	Export all checked out items to an SDP package file
 Author....... :	DC
 Date......... : 2024-10-20
 *******************************************************************************/;
-:DECLARE oResponse, aResult, ds, sPackageId, sPackageName, sExportLog, i;
+:DECLARE oResponse, aResult, ds, sPackageId, sPackageName, sExportLog, i, sDownloadPkgId, sDownloadPkgName, sDownloadFile;
+
+sDownloadPkgId := "";
+sDownloadPkgName := "";
+
+:IF Request:QueryString:IsProperty("pkgId");
+	sDownloadPkgId := Request:QueryString:pkgId;
+:ENDIF;
+
+:IF Request:QueryString:IsProperty("pkgName");
+	sDownloadPkgName := Request:QueryString:pkgName;
+	:IF Right(Upper(sDownloadPkgName), 4) == ".SDP";
+		sDownloadPkgName := SubStr(sDownloadPkgName, 1, Len(sDownloadPkgName) - 4);
+	:ENDIF;
+:ENDIF;
 
 oResponse := CreateUDObject({
 	{"success", .T.},
 	{"data", NIL}
 });
 
+:IF !Empty(sDownloadPkgId) .AND. !Empty(sDownloadPkgName);
+	sDownloadFile := GlbImpExpPath + sDownloadPkgId + "\" + sDownloadPkgName + ".sdp";
+	:IF FileSupport(sDownloadFile, "CHECK");
+		Response:StatusCode := 200;
+		Response:WriteFile(sDownloadFile);
+		:RETURN;
+	:ENDIF;
+
+	Response:StatusCode := 404;
+	oResponse:success := .F.;
+	oResponse:data := "Package file not found: " + sDownloadPkgName + ".sdp";
+	:RETURN ToJson(oResponse);
+:ENDIF;
+
+
 :TRY;
-	:DECLARE sItemID, sItemType, aItemsToExport;
-	aItemsToExport := {};
+	:DECLARE sItemID, sItemType, sItemContent, sDefaultLangId, sDefaultLangName, sPackageDate, packageDTO, manifestContent;
+	sDefaultLangId := GetSetting("DEFAULTLANGUAGE");
+	sDefaultLangName := sDefaultLangId;
+	sDefaultLangName := LSearch("select LANGUAGE from limsLanguages where LANGID = ?", sDefaultLangName, "DICTIONARY", {sDefaultLangId});
+	:IF Empty(sDefaultLangName);
+		sDefaultLangName := sDefaultLangId;
+	:ENDIF;
+	sPackageDate := SubStr(DToS(Today()), 1, 4) + "-" + SubStr(DToS(Today()), 5, 2) + "-" + SubStr(DToS(Today()), 7, 2) + "T" + Time();
 	
 	/* Get all checked out items for current user;
 	aResult := DoProc("Enterprise_Data_Providers.CheckInProvider.GetPendingCheckins", {.F.});
@@ -32,54 +67,98 @@ oResponse := CreateUDObject({
 			:RETURN ToJson(oResponse);
 		:ENDIF;
 	:ENDIF;
+
+	packageDTO := DoProc("_CreatePackageDTO", {sPackageId, sPackageName, sPackageDate, sDefaultLangId, sDefaultLangName});
 	
-	/* Export each checked out item;
+	/* Export each checked out item and add it to the package manifest DTO;
 	:FOR i:=0 :TO ds:Tables[0]:Rows:Count - 1;
 		:DECLARE row;
 		row := ds:Tables[0]:Rows[i];
 		sItemID := row["CHILDID"];
 		sItemType := row["CHILDTYPE"];
+		sItemContent := "";
 		
-		/* Use the appropriate save procedure based on item type;
 		:BEGINCASE;
-			:CASE sItemType == "FORM";
-                usrmes("Exporting FORM", sItemID);
-				DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveApplicationForm", {sPackageId, sItemID});
+			:CASE sItemType == "FORM" .OR. sItemType == "Form" .OR. sItemType == "HTMLFORMXML" .OR. sItemType == "HTMLFORMCODE" .OR. sItemType == "XFDFORMXML" .OR. sItemType == "XFDFORMCODE";
+				usrmes("Exporting FORM", sItemID);
+				sItemContent := DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveApplicationForm", {sPackageId, sItemID});
 			:EXITCASE;
 			
-			:CASE sItemType == "SERVERSCRIPT";
-                usrmes("Exporting SERVERSCRIPT", sItemID);
-				DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveServerScript", {sPackageId, sItemID});
+			:CASE sItemType == "SERVERSCRIPT" .OR. sItemType == "ServerScript" .OR. sItemType == "SS";
+				usrmes("Exporting SERVERSCRIPT", sItemID);
+				sItemContent := DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveServerScript", {sPackageId, sItemID});
+			:EXITCASE;
+
+			:CASE sItemType == "APPSERVERSCRIPT" .OR. sItemType == "AppServerScript" .OR. sItemType == "APPSS";
+				usrmes("Exporting APPSERVERSCRIPT", sItemID);
+				sItemContent := DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveApplicationServerScript", {sPackageId, sItemID});
 			:EXITCASE;
 			
-			:CASE sItemType == "DATASOURCE";
-                usrmes("Exporting DATASOURCE", sItemID);
-				DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveApplicationDataSource", {sPackageId, sItemID});
+			:CASE sItemType == "DATASOURCE" .OR. sItemType == "DataSource" .OR. sItemType == "DataSourceScript" .OR. sItemType == "DS";
+				usrmes("Exporting DATASOURCE", sItemID);
+				sItemContent := DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveDataSource", {sPackageId, sItemID});
+			:EXITCASE;
+
+			:CASE sItemType == "APPDATASOURCE" .OR. sItemType == "AppDataSource" .OR. sItemType == "AppDataSourceScript" .OR. sItemType == "APPDS";
+				usrmes("Exporting APPDATASOURCE", sItemID);
+				sItemContent := DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveApplicationDataSource", {sPackageId, sItemID});
 			:EXITCASE;
 			
-			:CASE sItemType == "CLIENTSCRIPT";
-                usrmes("Exporting CLIENTSCRIPT", sItemID);
-				DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveApplicationClientScript", {sPackageId, sItemID});
+			:CASE sItemType == "CLIENTSCRIPT" .OR. sItemType == "ClientScript" .OR. sItemType == "CS";
+				usrmes("Exporting CLIENTSCRIPT", sItemID);
+				sItemContent := DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveClientScript", {sPackageId, sItemID});
+			:EXITCASE;
+
+			:CASE sItemType == "APPCLIENTSCRIPT" .OR. sItemType == "AppClientScript" .OR. sItemType == "APPCS";
+				usrmes("Exporting APPCLIENTSCRIPT", sItemID);
+				sItemContent := DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveApplicationClientScript", {sPackageId, sItemID});
+			:EXITCASE;
+
+			:CASE sItemType == "TABLE" .OR. sItemType == "Table";
+				usrmes("Exporting TABLE", sItemID);
+				sItemContent := DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.SaveTable", {sPackageId, sItemID, .F.});
+			:EXITCASE;
+
+			:OTHERWISE;
+				usrmes("Skipping unsupported checked out item type", sItemType + ":" + sItemID);
 			:EXITCASE;
 		:ENDCASE;
+
+		:IF !Empty(sItemContent);
+			DoProc("_AddExportedItemToPackage", {packageDTO, row, sItemContent});
+		:ENDIF;
 	:NEXT;
-	
-	/* Create manifest file;
-	:DECLARE manifestContent;
-	manifestContent := "<?xml version='1.0' encoding='utf-8'?><Package><Name>" + sPackageName + "</Name><Date>" + LimsString(Today()) + "</Date></Package>";
+
+	manifestContent := DoProc("Enterprise_Server.ManifestXmlFromPackageDTO.GetManifestXml", {packageDTO});
+	WriteText(GlbImpExpPath + sPackageId + "\manifest.xml", manifestContent);
 	usrmes(manifestContent);
 
-    /* create file first;
-    WriteText(GlbImpExpPath + sPackageId + "\manifest.xml", manifestContent);
-
 	/* Create the SDP file;
-	DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.CreateSDP", {sPackageId, sPackageName, ""});
+	DoProc("ENTERPRISE_DATA_PROVIDERS.PACKAGEBUILDERPROVIDER.createsdpbatch", {sPackageId, sPackageName, ""});
 	usrmes(sPackageId);
+
+	:DECLARE sPackageFile, fileUtils, fileContent, convert, oExportData;
+	sPackageFile := GlbImpExpPath + sPackageId + "\" + sPackageName + ".sdp";
+
+	:IF !FileSupport(sPackageFile, "CHECK");
+		Response:StatusCode := 500;
+		oResponse:success := .F.;
+		oResponse:data := "Export finished, but the SDP file could not be found.";
+		:RETURN ToJson(oResponse);
+	:ENDIF;
+
+	fileUtils := LimsNetConnect("", "System.IO.File");
+	fileContent := fileUtils:ReadAllBytes(sPackageFile);
+	convert := LimsNetConnect("", "System.Convert");
+
+	oExportData := CreateUDObject({
+		{"fileName", sPackageName + ".sdp"},
+		{"content", convert:ToBase64String(fileContent)}
+	});
 	
-	/* Return success with package filename;
 	Response:StatusCode := 200;
 	oResponse:success := .T.;
-	oResponse:data := sPackageName + ".sdp";
+	oResponse:data := oExportData;
 	
 :CATCH;
 	:DECLARE sError;
@@ -90,3 +169,525 @@ oResponse := CreateUDObject({
 :ENDTRY;
 
 :RETURN ToJson(oResponse);
+
+:PROCEDURE _CreatePackageDTO;
+:PARAMETERS sPackageId, sPackageName, sPackageDate, sDefaultLangId, sDefaultLangName;
+
+	:DECLARE packageDTO, languageDTO;
+	packageDTO := CreateUDObject("DEI_ManifestDTO.Package");
+	packageDTO:ItemID := sPackageId;
+	packageDTO:ItemName := sPackageName;
+	packageDTO:PackageDate := sPackageDate;
+	packageDTO:PathReadMe := "";
+	packageDTO:PathEULA := "";
+	packageDTO:PathLogo := "";
+	packageDTO:OverwriteLayer := .F.;
+	packageDTO:IsMandatory := .F.;
+	packageDTO:ItemBehaviour := "merge";
+
+	languageDTO := CreateUDObject("DEI_ManifestDTO.Language");
+	languageDTO:ItemID := sDefaultLangId;
+	languageDTO:ItemName := sDefaultLangName;
+	languageDTO:ItemDescription := sDefaultLangName;
+	languageDTO:IsMandatory := .F.;
+	languageDTO:ItemBehaviour := "merge";
+	AAdd(packageDTO:Languages, languageDTO);
+
+	:RETURN packageDTO;
+:ENDPROC;
+
+:PROCEDURE _AddExportedItemToPackage;
+:PARAMETERS packageDTO, row, sItemContent;
+
+	:DECLARE sItemType, sParentType, sScriptLanguage;
+	sItemType := row["CHILDTYPE"];
+	sParentType := row["PARENTTYPE"];
+	sScriptLanguage := row["SCRIPTLANGUAGE"];
+
+	:IF sParentType == "APP";
+		:IF sItemType == "FORM" .OR. sItemType == "Form" .OR. sItemType == "HTMLFORMXML" .OR. sItemType == "HTMLFORMCODE" .OR. sItemType == "XFDFORMXML" .OR. sItemType == "XFDFORMCODE" .OR. sScriptLanguage == "HTML" .OR. sScriptLanguage == "XFD";
+			DoProc("_AddApplicationFormToPackage", {packageDTO, row, sItemContent});
+			:RETURN .T.;
+		:ENDIF;
+
+		:IF AScanExact({"APPSERVERSCRIPT", "AppServerScript", "APPSS"}, sItemType) > 0;
+			DoProc("_AddApplicationServerScriptToPackage", {packageDTO, row, sItemContent});
+			:RETURN .T.;
+		:ENDIF;
+
+		:IF AScanExact({"APPCLIENTSCRIPT", "AppClientScript", "APPCS"}, sItemType) > 0;
+			DoProc("_AddApplicationClientScriptToPackage", {packageDTO, row, sItemContent});
+			:RETURN .T.;
+		:ENDIF;
+
+		:IF AScanExact({"APPDATASOURCE", "AppDataSource", "AppDataSourceScript", "APPDS"}, sItemType) > 0;
+			DoProc("_AddApplicationDataSourceToPackage", {packageDTO, row, sItemContent});
+			:RETURN .T.;
+		:ENDIF;
+	:ENDIF;
+
+	:IF sParentType == "SSC";
+		DoProc("_AddServerScriptToPackage", {packageDTO, row["CHILDID"], sItemContent});
+		:RETURN .T.;
+	:ENDIF;
+
+	:IF sParentType == "CSC";
+		DoProc("_AddClientScriptToPackage", {packageDTO, row["CHILDID"], sItemContent});
+		:RETURN .T.;
+	:ENDIF;
+
+	:IF sParentType == "DSC";
+		DoProc("_AddDataSourceToPackage", {packageDTO, row["CHILDID"], sItemContent});
+		:RETURN .T.;
+	:ENDIF;
+
+	:IF sItemType == "TABLE" .OR. sItemType == "Table";
+		DoProc("_AddTableToPackage", {packageDTO, row, sItemContent});
+		:RETURN .T.;
+	:ENDIF;
+
+	:RETURN .F.;
+:ENDPROC;
+
+:PROCEDURE _GetArrayItemById;
+:PARAMETERS aItems, sItemId;
+
+	:DECLARE i;
+	:FOR i := 1 :TO Len(aItems);
+		:IF aItems[i]:ItemID == sItemId;
+			:RETURN aItems[i];
+		:ENDIF;
+	:NEXT;
+
+	:RETURN NIL;
+:ENDPROC;
+
+:PROCEDURE _EnsureApplicationDTO;
+:PARAMETERS packageDTO, sAppId;
+
+	:DECLARE nSysLayerId, aAppInfo, appCategoryDTO, applicationDTO;
+	nSysLayerId := GetSystemLayerId();
+	aAppInfo := SqlExecute(
+		"select a.APPID, a.DISPLAYTEXT, a.APPDESCRIPTION, b.DISPLAYTEXT, b.CATEGORYID, b.DISPLAYTEXT, b.CATDESCRIPTION, b.ISSYSTEM, b.LAYERID, a.LAYERID " +
+		"from LIMSAPPLICATIONS a inner join LIMSAPPCATEGORIES b on a.CATEGORYID = b.CATEGORYID " +
+		"where a.APPID = ?sAppId? " +
+		"order by case when a.LAYERID <= ?nSysLayerId? then ?nSysLayerId? - a.LAYERID else a.LAYERID end",
+		"DICTIONARY"
+	);
+
+	:IF Empty(aAppInfo);
+		:RETURN NIL;
+	:ENDIF;
+
+	appCategoryDTO := DoProc("_GetArrayItemById", {packageDTO:ApplicationCategories, aAppInfo[1][5]});
+	:IF Empty(appCategoryDTO);
+		appCategoryDTO := CreateUDObject("DEI_ManifestDTO.ApplicationCategory");
+		appCategoryDTO:ItemID := aAppInfo[1][5];
+		appCategoryDTO:ItemName := aAppInfo[1][6];
+		appCategoryDTO:ItemDescription := aAppInfo[1][7];
+		appCategoryDTO:ItemIsSystem := aAppInfo[1][8];
+		appCategoryDTO:LayerId := aAppInfo[1][9];
+		appCategoryDTO:IsMandatory := .F.;
+		appCategoryDTO:ItemBehaviour := "merge";
+		appCategoryDTO:Applications := {};
+		AAdd(packageDTO:ApplicationCategories, appCategoryDTO);
+	:ENDIF;
+
+	applicationDTO := DoProc("_GetArrayItemById", {appCategoryDTO:Applications, aAppInfo[1][1]});
+	:IF Empty(applicationDTO);
+		applicationDTO := CreateUDObject("DEI_ManifestDTO.Application");
+		applicationDTO:ItemID := aAppInfo[1][1];
+		applicationDTO:ItemName := aAppInfo[1][2];
+		applicationDTO:ItemDescription := aAppInfo[1][3];
+		applicationDTO:ItemCategory := aAppInfo[1][4];
+		applicationDTO:LayerId := aAppInfo[1][10];
+		applicationDTO:IsMandatory := .F.;
+		applicationDTO:ItemBehaviour := "merge";
+		applicationDTO:Forms := {};
+		applicationDTO:ReferedForms := {};
+		applicationDTO:DataSources := {};
+		applicationDTO:ReferedDataSources := {};
+		applicationDTO:ServerScripts := {};
+		applicationDTO:ReferedServerScripts := {};
+		applicationDTO:ClientScripts := {};
+		AAdd(appCategoryDTO:Applications, applicationDTO);
+	:ENDIF;
+
+	:RETURN applicationDTO;
+:ENDPROC;
+
+:PROCEDURE _AddApplicationFormToPackage;
+:PARAMETERS packageDTO, row, sItemContent;
+
+	:DECLARE applicationDTO, nSysLayerId, sFormType, aFormInfo, formDTO;
+	applicationDTO := DoProc("_EnsureApplicationDTO", {packageDTO, row["PARENTID"]});
+	:IF Empty(applicationDTO);
+		:RETURN;
+	:ENDIF;
+
+	formDTO := DoProc("_GetArrayItemById", {applicationDTO:Forms, row["CHILDID"]});
+	:IF !Empty(formDTO);
+		:RETURN;
+	:ENDIF;
+
+	nSysLayerId := GetSystemLayerId();
+	sFormType := IIf(row["SCRIPTLANGUAGE"] == "HTML", "HTML", "XFD");
+	aFormInfo := SqlExecute(
+		"select f.FORMID, f.DISPLAYTEXT, a.DISPLAYTEXT, c.DISPLAYTEXT, f.LAYERID, f.FORMTYPE " +
+		"from LIMSXFDFORMS f " +
+		"inner join LIMSAPPLICATIONS a on a.APPID = f.APPID " +
+		"inner join LIMSAPPCATEGORIES c on c.CATEGORYID = a.CATEGORYID " +
+		"where f.FORMID = ?row[\"CHILDID\"]? and f.FORMTYPE = ?sFormType? " +
+		"order by case when f.LAYERID <= ?nSysLayerId? then ?nSysLayerId? - f.LAYERID else f.LAYERID end",
+		"DICTIONARY"
+	);
+
+	:IF Empty(aFormInfo);
+		:RETURN;
+	:ENDIF;
+
+	formDTO := CreateUDObject("DEI_ManifestDTO.Form");
+	formDTO:ItemID := aFormInfo[1][1];
+	formDTO:ItemName := aFormInfo[1][2];
+	formDTO:ItemDescription := "";
+	formDTO:ItemCategory := aFormInfo[1][3];
+	formDTO:LayerId := aFormInfo[1][5];
+	formDTO:ItemContent := sItemContent;
+	formDTO:IsMandatory := .F.;
+	formDTO:ItemBehaviour := "overwrite";
+	formDTO:ClientScripts := {};
+	formDTO:ModesOfOperationImportMode := "ignore";
+	formDTO:OverwriteTransactionSettings := .F.;
+	formDTO:FormType := aFormInfo[1][6];
+	formDTO:IsOffline := "N";
+	AAdd(applicationDTO:Forms, formDTO);
+:ENDPROC;
+
+:PROCEDURE _AddApplicationServerScriptToPackage;
+:PARAMETERS packageDTO, row, sItemContent;
+
+	:DECLARE applicationDTO, nSysLayerId, aInfo, itemDTO;
+	applicationDTO := DoProc("_EnsureApplicationDTO", {packageDTO, row["PARENTID"]});
+	:IF Empty(applicationDTO);
+		:RETURN;
+	:ENDIF;
+
+	itemDTO := DoProc("_GetArrayItemById", {applicationDTO:ServerScripts, row["CHILDID"]});
+	:IF !Empty(itemDTO);
+		:RETURN;
+	:ENDIF;
+
+	nSysLayerId := GetSystemLayerId();
+	aInfo := SqlExecute(
+		"select s.SCRIPTID, s.DISPLAYTEXT, s.SCRIPTDESCRIPTION, s.SCRIPTLANGUAGE, s.LAYERID " +
+		"from LIMSSERVERSCRIPTS s " +
+		"where s.SCRIPTID = ?row[\"CHILDID\"]? " +
+		"order by case when s.LAYERID <= ?nSysLayerId? then ?nSysLayerId? - s.LAYERID else s.LAYERID end",
+		"DICTIONARY"
+	);
+
+	:IF Empty(aInfo);
+		:RETURN;
+	:ENDIF;
+
+	itemDTO := CreateUDObject("DEI_ManifestDTO.ServerScript");
+	itemDTO:ItemID := aInfo[1][1];
+	itemDTO:ItemName := aInfo[1][2];
+	itemDTO:ItemDescription := aInfo[1][3];
+	itemDTO:ItemCategory := applicationDTO:ItemName;
+	itemDTO:LayerId := aInfo[1][5];
+	itemDTO:ItemContent := sItemContent;
+	itemDTO:IsMandatory := .F.;
+	itemDTO:ItemBehaviour := "overwrite";
+	itemDTO:ItemProgrammingLanguage := aInfo[1][4];
+	itemDTO:ItemIsOwned := "Y";
+	itemDTO:IsReferred := .F.;
+	AAdd(applicationDTO:ServerScripts, itemDTO);
+:ENDPROC;
+
+:PROCEDURE _AddApplicationClientScriptToPackage;
+:PARAMETERS packageDTO, row, sItemContent;
+
+	:DECLARE applicationDTO, nSysLayerId, aInfo, itemDTO;
+	applicationDTO := DoProc("_EnsureApplicationDTO", {packageDTO, row["PARENTID"]});
+	:IF Empty(applicationDTO);
+		:RETURN;
+	:ENDIF;
+
+	itemDTO := DoProc("_GetArrayItemById", {applicationDTO:ClientScripts, row["CHILDID"]});
+	:IF !Empty(itemDTO);
+		:RETURN;
+	:ENDIF;
+
+	nSysLayerId := GetSystemLayerId();
+	aInfo := SqlExecute(
+		"select s.SCRIPTID, s.DISPLAYTEXT, s.SCRIPTDESCRIPTION, s.SCRIPTLANGUAGE, s.LAYERID " +
+		"from LIMSCLIENTSCRIPTS s " +
+		"where s.SCRIPTID = ?row[\"CHILDID\"]? " +
+		"order by case when s.LAYERID <= ?nSysLayerId? then ?nSysLayerId? - s.LAYERID else s.LAYERID end",
+		"DICTIONARY"
+	);
+
+	:IF Empty(aInfo);
+		:RETURN;
+	:ENDIF;
+
+	itemDTO := CreateUDObject("DEI_ManifestDTO.ClientScript");
+	itemDTO:ItemID := aInfo[1][1];
+	itemDTO:ItemName := aInfo[1][2];
+	itemDTO:ItemDescription := aInfo[1][3];
+	itemDTO:ItemCategory := applicationDTO:ItemName;
+	itemDTO:LayerId := aInfo[1][5];
+	itemDTO:ItemContent := sItemContent;
+	itemDTO:IsMandatory := .F.;
+	itemDTO:ItemBehaviour := "overwrite";
+	itemDTO:ItemProgrammingLanguage := aInfo[1][4];
+	itemDTO:ItemIsOwned := "Y";
+	itemDTO:IsReferred := .F.;
+	AAdd(applicationDTO:ClientScripts, itemDTO);
+:ENDPROC;
+
+:PROCEDURE _AddApplicationDataSourceToPackage;
+:PARAMETERS packageDTO, row, sItemContent;
+
+	:DECLARE applicationDTO, nSysLayerId, aInfo, itemDTO;
+	applicationDTO := DoProc("_EnsureApplicationDTO", {packageDTO, row["PARENTID"]});
+	:IF Empty(applicationDTO);
+		:RETURN;
+	:ENDIF;
+
+	itemDTO := DoProc("_GetArrayItemById", {applicationDTO:DataSources, row["CHILDID"]});
+	:IF !Empty(itemDTO);
+		:RETURN;
+	:ENDIF;
+
+	nSysLayerId := GetSystemLayerId();
+	aInfo := SqlExecute(
+		"select s.DATASOURCEID, s.DISPLAYTEXT, s.DSDESCRIPTION, s.SCRIPTLANGUAGE, s.LAYERID " +
+		"from LIMSDATASOURCES s " +
+		"where s.DATASOURCEID = ?row[\"CHILDID\"]? " +
+		"order by case when s.LAYERID <= ?nSysLayerId? then ?nSysLayerId? - s.LAYERID else s.LAYERID end",
+		"DICTIONARY"
+	);
+
+	:IF Empty(aInfo);
+		:RETURN;
+	:ENDIF;
+
+	itemDTO := CreateUDObject("DEI_ManifestDTO.DataSourceScript");
+	itemDTO:ItemID := aInfo[1][1];
+	itemDTO:ItemName := aInfo[1][2];
+	itemDTO:ItemDescription := aInfo[1][3];
+	itemDTO:ItemCategory := applicationDTO:ItemName;
+	itemDTO:LayerId := aInfo[1][5];
+	itemDTO:ItemContent := sItemContent;
+	itemDTO:IsMandatory := .F.;
+	itemDTO:ItemBehaviour := "overwrite";
+	itemDTO:ItemProgrammingLanguage := aInfo[1][4];
+	itemDTO:ItemIsOwned := "Y";
+	itemDTO:IsReferred := .F.;
+	itemDTO:IsOffline := "N";
+	AAdd(applicationDTO:DataSources, itemDTO);
+:ENDPROC;
+
+:PROCEDURE _AddServerScriptToPackage;
+:PARAMETERS packageDTO, sItemId, sItemContent;
+
+	:DECLARE nSysLayerId, aInfo, categoryDTO, itemDTO;
+	nSysLayerId := GetSystemLayerId();
+	aInfo := SqlExecute(
+		"select s.SCRIPTID, s.DISPLAYTEXT, s.SCRIPTDESCRIPTION, c.DISPLAYTEXT, s.SCRIPTLANGUAGE, c.CATEGORYID, c.DISPLAYTEXT, c.CATDESCRIPTION, c.ISSYSTEM, c.LAYERID, s.LAYERID " +
+		"from LIMSSERVERSCRIPTS s inner join LIMSSERVERSCRIPTCATEGORIES c on s.CATEGORYID = c.CATEGORYID " +
+		"where s.SCRIPTID = ?sItemId? " +
+		"order by case when s.LAYERID <= ?nSysLayerId? then ?nSysLayerId? - s.LAYERID else s.LAYERID end",
+		"DICTIONARY"
+	);
+
+	:IF Empty(aInfo);
+		:RETURN;
+	:ENDIF;
+
+	categoryDTO := DoProc("_GetArrayItemById", {packageDTO:ServerScriptCategories, aInfo[1][6]});
+	:IF Empty(categoryDTO);
+		categoryDTO := CreateUDObject("DEI_ManifestDTO.ServerScriptCategory");
+		categoryDTO:ItemID := aInfo[1][6];
+		categoryDTO:ItemName := aInfo[1][7];
+		categoryDTO:ItemDescription := aInfo[1][8];
+		categoryDTO:ItemIsSystem := aInfo[1][9];
+		categoryDTO:LayerId := aInfo[1][10];
+		categoryDTO:IsMandatory := .F.;
+		categoryDTO:ItemBehaviour := "merge";
+		categoryDTO:ServerScripts := {};
+		AAdd(packageDTO:ServerScriptCategories, categoryDTO);
+	:ENDIF;
+
+	itemDTO := DoProc("_GetArrayItemById", {categoryDTO:ServerScripts, aInfo[1][1]});
+	:IF !Empty(itemDTO);
+		:RETURN;
+	:ENDIF;
+
+	itemDTO := CreateUDObject("DEI_ManifestDTO.ServerScript");
+	itemDTO:ItemID := aInfo[1][1];
+	itemDTO:ItemName := aInfo[1][2];
+	itemDTO:ItemDescription := aInfo[1][3];
+	itemDTO:ItemCategory := aInfo[1][4];
+	itemDTO:LayerId := aInfo[1][11];
+	itemDTO:ItemContent := sItemContent;
+	itemDTO:IsMandatory := .F.;
+	itemDTO:ItemBehaviour := "overwrite";
+	itemDTO:ItemProgrammingLanguage := aInfo[1][5];
+	itemDTO:ItemIsOwned := "N";
+	itemDTO:IsReferred := .F.;
+	AAdd(categoryDTO:ServerScripts, itemDTO);
+:ENDPROC;
+
+:PROCEDURE _AddClientScriptToPackage;
+:PARAMETERS packageDTO, sItemId, sItemContent;
+
+	:DECLARE nSysLayerId, aInfo, categoryDTO, itemDTO;
+	nSysLayerId := GetSystemLayerId();
+	aInfo := SqlExecute(
+		"select s.SCRIPTID, s.DISPLAYTEXT, s.SCRIPTDESCRIPTION, c.DISPLAYTEXT, s.SCRIPTLANGUAGE, c.CATEGORYID, c.DISPLAYTEXT, c.CATDESCRIPTION, c.ISSYSTEM, c.LAYERID, s.LAYERID " +
+		"from LIMSCLIENTSCRIPTS s inner join LIMSCLIENTSCRIPTCATEGORIES c on s.CATEGORYID = c.CATEGORYID " +
+		"where s.SCRIPTID = ?sItemId? " +
+		"order by case when s.LAYERID <= ?nSysLayerId? then ?nSysLayerId? - s.LAYERID else s.LAYERID end",
+		"DICTIONARY"
+	);
+
+	:IF Empty(aInfo);
+		:RETURN;
+	:ENDIF;
+
+	categoryDTO := DoProc("_GetArrayItemById", {packageDTO:ClientScriptCategories, aInfo[1][6]});
+	:IF Empty(categoryDTO);
+		categoryDTO := CreateUDObject("DEI_ManifestDTO.ClientScriptCategory");
+		categoryDTO:ItemID := aInfo[1][6];
+		categoryDTO:ItemName := aInfo[1][7];
+		categoryDTO:ItemDescription := aInfo[1][8];
+		categoryDTO:ItemIsSystem := aInfo[1][9];
+		categoryDTO:LayerId := aInfo[1][10];
+		categoryDTO:IsMandatory := .F.;
+		categoryDTO:ItemBehaviour := "merge";
+		categoryDTO:ClientScripts := {};
+		AAdd(packageDTO:ClientScriptCategories, categoryDTO);
+	:ENDIF;
+
+	itemDTO := DoProc("_GetArrayItemById", {categoryDTO:ClientScripts, aInfo[1][1]});
+	:IF !Empty(itemDTO);
+		:RETURN;
+	:ENDIF;
+
+	itemDTO := CreateUDObject("DEI_ManifestDTO.ClientScript");
+	itemDTO:ItemID := aInfo[1][1];
+	itemDTO:ItemName := aInfo[1][2];
+	itemDTO:ItemDescription := aInfo[1][3];
+	itemDTO:ItemCategory := aInfo[1][4];
+	itemDTO:LayerId := aInfo[1][11];
+	itemDTO:ItemContent := sItemContent;
+	itemDTO:IsMandatory := .F.;
+	itemDTO:ItemBehaviour := "overwrite";
+	itemDTO:ItemProgrammingLanguage := aInfo[1][5];
+	itemDTO:ItemIsOwned := "N";
+	itemDTO:IsReferred := .F.;
+	AAdd(categoryDTO:ClientScripts, itemDTO);
+:ENDPROC;
+
+:PROCEDURE _AddDataSourceToPackage;
+:PARAMETERS packageDTO, sItemId, sItemContent;
+
+	:DECLARE nSysLayerId, aInfo, categoryDTO, itemDTO;
+	nSysLayerId := GetSystemLayerId();
+	aInfo := SqlExecute(
+		"select s.DATASOURCEID, s.DISPLAYTEXT, s.DSDESCRIPTION, c.DISPLAYTEXT, s.SCRIPTLANGUAGE, c.CATEGORYID, c.DISPLAYTEXT, c.CATDESCRIPTION, c.ISSYSTEM, c.LAYERID, s.LAYERID " +
+		"from LIMSDATASOURCES s inner join LIMSDATASOURCECATEGORIES c on s.CATEGORYID = c.CATEGORYID " +
+		"where s.DATASOURCEID = ?sItemId? " +
+		"order by case when s.LAYERID <= ?nSysLayerId? then ?nSysLayerId? - s.LAYERID else s.LAYERID end",
+		"DICTIONARY"
+	);
+
+	:IF Empty(aInfo);
+		:RETURN;
+	:ENDIF;
+
+	categoryDTO := DoProc("_GetArrayItemById", {packageDTO:DataSourceCategories, aInfo[1][6]});
+	:IF Empty(categoryDTO);
+		categoryDTO := CreateUDObject("DEI_ManifestDTO.DataSourceCategory");
+		categoryDTO:ItemID := aInfo[1][6];
+		categoryDTO:ItemName := aInfo[1][7];
+		categoryDTO:ItemDescription := aInfo[1][8];
+		categoryDTO:ItemIsSystem := aInfo[1][9];
+		categoryDTO:LayerId := aInfo[1][10];
+		categoryDTO:IsMandatory := .F.;
+		categoryDTO:ItemBehaviour := "merge";
+		categoryDTO:DataSourceScripts := {};
+		AAdd(packageDTO:DataSourceCategories, categoryDTO);
+	:ENDIF;
+
+	itemDTO := DoProc("_GetArrayItemById", {categoryDTO:DataSourceScripts, aInfo[1][1]});
+	:IF !Empty(itemDTO);
+		:RETURN;
+	:ENDIF;
+
+	itemDTO := CreateUDObject("DEI_ManifestDTO.DataSourceScript");
+	itemDTO:ItemID := aInfo[1][1];
+	itemDTO:ItemName := aInfo[1][2];
+	itemDTO:ItemDescription := aInfo[1][3];
+	itemDTO:ItemCategory := aInfo[1][4];
+	itemDTO:LayerId := aInfo[1][11];
+	itemDTO:ItemContent := sItemContent;
+	itemDTO:IsMandatory := .F.;
+	itemDTO:ItemBehaviour := "overwrite";
+	itemDTO:ItemProgrammingLanguage := aInfo[1][5];
+	itemDTO:ItemIsOwned := "N";
+	itemDTO:IsReferred := .F.;
+	itemDTO:IsOffline := "N";
+	AAdd(categoryDTO:DataSourceScripts, itemDTO);
+:ENDPROC;
+
+:PROCEDURE _AddTableToPackage;
+:PARAMETERS packageDTO, row, sItemContent;
+
+	:DECLARE nSysLayerId, aInfo, sCategoryName, categoryDTO, itemDTO;
+	nSysLayerId := GetSystemLayerId();
+	aInfo := SqlExecute(
+		"select t.TABLEID, t.TABLENAME, t.LAYERID from LIMSTABLES t where t.TABLEID = ?row[\"CHILDID\"]? " +
+		"order by case when t.LAYERID <= ?nSysLayerId? then ?nSysLayerId? - t.LAYERID else t.LAYERID end",
+		"DICTIONARY"
+	);
+
+	:IF Empty(aInfo);
+		:RETURN;
+	:ENDIF;
+
+	sCategoryName := Upper(row["PARENTNAME"]);
+	categoryDTO := DoProc("_GetArrayItemById", {packageDTO:TableCategories, sCategoryName});
+	:IF Empty(categoryDTO);
+		categoryDTO := CreateUDObject("DEI_ManifestDTO.TableCategory");
+		categoryDTO:ItemID := sCategoryName;
+		categoryDTO:ItemName := sCategoryName;
+		categoryDTO:ItemDescription := "Connection to " + sCategoryName;
+		categoryDTO:ItemIsSystem := "Y";
+		categoryDTO:LayerId := GetSystemLayerId();
+		categoryDTO:IsMandatory := .F.;
+		categoryDTO:ItemBehaviour := "merge";
+		categoryDTO:Tables := {};
+		AAdd(packageDTO:TableCategories, categoryDTO);
+	:ENDIF;
+
+	itemDTO := DoProc("_GetArrayItemById", {categoryDTO:Tables, aInfo[1][1]});
+	:IF !Empty(itemDTO);
+		:RETURN;
+	:ENDIF;
+
+	itemDTO := CreateUDObject("DEI_ManifestDTO.Table");
+	itemDTO:ItemID := aInfo[1][1];
+	itemDTO:ItemName := aInfo[1][2];
+	itemDTO:ItemDescription := "";
+	itemDTO:ItemCategory := sCategoryName;
+	itemDTO:LayerId := aInfo[1][3];
+	itemDTO:ItemContent := sItemContent;
+	itemDTO:IsMandatory := .F.;
+	itemDTO:ItemBehaviour := "merge";
+	itemDTO:IsSystem := "Y";
+	AAdd(categoryDTO:Tables, itemDTO);
+:ENDPROC;

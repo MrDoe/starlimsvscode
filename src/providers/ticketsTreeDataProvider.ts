@@ -10,6 +10,7 @@ type TicketsTreeDataProviderOptions = {
   getActiveTicket: () => TicketReference | undefined;
   getCurrentUser: () => string;
   loadTickets: () => Promise<TicketOverview[]>;
+  loadTicketDescription: (ticketId: number, stackTraceId: number | undefined) => Promise<string | undefined>;
 };
 
 export class TicketTreeItem extends vscode.TreeItem {
@@ -39,14 +40,37 @@ export class TicketTreeItem extends vscode.TreeItem {
 export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTreeItem> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<TicketTreeItem | null>();
   readonly onDidChangeTreeData: vscode.Event<TicketTreeItem | null> = this.onDidChangeTreeDataEmitter.event;
+  private readonly descriptionCache = new Map<number, string | undefined>();
+  private readonly pendingDescriptionLoads = new Map<number, Promise<string | undefined>>();
 
   constructor(private readonly options: TicketsTreeDataProviderOptions) { }
 
   public refresh(): void {
+    this.descriptionCache.clear();
+    this.pendingDescriptionLoads.clear();
     this.onDidChangeTreeDataEmitter.fire(null);
   }
 
   public getTreeItem(item: TicketTreeItem): vscode.TreeItem {
+    return item;
+  }
+
+  public async resolveTreeItem(item: TicketTreeItem, _element: TicketTreeItem, token: vscode.CancellationToken): Promise<TicketTreeItem> {
+    if (item.itemKind !== "ticket" || !item.ticket) {
+      return item;
+    }
+
+    const ticket = item.ticket;
+    if (ticket.fullDescription === undefined) {
+      ticket.fullDescription = await this.loadDescription(ticket.id, ticket.stackTraceId);
+    }
+
+    if (token.isCancellationRequested) {
+      return item;
+    }
+
+    const ticketState = this.getTicketState(ticket);
+    item.tooltip = this.buildTooltip(ticket, ticketState.isActiveTicket, ticketState.isLockedByOtherUser, ticketState.isInProgressByCurrentUser);
     return item;
   }
 
@@ -89,17 +113,8 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
   }
 
   private createTicketItem(ticket: TicketOverview, activeTicket: TicketReference | undefined, currentUser: string): TicketTreeItem {
-    const isActiveTicket = activeTicket?.id === ticket.id;
-    const isLockedByOtherUser = !!(
-      ticket.statusGroupName === "In Bearbeitung" && 
-      ticket.assignedTo && 
-      ticket.assignedTo.trim() !== currentUser.trim()
-    );
-    const isInProgressByCurrentUser = !!(
-      ticket.statusGroupName === "In Bearbeitung" && 
-      ticket.assignedTo && 
-      ticket.assignedTo.trim() === currentUser.trim()
-    );
+    const ticketState = this.getTicketState(ticket, activeTicket, currentUser);
+    const { isActiveTicket, isLockedByOtherUser, isInProgressByCurrentUser } = ticketState;
     const label = `#${ticket.id} ${ticket.title}`;
     const item = new TicketTreeItem(label, vscode.TreeItemCollapsibleState.None, {
       itemKind: "ticket",
@@ -150,8 +165,53 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
       item.label = `✓ ${label}`;
     }
     
-    item.tooltip = this.buildTooltip(ticket, isActiveTicket, isLockedByOtherUser, isInProgressByCurrentUser);
+    // Leave tooltip unresolved so VS Code invokes resolveTreeItem on hover.
+    item.tooltip = undefined;
     return item;
+  }
+
+  private getTicketState(
+    ticket: TicketOverview,
+    activeTicket: TicketReference | undefined = this.options.getActiveTicket(),
+    currentUser: string = this.options.getCurrentUser()
+  ): { isActiveTicket: boolean; isLockedByOtherUser: boolean; isInProgressByCurrentUser: boolean } {
+    const normalizedCurrentUser = currentUser.trim();
+    const normalizedAssignedTo = (ticket.assignedTo || "").trim();
+    const isInProgressStatus = ticket.statusGroupName === "In Bearbeitung";
+    const isActiveTicket = activeTicket?.id === ticket.id;
+    const isLockedByOtherUser = !!(isInProgressStatus && normalizedAssignedTo.length > 0 && normalizedAssignedTo !== normalizedCurrentUser);
+    const isInProgressByCurrentUser = !!(isInProgressStatus && normalizedAssignedTo.length > 0 && normalizedAssignedTo === normalizedCurrentUser);
+
+    return {
+      isActiveTicket,
+      isLockedByOtherUser,
+      isInProgressByCurrentUser
+    };
+  }
+
+  private async loadDescription(ticketId: number, stackTraceId: number | undefined): Promise<string | undefined> {
+    if (this.descriptionCache.has(ticketId)) {
+      return this.descriptionCache.get(ticketId);
+    }
+
+    const pendingRequest = this.pendingDescriptionLoads.get(ticketId);
+    if (pendingRequest) {
+      return pendingRequest;
+    }
+
+    const request = this.options
+      .loadTicketDescription(ticketId, stackTraceId)
+      .then((description) => {
+        this.descriptionCache.set(ticketId, description);
+        return description;
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.pendingDescriptionLoads.delete(ticketId);
+      });
+
+    this.pendingDescriptionLoads.set(ticketId, request);
+    return request;
   }
 
   private buildTooltip(ticket: TicketOverview, isActiveTicket: boolean, isLockedByOtherUser: boolean = false, isInProgressByCurrentUser: boolean = false): string {
