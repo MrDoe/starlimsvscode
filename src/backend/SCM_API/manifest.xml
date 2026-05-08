@@ -310,6 +310,19 @@
       <ItemIsSystem>N</ItemIsSystem>
       <ServerScriptCollection>
         <ServerScript>
+          <ItemID>7A2C061D-7213-4A14-9A7C-8AB61E34E4E1</ItemID>
+          <ItemName>GetTickets</ItemName>
+          <LayerId>300</LayerId>
+          <ItemDescription />
+          <ItemCategory>SCM_API</ItemCategory>
+          <ItemContent>Server Scripts\SCM_API\GetTickets.srvscr</ItemContent>
+          <IsMandatory>false</IsMandatory>
+          <ItemBehaviour>overwrite</ItemBehaviour>
+          <ItemProgrammingLanguage>STARLIMS</ItemProgrammingLanguage>
+          <ItemIsOwned>N</ItemIsOwned>
+          <IsReferred>false</IsReferred>
+        </ServerScript>
+        <ServerScript>
           <ItemID>7E22EE13-31C9-481A-911A-9E8DB1DABB35</ItemID>
           <ItemName>Add</ItemName>
           <LayerId>300</LayerId>

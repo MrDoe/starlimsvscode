@@ -18,7 +18,7 @@ import {
 } from "./ticketManagementTypes";
 
 const TICKET_MANAGEMENT_APP_ROOT = "/Applications/BMBH_Modules/BMBH_Ticketmanagement";
-const TICKETS_DATASOURCE_URI = `${TICKET_MANAGEMENT_APP_ROOT}/DataSources/dsTickets`;
+const TICKETS_SERVERSCRIPT_URI = `/ServerScripts/SCM_API/GetTickets`;
 const TICKET_DATA_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scGetTicketData`;
 const SCM_API_TICKET_MANAGEMENT_SCRIPT_URI = "/ServerScripts/SCM_API/TicketManagement";
 
@@ -295,6 +295,10 @@ export class EnterpriseService implements IEnterpriseService {
   }
 
   private normalizeArrayResultRows(data: unknown): Array<Record<string, unknown>> {
+    if (Array.isArray(data) && data.length > 0 && typeof data[0] === "object" && !Array.isArray(data[0])) {
+      return (data as Array<Record<string, unknown>>).map((row) => ({ ...row }));
+    }
+
     if (!Array.isArray(data) || data.length === 0) {
       return [];
     }
@@ -310,6 +314,98 @@ export class EnterpriseService implements IEnterpriseService {
         record[String(columnName)] = row[index];
         return record;
       }, {}));
+  }
+
+  private normalizeColumnKey(value: string): string {
+    return value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toLocaleLowerCase();
+  }
+
+  private getRecordValue(row: Record<string, unknown>, keys: string[]): unknown {
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(row, key)) {
+        return row[key];
+      }
+    }
+
+    const normalizedKeys = keys.map((key) => this.normalizeColumnKey(key));
+    for (const [rowKey, rowValue] of Object.entries(row)) {
+      if (normalizedKeys.includes(this.normalizeColumnKey(rowKey))) {
+        return rowValue;
+      }
+    }
+
+    return undefined;
+  }
+
+  private normalizeTicketRows(data: unknown): Array<Record<string, unknown>> {
+    let ticketData: unknown = data;
+    if (ticketData && typeof ticketData === "object" && !Array.isArray(ticketData)) {
+      const envelope = ticketData as Record<string, unknown>;
+      if (Array.isArray(envelope.data)) {
+        ticketData = envelope.data;
+      } else if (Array.isArray(envelope.DATA)) {
+        ticketData = envelope.DATA;
+      }
+    }
+
+    if (!Array.isArray(ticketData) || ticketData.length === 0) {
+      return [];
+    }
+
+    if (typeof ticketData[0] === "object" && !Array.isArray(ticketData[0])) {
+      return this.normalizeArrayResultRows(ticketData);
+    }
+
+    const ticketColumns = [
+      "ORIGREC",
+      "TITLE",
+      "AUTHOR",
+      "ASIGNEDTO",
+      "ADMIN_TICKET",
+      "STATUS_NAME",
+      "TYPE_NAME",
+      "PRIORITY_NAME",
+      "CREATEDON",
+      "MODIFIEDON",
+      "STACKTRACE_ID",
+      "DUEON",
+      "REPORT_COUNT",
+      "SEVERITY_NAME"
+    ];
+
+    const firstRow = ticketData[0];
+    const headerKeys = new Set(ticketColumns.map((column) => this.normalizeColumnKey(column)));
+    const hasHeaderRow = Array.isArray(firstRow)
+      && firstRow.length > 0
+      && firstRow.every((value) => typeof value === "string")
+      && firstRow.some((value) => headerKeys.has(this.normalizeColumnKey(String(value))));
+
+    if (hasHeaderRow) {
+      return this.normalizeArrayResultRows(ticketData);
+    }
+
+    // GetTickets server script can return rows without a dedicated header row.
+    const positionalRows = ticketData.filter((row): row is unknown[] => Array.isArray(row));
+    return positionalRows.map((row) => ({
+      ORIGREC: row[0],
+      TITLE: row[1],
+      AUTHOR: row[2],
+      ASIGNEDTO: row[3],
+      ADMIN_TICKET: row[4],
+      STATUS_NAME: row[5],
+      TYPE_NAME: row[6],
+      PRIORITY_NAME: row[7],
+      CREATEDON: row[8],
+      MODIFIEDON: row[9],
+      STACKTRACE_ID: row[10],
+      DUEON: row[11],
+      REPORT_COUNT: row[12],
+      SEVERITY_NAME: row[13]
+    }));
   }
 
   private normalizeString(value: unknown): string | undefined {
@@ -359,17 +455,29 @@ export class EnterpriseService implements IEnterpriseService {
 
     switch (this.normalizeTicketStatusKey(statusName)) {
       case "offen":
+      case "open":
         return "Offen";
       case "fertig":
       case "abgeschlossen":
       case "geschlossen":
+      case "closed":
+      case "done":
+      case "resolved":
         return "Fertig";
       case "zuruckgestellt":
+      case "zurueckgestellt":
+      case "deferred":
+      case "on hold":
         return "Zurückgestellt";
       case "in bearbeitung":
+      case "in progress":
+      case "processing":
         return "In Bearbeitung";
       case "in prufung":
       case "in pruefung":
+      case "in review":
+      case "review":
+      case "qa":
         return "In Prüfung";
       default:
         return undefined;
@@ -399,19 +507,48 @@ export class EnterpriseService implements IEnterpriseService {
       };
     }
 
-    if (!Array.isArray(result.data) || result.data.length < 2) {
-      return { ok: true, data: undefined };
+    let descriptionPayload: unknown = result.data;
+    if (descriptionPayload && typeof descriptionPayload === "object" && !Array.isArray(descriptionPayload)) {
+      const envelope = descriptionPayload as Record<string, unknown>;
+      const nestedArray = Array.isArray(envelope.data)
+        ? envelope.data
+        : (Array.isArray(envelope.DATA) ? envelope.DATA : undefined);
+
+      if (nestedArray) {
+        descriptionPayload = nestedArray;
+      } else {
+        const directDescription = this.normalizeString(
+          envelope.description ?? envelope.DESCRIPTION ?? envelope.data ?? envelope.DATA
+        );
+        return { ok: true, data: directDescription };
+      }
+    }
+
+    if (Array.isArray(descriptionPayload)) {
+      if (descriptionPayload.length < 2) {
+        return { ok: true, data: undefined };
+      }
+
+      return {
+        ok: true,
+        data: this.normalizeString(descriptionPayload[1])
+      };
     }
 
     return {
       ok: true,
-      data: this.normalizeString(result.data[1])
+      data: this.normalizeString(descriptionPayload)
     };
   }
 
-  public async getTicketsForUserResult(currentUser: string): Promise<EnterpriseOperationResult<TicketOverview[]>> {
-    const result = await this.executeRemoteScriptResult(TICKETS_DATASOURCE_URI, {
-      parameters: [[], []],
+  public async getTicketDescription(ticketId: number, stackTraceId: number | undefined): Promise<string | undefined> {
+    const result = await this.getTicketDescriptionResult(ticketId, stackTraceId);
+    return result.ok ? result.data : undefined;
+  }
+
+  public async getTicketsResult(): Promise<EnterpriseOperationResult<TicketOverview[]>> {
+    const result = await this.executeRemoteScriptResult(TICKETS_SERVERSCRIPT_URI, {
+      parameters: [],
       outputType: "ARRAY"
     });
     if (!result.ok) {
@@ -421,13 +558,12 @@ export class EnterpriseService implements IEnterpriseService {
       };
     }
 
-    const normalizedCurrentUser = currentUser.trim().toLocaleLowerCase();
-    const rows = this.normalizeArrayResultRows(result.data);
+    const rows = this.normalizeTicketRows(result.data);
     const tickets = rows
       .map<TicketOverview | undefined>((row) => {
-        const id = this.normalizeNumber(row.ORIGREC);
-        const title = this.normalizeString(row.TITLE);
-        const statusName = this.normalizeString(row.STATUS_NAME);
+        const id = this.normalizeNumber(this.getRecordValue(row, ["ORIGREC"]));
+        const title = this.normalizeString(this.getRecordValue(row, ["TITLE"]));
+        const statusName = this.normalizeString(this.getRecordValue(row, ["STATUS_NAME"]));
         const statusGroupName = this.resolveTicketStatusGroupName(statusName);
 
         if (!id || !title || !statusName || !statusGroupName) {
@@ -439,43 +575,30 @@ export class EnterpriseService implements IEnterpriseService {
           title,
           statusName,
           statusGroupName,
-          statusCode: this.normalizeNumber(row.NUM_STATUS),
-          typeName: this.normalizeString(row.TYPE_NAME),
-          priorityName: this.normalizeString(row.PRIORITY_NAME),
-          severityName: this.normalizeString(row.SEVERITY_NAME),
-          author: this.normalizeString(row.AUTHOR),
-          assignedTo: this.normalizeString(row.ASIGNEDTO),
-          createdOn: this.normalizeString(row.CREATEDON),
-          modifiedOn: this.normalizeString(row.MODIFIEDON),
-          dueOn: this.normalizeString(row.DUEON),
-          reportCount: this.normalizeNumber(row.REPORT_COUNT),
-          isAdminTicket: String(row.ADMIN_TICKET || "").toUpperCase() === "Y",
-          stackTraceId: this.normalizeNumber(row.STACKTRACE_ID)
+          typeName: this.normalizeString(this.getRecordValue(row, ["TYPE_NAME"])),
+          priorityName: this.normalizeString(this.getRecordValue(row, ["PRIORITY_NAME"])),
+          severityName: this.normalizeString(this.getRecordValue(row, ["SEVERITY_NAME"])),
+          author: this.normalizeString(this.getRecordValue(row, ["AUTHOR"])),
+          assignedTo: this.normalizeString(this.getRecordValue(row, ["ASIGNEDTO"])),
+          createdOn: this.normalizeString(this.getRecordValue(row, ["CREATEDON"])),
+          modifiedOn: this.normalizeString(this.getRecordValue(row, ["MODIFIEDON"])),
+          dueOn: this.normalizeString(this.getRecordValue(row, ["DUEON"])),
+          reportCount: this.normalizeNumber(this.getRecordValue(row, ["REPORT_COUNT"])),
+          isAdminTicket: String(this.getRecordValue(row, ["ADMIN_TICKET"]) || "").toUpperCase() === "Y",
+          stackTraceId: this.normalizeNumber(this.getRecordValue(row, ["STACKTRACE_ID"]))
         };
       })
       .filter((ticket): ticket is TicketOverview => ticket !== undefined)
-      .filter((ticket) => {
-        const assignedTo = (ticket.assignedTo || "").trim().toLocaleLowerCase();
-        return assignedTo.length === 0 || assignedTo === normalizedCurrentUser;
-      });
-
-    const enrichedTickets = await Promise.all(
-      tickets.map(async (ticket) => {
-        const descriptionResult = await this.getTicketDescriptionResult(ticket.id, ticket.stackTraceId);
-        return descriptionResult.ok
-          ? { ...ticket, fullDescription: descriptionResult.data }
-          : ticket;
-      })
-    );
+      .sort((a, b) => b.id - a.id);
 
     return {
       ok: true,
-      data: enrichedTickets
+      data: tickets
     };
   }
 
-  public async getOpenTicketsForUserResult(currentUser: string): Promise<EnterpriseOperationResult<TicketOverview[]>> {
-    return this.getTicketsForUserResult(currentUser);
+  public async getOpenTicketsResult(): Promise<EnterpriseOperationResult<TicketOverview[]>> {
+    return this.getTicketsResult();
   }
 
   public async addTicketMeasureResult(
@@ -554,6 +677,25 @@ export class EnterpriseService implements IEnterpriseService {
     return {
       ok: false,
       error: "Your STARLIMS SCM_API TicketManagement script is outdated and does not expose a release entry point. Please update/deploy SCM_API so releasing can set status back to Offen."
+    };
+  }
+
+  public async setTicketFertigResult(ticketId: number): Promise<EnterpriseOperationResult<boolean>> {
+    const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+      parameters: [ticketId],
+      entryPoint: "SetTicketFertig"
+    });
+
+    if (result.ok) {
+      return {
+        ok: true,
+        data: true
+      };
+    }
+
+    return {
+      ok: false,
+      error: result.error ?? `Could not update ticket #${ticketId} to Fertig.`
     };
   }
 
@@ -1830,9 +1972,9 @@ export class EnterpriseService implements IEnterpriseService {
 
   /**
    * Export all checked out items to an SDP package file
-   * @returns true if the export was successful, false otherwise
+   * @returns downloaded SDP package and file name if successful, null otherwise
    */
-  public async exportAllCheckouts() {
+  public async exportAllCheckouts(): Promise<{ fileName: string; content: Buffer } | null> {
     const url = `${this.baseUrl}/SCM_API.ExportPackage.${this.urlSuffix}`;
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
@@ -1842,19 +1984,138 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
-      if (success) {
-        vscode.window.showInformationMessage(`Export successful. Package: ${data}`);
-        return true;
-      } else {
-        vscode.window.showErrorMessage(`Export failed: ${data}`);
-        console.error(data);
-        return false;
+      const responseText = await response.text();
+      let payload: { success?: boolean; data?: unknown } | null = null;
+
+      if (responseText.trim()) {
+        try {
+          let parsedPayload: unknown = JSON.parse(responseText);
+
+          if (typeof parsedPayload === "string" && parsedPayload.trim()) {
+            parsedPayload = JSON.parse(parsedPayload) as unknown;
+          }
+
+          if (parsedPayload && typeof parsedPayload === "object") {
+            payload = parsedPayload as { success?: boolean; data?: unknown };
+          }
+        } catch (parseError) {
+          const parseMessage = parseError instanceof Error ? parseError.message : String(parseError);
+          const truncatedBody = responseText.length > 500 ? `${responseText.slice(0, 500)}...` : responseText;
+          vscode.window.showErrorMessage(
+            `Export failed: server returned invalid JSON (${response.status} ${response.statusText}). ${parseMessage}`
+          );
+          console.error("Export returned invalid JSON", { status: response.status, statusText: response.statusText, body: truncatedBody });
+          return null;
+        }
       }
+
+      if (
+        response.ok
+        && payload?.success
+        && payload.data
+        && typeof payload.data === "object"
+        && typeof (payload.data as { fileName?: unknown }).fileName === "string"
+        && typeof (payload.data as { content?: unknown }).content === "string"
+      ) {
+        const directPayload = payload.data as { fileName: string; content: string };
+        const downloadedContent = Buffer.from(directPayload.content, "base64");
+
+        if (downloadedContent.length < 4 || downloadedContent[0] !== 0x50 || downloadedContent[1] !== 0x4b) {
+          vscode.window.showErrorMessage("Export succeeded, but returned content is not a valid SDP/ZIP file.");
+          console.error("Invalid direct SDP export content", { fileName: directPayload.fileName });
+          return null;
+        }
+
+        return {
+          fileName: directPayload.fileName,
+          content: downloadedContent
+        };
+      }
+
+      if (response.ok && payload?.success && typeof payload.data === "string") {
+        const fileName = payload.data.trim();
+        const packageName = fileName.replace(/\.sdp$/i, "");
+        const packageIdMatch = packageName.match(/([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})$/i);
+
+        if (!packageIdMatch) {
+          vscode.window.showErrorMessage(`Export failed: could not determine package id from '${fileName}'`);
+          console.error("Export returned unexpected package name", { fileName });
+          return null;
+        }
+
+        const packageId = packageIdMatch[1];
+        const downloadUrl = `${this.baseUrl}/SCM_API.ExportPackage.${this.urlSuffix}?pkgId=${encodeURIComponent(packageId)}&pkgName=${encodeURIComponent(packageName)}`;
+        const downloadHeaders = new Headers(await this.getAPIHeaders());
+        const sessionInfo = await this.getServerSessions();
+
+        if (sessionInfo?.aspnetsessionid) {
+          downloadHeaders.set("aspnet-sessionid", sessionInfo.aspnetsessionid);
+        }
+
+        if (sessionInfo?.starlimssessionid) {
+          downloadHeaders.set("starlims-sessionid", sessionInfo.starlimssessionid);
+        }
+
+        if (sessionInfo?.langid) {
+          downloadHeaders.set("langid", sessionInfo.langid);
+        }
+
+        const downloadResponse = await fetch(downloadUrl, {
+          method: "GET",
+          headers: downloadHeaders
+        });
+
+        if (!downloadResponse.ok) {
+          const downloadError = await downloadResponse.text();
+          const errorMessage = downloadError.trim() || `${downloadResponse.status} ${downloadResponse.statusText}`.trim();
+          vscode.window.showErrorMessage(`Export succeeded, but download failed: ${errorMessage}`);
+          console.error("Export download failed", {
+            status: downloadResponse.status,
+            statusText: downloadResponse.statusText,
+            body: downloadError,
+            downloadUrl
+          });
+          return null;
+        }
+
+        const downloadedContent = await downloadResponse.buffer();
+
+        if (downloadedContent.length < 4 || downloadedContent[0] !== 0x50 || downloadedContent[1] !== 0x4b) {
+          const responsePreview = downloadedContent.toString("utf8", 0, Math.min(downloadedContent.length, 500)).trim();
+          const htmlTitle = this.getHtmlTitle(responsePreview);
+          const contentType = downloadResponse.headers.get("content-type") || "unknown";
+          const errorMessage = htmlTitle || responsePreview || `Unexpected download content type: ${contentType}`;
+
+          vscode.window.showErrorMessage(`Export succeeded, but downloaded file is not a valid SDP/ZIP: ${errorMessage}`);
+          console.error("Invalid SDP download content", {
+            fileName,
+            contentType,
+            responsePreview,
+            downloadUrl
+          });
+          return null;
+        }
+
+        return {
+          fileName,
+          content: downloadedContent
+        };
+      }
+
+      const errorMessage =
+        typeof payload?.data === "string" && payload.data.trim()
+          ? payload.data
+          : responseText.trim()
+            ? responseText.trim()
+            : `${response.status} ${response.statusText}`.trim();
+
+      vscode.window.showErrorMessage(`Export failed: ${errorMessage}`);
+      console.error("Export failed", { status: response.status, statusText: response.statusText, payload, body: responseText });
+      return null;
     } catch (e: any) {
-      vscode.window.showErrorMessage("Could not export checked out items.");
+      vscode.window.showErrorMessage(`Could not export checked out items: ${e?.message ?? String(e)}`);
       console.error(e);
-      return false;
+      return null;
     }
   }
 }

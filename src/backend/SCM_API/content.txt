@@ -30,25 +30,6 @@ Client Script Category: FormDesigner
 	- ReadXML
 	- SaveXML
 	- TreeView
-Client Script Category: FormDesigner
-	- ContextMenu
-	- GUIFunctions
-	- ReadXML
-	- SaveXML
-	- TreeView
-Client Script Category: FormDesigner
-	- ContextMenu
-	- GUIFunctions
-	- ReadXML
-	- SaveXML
-	- TreeView
-Client Script Category: FormDesigner
-	- ContextMenu
-	- GUIFunctions
-	- ReadXML
-	- SaveXML
-	- TreeView
-
 
 Server Script Category: SCM_API
 	- Add
@@ -75,9 +56,11 @@ Server Script Category: SCM_API
 	- Search
 	- TableCommand
 	- TableDefinition
+	- TicketManagement
 	- UndoCheckOut
 	- Utils
 	- Version
+	- GetTickets
 
 
 Table database: DICTIONARY

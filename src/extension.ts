@@ -334,24 +334,6 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  function isBackendReleaseEntryPointMissing(errorMessage: string | undefined): boolean {
-    if (!errorMessage) {
-      return false;
-    }
-
-    const normalized = errorMessage.toLocaleLowerCase();
-    return normalized.includes("outdated") || normalized.includes("unable to find method") || normalized.includes("method not found");
-  }
-
-  function resolveBackendSdpPackagePath(): string | undefined {
-    const candidatePaths = [
-      context.asAbsolutePath("dist/SCM_API.sdp"),
-      context.asAbsolutePath("src/backend/SCM_API.sdp")
-    ];
-
-    return candidatePaths.find((candidatePath) => fs.existsSync(candidatePath));
-  }
-
   async function releaseTicket(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
     const selectedTreeItem = ticketsTreeView?.selection?.[0];
     const selectedTicket = item instanceof TicketTreeItem
@@ -371,18 +353,7 @@ export async function activate(context: vscode.ExtensionContext) {
       return;
     }
 
-    let updateResult = await enterpriseService.setTicketOpenResult(ticketToRelease.id);
-
-    if (!updateResult.ok && isBackendReleaseEntryPointMissing(updateResult.error)) {
-      const sdpPackagePath = resolveBackendSdpPackagePath();
-      if (!sdpPackagePath) {
-        vscode.window.showWarningMessage("Could not find SCM_API.sdp for automatic backend upgrade. Build/package the extension backend and try again.");
-        return;
-      }
-
-      await enterpriseService.upgradeBackend(sdpPackagePath);
-      updateResult = await enterpriseService.setTicketOpenResult(ticketToRelease.id);
-    }
+    const updateResult = await enterpriseService.setTicketOpenResult(ticketToRelease.id);
 
     if (!updateResult.ok) {
       const fallbackMessage = `Could not release ticket #${ticketToRelease.id}.`;
@@ -398,6 +369,104 @@ export async function activate(context: vscode.ExtensionContext) {
       ticketsTreeDataProvider.refresh();
     }
     vscode.window.showInformationMessage(`Released ticket #${ticketToRelease.id} and set it back to Offen.`);
+  }
+
+  async function solveTicket(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
+    const selectedTreeItem = ticketsTreeView?.selection?.[0];
+    const selectedTicket = item instanceof TicketTreeItem
+      ? item.ticket
+      : item || selectedTreeItem?.ticket || (activeTicket ? { ...activeTicket } : undefined);
+
+    if (!selectedTicket) {
+      vscode.window.showInformationMessage("Select a ticket first.");
+      return;
+    }
+
+    const ticketToSolve = normalizeTicketReference(selectedTicket);
+    let checkedInItems: TreeEnterpriseItem[] = [];
+
+    // Parse checked out items and show a picker with actual item labels instead of raw XML.
+    const checkedOutItemsXml = await enterpriseService.getCheckedOutItems(false);
+    if (typeof checkedOutItemsXml === "string" && checkedOutItemsXml.length > 0) {
+      const checkedOutItemsProvider = new CheckedOutTreeDataProvider(checkedOutItemsXml, enterpriseService);
+      const items = checkedOutItemsProvider.getLeafItems();
+      const selectedItems = await vscode.window.showQuickPick(
+        items.map((checkedOutItem) => ({
+          label: typeof checkedOutItem.label === "string" ? checkedOutItem.label : checkedOutItem.uri,
+          description: checkedOutItem.uri,
+          detail: checkedOutItem.tooltip?.toString(),
+          item: checkedOutItem,
+          picked: true
+        })),
+        {
+          canPickMany: true,
+          title: `Select items to check in with ticket #${ticketToSolve.id}`
+        }
+      );
+
+      if (selectedItems && selectedItems.length > 0) {
+        checkedInItems = selectedItems
+          .map((selectedItem) => selectedItem.item as TreeEnterpriseItem | undefined)
+          .filter((checkedOutItem): checkedOutItem is TreeEnterpriseItem => !!checkedOutItem);
+
+        let checkinReason =
+          (await vscode.window.showInputBox({
+            title: `Check in items for ticket #${ticketToSolve.id}`,
+            prompt: "Enter check-in reason",
+            value: buildAllItemsFallbackReason(checkedInItems, getCommitMessageOptions()),
+            ignoreFocusOut: true,
+          })) || "Checked in from VSCode";
+
+        checkinReason = ensureTicketReferenceInMessage(checkinReason, ticketToSolve);
+        let checkInFailed = false;
+
+        for (const selectedItem of selectedItems) {
+          const checkOutItem = selectedItem.item as TreeEnterpriseItem | undefined;
+          if (checkOutItem?.uri) {
+            const success = await enterpriseService.checkInItem(
+              checkOutItem.uri,
+              checkinReason,
+              checkOutItem.language || checkOutItem.scriptLanguage
+            );
+            if (!success) {
+              checkInFailed = true;
+            }
+          }
+        }
+
+        if (!checkInFailed) {
+          const ticketMeasureContext = await buildAllItemsTicketMeasureContext(checkedInItems);
+          const measureError = await createTicketMeasureForCheckIn(ticketToSolve, checkinReason, ticketMeasureContext);
+          if (measureError) {
+            outputChannel.appendLine(`[TicketManagement] ${measureError}`);
+            vscode.window.showWarningMessage(`STARLIMS items were checked in, but the ticket measure could not be created: ${measureError}`);
+          }
+        }
+      }
+    }
+
+    const updateResult = await enterpriseService.setTicketFertigResult(ticketToSolve.id);
+
+    if (!updateResult.ok) {
+      const fallbackMessage = `Could not mark ticket #${ticketToSolve.id} as solved.`;
+      const message = updateResult.error ?? fallbackMessage;
+      vscode.window.showWarningMessage(message);
+      return;
+    }
+
+    if (activeTicket?.id === ticketToSolve.id) {
+      await clearActiveTicketSelection(true);
+      if (checkedOutTreeDataProvider) {
+        checkedOutTreeDataProvider.clearActiveTicket();
+      }
+    }
+    if (ticketsTreeDataProvider) {
+      ticketsTreeDataProvider.refresh();
+    }
+    if (checkedOutTreeDataProvider) {
+      checkedOutTreeDataProvider.refresh();
+    }
+    vscode.window.showInformationMessage(`Marked ticket #${ticketToSolve.id} as Fertig (solved).`);
   }
 
   async function setActiveTicketSelection(ticket: TicketOverview | TicketReference, silent: boolean = false): Promise<void> {
@@ -421,6 +490,17 @@ export async function activate(context: vscode.ExtensionContext) {
       vscode.window.showWarningMessage(`Cannot undertake ticket #${normalizedTicket.id}. It is currently being worked on by ${ticket.assignedTo}.`);
       return;
     }
+
+    // If there's already an active ticket and it's different, ask user to confirm
+    if (activeTicket && activeTicket.id !== normalizedTicket.id) {
+      const confirmSwitch = await vscode.window.showWarningMessage(
+        `You already have ticket #${activeTicket.id} active. Switch to ticket #${normalizedTicket.id}?`,
+        'Switch', 'Cancel'
+      );
+      if (confirmSwitch !== 'Switch') {
+        return;
+      }
+    }
     
     const updateResult = await enterpriseService.setTicketInProgressResult(normalizedTicket.id, currentStarlimsUser);
 
@@ -435,6 +515,10 @@ export async function activate(context: vscode.ExtensionContext) {
     await setActiveTicketSelection(normalizedTicket, true);
     if (ticketsTreeDataProvider) {
       ticketsTreeDataProvider.refresh();
+    }
+    if (checkedOutTreeDataProvider) {
+      checkedOutTreeDataProvider.setActiveTicket(normalizedTicket.id, normalizedTicket.title);
+      checkedOutTreeDataProvider.refresh();
     }
 
     vscode.window.showInformationMessage(`Undertook ticket #${normalizedTicket.id} for ${currentStarlimsUser}.`);
@@ -1682,19 +1766,15 @@ export async function activate(context: vscode.ExtensionContext) {
       }
 
       if (version !== apiVersion) {
-        const selection = await vscode.window.showInformationMessage(`A new version (${version}) of the STARLIMS VS Code API is available. Select Upgrade to deploy the new version.`,
-          'Upgrade', 'Continue');
-        if (selection === 'Upgrade') {
-          const sdpPackage = context.asAbsolutePath("dist/SCM_API.sdp");
-          executeWithProgress(async () => {
-            await enterpriseService.upgradeBackend(sdpPackage);
-            const selection = await vscode.window.showInformationMessage(`We recommend that you restart Visual Studio Code.`,
-              'Restart', 'Cancel');
-            if (selection === "Restart") {
-              vscode.commands.executeCommand("workbench.action.reloadWindow");
-            }
-          }, "Upgrading the extension backend API.");
-        }
+        const sdpPackage = context.asAbsolutePath("dist/SCM_API.sdp");
+        executeWithProgress(async () => {
+          await enterpriseService.upgradeBackend(sdpPackage);
+          const selection = await vscode.window.showInformationMessage(`Backend API upgraded successfully. We recommend that you restart Visual Studio Code.`,
+            'Restart', 'Cancel');
+          if (selection === "Restart") {
+            vscode.commands.executeCommand("workbench.action.reloadWindow");
+          }
+        }, "Upgrading the extension backend API.");
       }
     });
 
@@ -1758,11 +1838,16 @@ export async function activate(context: vscode.ExtensionContext) {
   }
   await loadStoredActiveTicketForCurrentServer();
 
+  // Display active ticket in checked out items if one is set
+  if (activeTicket) {
+    checkedOutTreeDataProvider.setActiveTicket(activeTicket.id, activeTicket.title);
+  }
+
   ticketsTreeDataProvider = new TicketsTreeDataProvider({
     getActiveTicket: () => activeTicket,
     getCurrentUser: () => getCurrentStarlimsUser(),
     loadTickets: async () => {
-      const ticketsResult = await enterpriseService.getTicketsForUserResult(getCurrentStarlimsUser());
+      const ticketsResult = await enterpriseService.getTicketsResult();
       if (!ticketsResult.ok) {
         throw new Error(ticketsResult.error ?? "Could not retrieve tickets.");
       }
@@ -1770,6 +1855,9 @@ export async function activate(context: vscode.ExtensionContext) {
       const tickets = ticketsResult.data ?? [];
       await reconcileActiveTicketSelection(tickets);
       return tickets;
+    },
+    loadTicketDescription: async (ticketId: number, stackTraceId: number | undefined) => {
+      return enterpriseService.getTicketDescription(ticketId, stackTraceId);
     }
   });
   ticketsTreeView = vscode.window.createTreeView("STARLIMSTicketsTree", {
@@ -1818,6 +1906,13 @@ export async function activate(context: vscode.ExtensionContext) {
     "STARLIMS.ReleaseTicket",
     async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
       await releaseTicket(item);
+    }
+  );
+
+  vscode.commands.registerCommand(
+    "STARLIMS.SolveTicket",
+    async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
+      await solveTicket(item);
     }
   );
 
@@ -1964,27 +2059,25 @@ export async function activate(context: vscode.ExtensionContext) {
         },
         async (progress) => {
           progress.report({ increment: 0, message: "Exporting checked out items..." });
-          const success = await enterpriseService.exportAllCheckouts();
+          const exportedPackage = await enterpriseService.exportAllCheckouts();
           progress.report({ increment: 100, message: "Done." });
 
-          // if export was successful, ask for file name
-          if (success) {
-            const fileName = await vscode.window.showInputBox({
-              prompt: "Enter a file name for the exported package (without extension)",
-              placeHolder: "CheckedOutItems",
-              validateInput: (value: string) => {
-                if (!value.trim()) {
-                  return "File name cannot be empty";
-                }
-                if (!/^[a-zA-Z0-9_\-\s.]+$/.test(value)) {
-                  return "File name contains invalid characters";
-                }
-                return "";
-              }
+          // if export was successful, save the file
+          if (exportedPackage) {
+            // Show save dialog
+            const fileUri = await vscode.window.showSaveDialog({
+              defaultUri: vscode.Uri.file(path.join(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd(), exportedPackage.fileName)),
+              filters: { "SDP Package": ["sdp"] },
+              saveLabel: "Export"
             });
 
-            if (fileName) {
-              vscode.window.showInformationMessage(`Package exported as: ${fileName}.sdp`);
+            if (fileUri) {
+              try {
+                fs.writeFileSync(fileUri.fsPath, exportedPackage.content);
+                vscode.window.showInformationMessage(`Package exported successfully to: ${path.basename(fileUri.fsPath)}`);
+              } catch (error: any) {
+                vscode.window.showErrorMessage(`Failed to save file: ${error.message}`);
+              }
             }
           }
         }

@@ -68,6 +68,28 @@ SQLExecute("UPDATE BMBH_TICKETS SET STATUS = ?nOpenCode?, ASIGNEDTO = '', MODIFI
 :RETURN nOpenCode;
 :ENDPROC;
 
+:PROCEDURE SetTicketFertig;
+:PARAMETERS nTicketId;
+:DEFAULT nTicketId, -1;
+
+:IF nTicketId < 0;
+	RaiseError("TicketId must be provided.", "SCM_API.TicketManagement.SetTicketFertig", -1);
+:ENDIF;
+
+:DECLARE nFertigCode;
+nFertigCode := SQLExecute("SELECT ORIGREC FROM BMBH_TICKET_STATUS WHERE STATUS_NAME = 'Fertig'");
+
+:IF Empty(nFertigCode) .OR. Len(nFertigCode) == 0;
+	RaiseError("Could not resolve ticket status 'Fertig'.", "SCM_API.TicketManagement.SetTicketFertig", -1);
+:ENDIF;
+
+nFertigCode := nFertigCode[1][1];
+
+SQLExecute("UPDATE BMBH_TICKETS SET STATUS = ?nFertigCode?, ASIGNEDTO = '', MODIFIEDON = GETDATE() WHERE ORIGREC = ?nTicketId?");
+
+:RETURN nFertigCode;
+:ENDPROC;
+
 :PROCEDURE RenameTicket;
 :PARAMETERS nTicketId, sNewTitle;
 :DEFAULT nTicketId, -1;
