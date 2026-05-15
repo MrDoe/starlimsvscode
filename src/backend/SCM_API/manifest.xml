@@ -518,6 +518,19 @@
           <IsReferred>false</IsReferred>
         </ServerScript>
         <ServerScript>
+          <ItemID>97D5F744-3C4B-4525-B8D4-A68F6D626A0B</ItemID>
+          <ItemName>FormCallbackPort</ItemName>
+          <LayerId>300</LayerId>
+          <ItemDescription />
+          <ItemCategory>SCM_API</ItemCategory>
+          <ItemContent>Server Scripts\SCM_API\FormCallbackPort.srvscr</ItemContent>
+          <IsMandatory>false</IsMandatory>
+          <ItemBehaviour>overwrite</ItemBehaviour>
+          <ItemProgrammingLanguage>STARLIMS</ItemProgrammingLanguage>
+          <ItemIsOwned>N</ItemIsOwned>
+          <IsReferred>false</IsReferred>
+        </ServerScript>
+        <ServerScript>
           <ItemID>5A682FAB-C29C-4E87-9831-8A4F7361A817</ItemID>
           <ItemName>GlobalSearch</ItemName>
           <LayerId>300</LayerId>

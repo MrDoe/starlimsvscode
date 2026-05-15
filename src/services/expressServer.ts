@@ -7,13 +7,15 @@ import { StarlimsMcpServer } from './starlimsMcpServer';
 
 dotenv.config();
 
+const FORM_CALLBACK_PORT_RANGE_START = 3003;
+const FORM_CALLBACK_PORT_RANGE_END = 3099;
+
 export type ExpressServerOptions = {
     host?: string;
     mcpHost?: string;
     mcpPort?: number;
     mcpServer?: StarlimsMcpServer;
     onOpenCodeBehind: (formId: string, functionName: string) => void | Thenable<unknown> | Promise<unknown>;
-    port?: number;
 };
 
 export class ExpressServer
@@ -37,36 +39,34 @@ export class ExpressServer
         this.mcpServer = options.mcpServer;
         this.mcpApp = this.mcpServer ? createMcpExpressApp({ host: this.mcpHost }) : undefined;
         this.onOpenCodeBehind = options.onOpenCodeBehind;
-        this.mcpPort = options.mcpPort ?? 3001;
-        this.port = options.port ?? 3000;
+        this.mcpPort = options.mcpPort ?? 3002;
+        this.port = 0;
         this.registerRoutes();
     }
 
-    public start()
+    public async start(): Promise<number | undefined>
     {
         if (!this.httpServer) {
-            this.httpServer = this.app.listen(this.port, this.host, () => {
-                vscode.window.showInformationMessage(
-                    `Starlims VS Code form callback server running on http://${this.host}:${this.port}`
-                );
-            });
-
-            this.httpServer.on('error', (error) => {
-                vscode.window.showErrorMessage(`Failed to start STARLIMS form callback server: ${error}`);
-            });
+            this.httpServer = await this.startFormCallbackServer();
         }
 
         if (!this.mcpHttpServer && this.mcpApp) {
-            this.mcpHttpServer = this.mcpApp.listen(this.mcpPort, this.mcpHost, () => {
+            try {
+                this.mcpHttpServer = await this.listen(this.mcpApp, this.mcpPort, this.mcpHost);
                 vscode.window.showInformationMessage(
                     `Starlims VS Code MCP server running on http://${this.mcpHost}:${this.mcpPort}/mcp`
                 );
-            });
-
-            this.mcpHttpServer.on('error', (error) => {
+            } catch (error) {
                 vscode.window.showErrorMessage(`Failed to start STARLIMS MCP server: ${error}`);
-            });
+            }
         }
+
+        return this.getPort();
+    }
+
+    public getPort(): number | undefined
+    {
+        return this.httpServer && this.port > 0 ? this.port : undefined;
     }
 
     public async stop(): Promise<void>
@@ -138,6 +138,47 @@ export class ExpressServer
             }
 
             await this.mcpServer.handleRequest(req, res);
+        });
+    }
+
+    private async startFormCallbackServer(): Promise<Server | undefined> {
+        for (let candidatePort = FORM_CALLBACK_PORT_RANGE_START; candidatePort <= FORM_CALLBACK_PORT_RANGE_END; candidatePort += 1) {
+            try {
+                const server = await this.listen(this.app, candidatePort, this.host);
+                this.port = candidatePort;
+                vscode.window.showInformationMessage(
+                    `Starlims VS Code form callback server running on http://${this.host}:${this.port}`
+                );
+                return server;
+            } catch (error) {
+                const listenError = error as NodeJS.ErrnoException;
+                if (listenError.code === 'EADDRINUSE') {
+                    continue;
+                }
+
+                vscode.window.showErrorMessage(`Failed to start STARLIMS form callback server: ${error}`);
+                return undefined;
+            }
+        }
+
+        vscode.window.showErrorMessage(
+            `Failed to start STARLIMS form callback server: no free port was available on ${this.host} in the range ${FORM_CALLBACK_PORT_RANGE_START}-${FORM_CALLBACK_PORT_RANGE_END}.`
+        );
+        return undefined;
+    }
+
+    private listen(app: Express, port: number, host: string): Promise<Server> {
+        return new Promise((resolve, reject) => {
+            const onError = (error: Error) => {
+                reject(error);
+            };
+
+            const server = app.listen(port, host, () => {
+                server.off('error', onError);
+                resolve(server);
+            });
+
+            server.once('error', onError);
         });
     }
 

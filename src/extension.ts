@@ -157,26 +157,35 @@ async function ensureSLVSCODEWorkspace(slvscodePath: string): Promise<void> {
 function ensureSLVSCODEMcpConfig(slvscodePath: string, mcpPort: number): void {
   const vscodeFolderPath = path.join(slvscodePath, ".vscode");
   const mcpConfigPath = path.join(vscodeFolderPath, "mcp.json");
+  const defaultMcpConfig = {
+    servers: {
+      starlims: {
+        type: "http",
+        url: `http://127.0.0.1:${mcpPort}/mcp`
+      }
+    }
+  };
 
   if (fs.existsSync(mcpConfigPath)) {
+    try {
+      const existingConfig = JSON.parse(fs.readFileSync(mcpConfigPath, "utf8"));
+      if (existingConfig?.servers?.starlims?.type === "http" && existingConfig.servers.starlims.url === "http://127.0.0.1:3001/mcp") {
+        fs.writeFileSync(
+          mcpConfigPath,
+          JSON.stringify(defaultMcpConfig, null, 2) + "\n",
+          { encoding: "utf8" }
+        );
+      }
+    } catch {
+      // Leave user-managed MCP configs untouched when they are not valid JSON.
+    }
     return;
   }
 
   fs.mkdirSync(vscodeFolderPath, { recursive: true });
   fs.writeFileSync(
     mcpConfigPath,
-    JSON.stringify(
-      {
-        servers: {
-          starlims: {
-            type: "http",
-            url: `http://127.0.0.1:${mcpPort}/mcp`
-          }
-        }
-      },
-      null,
-      2
-    ) + "\n",
+    JSON.stringify(defaultMcpConfig, null, 2) + "\n",
     { encoding: "utf8" }
   );
 }
@@ -240,6 +249,7 @@ export async function activate(context: vscode.ExtensionContext) {
   let selectedItem: TreeEnterpriseItem | undefined;
   let activeTicket: TicketReference | undefined;
   let languages: any[] = [];
+  let expressServer: ExpressServer | undefined;
   let enterpriseService!: EnterpriseService;
   let enterpriseTreeProvider!: EnterpriseTreeDataProvider;
   let ticketsTreeDataProvider!: TicketsTreeDataProvider;
@@ -274,6 +284,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
       try {
         enterpriseService.updateServerConfig(serverConfig, serverConfig.name);
+        await publishFormCallbackPortToScm();
         await loadStoredActiveTicketForCurrentServer();
         if (enterpriseTreeProvider) {
           enterpriseTreeProvider.refresh();
@@ -1921,8 +1932,25 @@ export async function activate(context: vscode.ExtensionContext) {
   // create output channel for the log
   const logChannel = vscode.window.createOutputChannel("STARLIMS Log", 'log');
 
+  async function publishFormCallbackPortToScm(): Promise<void> {
+    const callbackPort = expressServer?.getPort();
+    if (!callbackPort) {
+      return;
+    }
+
+    const result = await enterpriseService.setFormCallbackPortResult(callbackPort);
+    if (!result.ok) {
+      outputChannel.appendLine(
+        `[FormCallback] Failed to publish callback port ${callbackPort}: ${result.error ?? "Unknown error."}`
+      );
+      return;
+    }
+
+    outputChannel.appendLine(`[FormCallback] Published callback port ${callbackPort} to STARLIMS SCM.`);
+  }
+
   const getMcpConfig = () => vscode.workspace.getConfiguration("STARLIMS");
-  ensureSLVSCODEMcpConfig(rootPath, getMcpConfig().get<number>("mcp.port", 3001));
+  ensureSLVSCODEMcpConfig(rootPath, getMcpConfig().get<number>("mcp.port", 3002));
   ensureSLVSCODEStarlimsAgent(rootPath);
   ensureSLVSCODECopilotInstructions(rootPath);
   const automationService = new StarlimsAutomationService(enterpriseService, {
@@ -1944,15 +1972,16 @@ export async function activate(context: vscode.ExtensionContext) {
       outputChannel.appendLine(`[MCP] ${message}`);
     }
   });
-  const expressServer = new ExpressServer({
-    mcpPort: getMcpConfig().get<number>("mcp.port", 3001),
+  expressServer = new ExpressServer({
+    mcpPort: getMcpConfig().get<number>("mcp.port", 3002),
     mcpServer: starlimsMcpServer,
     onOpenCodeBehind: async (formId: string, functionName: string) => {
       await vscode.commands.executeCommand("STARLIMS.OpenCodeBehind", formId, functionName);
     }
   });
   context.subscriptions.push(expressServer);
-  expressServer.start();
+  await expressServer.start();
+  await publishFormCallbackPortToScm();
 
   // install ESlint to SLVSCODE folder if not already installed
   // check for .eslintrc.json file
@@ -2055,6 +2084,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Update service with selected server on startup
     enterpriseService.updateServerConfig(selectedServerConfig, selectedServerConfig.name);
     activeUser = selectedServerConfig.user || activeUser;
+    await publishFormCallbackPortToScm();
   }
   await loadStoredActiveTicketForCurrentServer();
   await refreshCheckedOutItems(false);

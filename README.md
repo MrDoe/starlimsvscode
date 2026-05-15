@@ -57,7 +57,9 @@ Common optional settings:
 
 ## MCP Integration
 
-When `STARLIMS.mcp.enabled` is enabled, the extension exposes a local MCP endpoint on `http://127.0.0.1:3001/mcp` by default.
+The extension also starts a local form callback server on the first free loopback port in the range `3003-3099` for FormDesigner code-behind navigation. The selected port is published back to STARLIMS SCM so the FormDesigner client can resolve it dynamically.
+
+When `STARLIMS.mcp.enabled` is enabled, the extension exposes a local MCP endpoint on `http://127.0.0.1:3002/mcp` by default.
 
 The MCP integration is intentionally limited:
 
