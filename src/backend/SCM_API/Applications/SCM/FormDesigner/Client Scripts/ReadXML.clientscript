@@ -7,6 +7,8 @@ Date......... : 2023-11-16
 */
 
 var _globalCount = 0;
+var _propertySchemaCache = {};
+var _propertySchemaPending = {};
 
 const controlClasses = {
     "Button": Button,
@@ -54,14 +56,177 @@ const controlClasses = {
     "WebBrowser": WebBrowser
 };
 
+function GetControlSchemaType(controlType)
+{
+    return (controlType || "").replace("Starlims", "");
+}
+
+function CloneDataProperties(aProperties)
+{
+    return aProperties.map(function (row)
+    {
+        return {
+            PROPERTY_NAME: row.PROPERTY_NAME,
+            PROPERTY_VALUE: row.PROPERTY_VALUE,
+            ':': row[':']
+        };
+    });
+}
+
+async function GetCachedPropertySchema(controlType)
+{
+    const schemaType = GetControlSchemaType(controlType);
+
+    if (_propertySchemaCache[schemaType])
+        return _propertySchemaCache[schemaType];
+
+    if (!_propertySchemaPending[schemaType])
+    {
+        _propertySchemaPending[schemaType] = (async function ()
+        {
+            let xmlProperties = await lims.GetData("FormDesigner.dsControlProperties", [schemaType]);
+            if (!xmlProperties)
+                return null;
+
+            _dgdProperties.Data = xmlProperties;
+            const rows = _dgdProperties.DataSet.Tables[0].Select("PROPERTY_VALUE is not null");
+            const schema = {
+                xml: xmlProperties,
+                rows: CloneDataProperties(rows)
+            };
+
+            _propertySchemaCache[schemaType] = schema;
+            delete _propertySchemaPending[schemaType];
+            return schema;
+        })();
+    }
+
+    return await _propertySchemaPending[schemaType];
+}
+
+function GetDirectChildNodes(xmlNode, nodeName)
+{
+    let childNodes = [];
+    if (!xmlNode || !xmlNode.childNodes)
+        return childNodes;
+
+    for (let childNode of xmlNode.childNodes)
+    {
+        if (childNode.nodeName === nodeName)
+            childNodes.push(childNode);
+    }
+
+    return childNodes;
+}
+
+function GetDirectChildNode(xmlNode, nodeName)
+{
+    let childNodes = GetDirectChildNodes(xmlNode, nodeName);
+    return childNodes.length > 0 ? childNodes[0] : null;
+}
+
+function GetDirectChildNodeText(xmlNode, nodeName, bReturnEmptyString = false)
+{
+    let childNode = GetDirectChildNode(xmlNode, nodeName);
+    if (childNode && childNode.textContent != null)
+        return childNode.textContent;
+
+    return bReturnEmptyString ? "" : null;
+}
+
+function QueueDeferredControlProperty(control, sPropertyName, value)
+{
+    if (!control.__deferredProperties)
+        control.__deferredProperties = [];
+
+    control.__deferredProperties.push({
+        name: sPropertyName,
+        value: value
+    });
+}
+
+function IsControlAttachedToDesignerRoot(control)
+{
+    let currentControl = control;
+    while (currentControl)
+    {
+        if (currentControl === _Form1)
+            return true;
+
+        currentControl = currentControl.Parent;
+    }
+
+    return false;
+}
+
+function ApplyDeferredControlProperties(control)
+{
+    if (!control || !control.__deferredProperties || control.__deferredProperties.length === 0)
+        return;
+
+    if (!IsControlAttachedToDesignerRoot(control))
+        return;
+
+    for (let deferredProperty of control.__deferredProperties)
+        control[deferredProperty.name] = deferredProperty.value;
+
+    delete control.__deferredProperties;
+}
+
+function ApplyDeferredControlPropertiesRecursive(control)
+{
+    if (!control)
+        return;
+
+    ApplyDeferredControlProperties(control);
+
+    if (control.Controls)
+    {
+        for (let i = 0; i < control.Controls.Count; ++i)
+            ApplyDeferredControlPropertiesRecursive(control.Controls[i]);
+    }
+
+    if (control.Panel1)
+        ApplyDeferredControlPropertiesRecursive(control.Panel1);
+    if (control.Panel2)
+        ApplyDeferredControlPropertiesRecursive(control.Panel2);
+
+    if (control.TabPages)
+    {
+        for (let i = 0; i < control.TabPages.Count; ++i)
+            ApplyDeferredControlPropertiesRecursive(control.TabPages[i]);
+    }
+
+    if (control.Groups)
+    {
+        for (let i = 0; i < control.Groups.Count; ++i)
+            ApplyDeferredControlPropertiesRecursive(control.Groups[i]);
+    }
+
+    if (control.Items)
+    {
+        for (let i = 0; i < control.Items.Count; ++i)
+            ApplyDeferredControlPropertiesRecursive(control.Items[i]);
+    }
+
+    if (control.Columns)
+    {
+        for (let i = 0; i < control.Columns.Count; ++i)
+            ApplyDeferredControlPropertiesRecursive(control.Columns[i]);
+    }
+
+    if (control.RootTable)
+        ApplyDeferredControlPropertiesRecursive(control.RootTable);
+}
+
 // create form with all controls from XML
 async function LoadFormFromXML(sXML)
 {
     var xmlDoc = new DOMParser().parseFromString(sXML, "text/xml");
-    var formNode = xmlDoc.getElementsByTagName("Form")[0];
+    var formNode = xmlDoc.documentElement;
 
     // change id tag of form node to _Form1 to avoid name conflict
-    formNode.getElementsByTagName("Id")[0].textContent = "_Form1";
+    GetDirectChildNode(formNode, "Id").textContent = "_Form1";
 
     var newForm = await CreateControlFromXML(formNode);
     await LoadCboControls();
@@ -84,18 +249,8 @@ async function SetBaseProperties(xmlNode, control)
         if (sPropertyName === "Guid")
             continue;
 
-        // convert function name to function
-        if (sPropertyName.includes("On") && value.includes("("))
-        {
-            try
-            {    
-                value = eval(value);
-            }
-            catch (e) 
-            {
-                console.log("Error converting function name " + value + " to function");
-            }
-        }
+        if (sPropertyName.includes("On"))
+            value = ResolveEventHandlerReference(value);
 
         // convert numeric string to number
         if (!isNaN(value))
@@ -123,8 +278,8 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
     if(xmlNode.getAttribute("xsi:type"))
         sType = xmlNode.getAttribute("xsi:type");
 
-    if (!sType && xmlNode.getElementsByTagName("xtype").length > 0)
-        sType = xmlNode.getElementsByTagName("xtype")[0].textContent;
+    if (!sType)
+        sType = GetDirectChildNodeText(xmlNode, "xtype", true);
 
     if (!sType || sType === "")
         return;
@@ -138,8 +293,8 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
         control.xType = "Form";
 
         // set form width and height
-        control.Width = Number(xmlNode.getElementsByTagName("Width")[0].textContent);
-        control.Height = Number(xmlNode.getElementsByTagName("Height")[0].textContent);
+        control.Width = Number(GetDirectChildNodeText(xmlNode, "Width", true));
+        control.Height = Number(GetDirectChildNodeText(xmlNode, "Height", true));
     }
     else
     {
@@ -158,7 +313,7 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
         control.xType = sType;
     
         // get control's guid
-        var sGuid = xmlNode.getElementsByTagName("Guid")[0].textContent;
+        var sGuid = GetDirectChildNodeText(xmlNode, "Guid", true);
         
         if(!sGuid)
             sGuid = System.Guid.NewGuid().ToString();
@@ -192,17 +347,13 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
         if (sPropertyName === "(Id)")
             sPropertyName = "Id";
 
-        // convert function name to function
-        if (sPropertyName.includes("On") && value.includes("("))
+        if (sPropertyName.includes("On"))
+            value = ResolveEventHandlerReference(value);
+
+        if (control.xType === "Frame" && sPropertyName === "Source")
         {
-            try
-            {    
-                value = eval(value);
-            }
-            catch (e) 
-            {
-                console.log("Error converting function name " + value + " to function");
-            }
+            QueueDeferredControlProperty(control, sPropertyName, value);
+            continue;
         }
 
         // convert numeric string to number
@@ -242,11 +393,11 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
     // handle Panel1 and Panel2 properties for StarlimsSplitContainer
     if (sType === "SplitContainerH" || sType === "SplitContainerV")
     {
-        let childNode = xmlNode.getElementsByTagName("Panel1")[0];
+        let childNode = GetDirectChildNode(xmlNode, "Panel1");
         if (childNode)
             control.Panel1 = await CreateControlFromXML(childNode, xmlNode, control.Panel1);
 
-        childNode = xmlNode.getElementsByTagName("Panel2")[0];
+        childNode = GetDirectChildNode(xmlNode, "Panel2");
         if (childNode)
             control.Panel2 = await CreateControlFromXML(childNode, xmlNode, control.Panel2);
 
@@ -275,8 +426,7 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
         var nSelectedPage = control.SelectedPage;
 
     // get all child controls (only current level)
-    let allControls = Array.from(xmlNode.getElementsByTagName("__array__Controls"));
-    let aControls = allControls.filter(item => item.parentNode === xmlNode && item.nodeName !== "#text");
+    let aControls = GetDirectChildNodes(xmlNode, "__array__Controls");
 
     if (aControls && aControls.length > 0)
     {
@@ -288,14 +438,16 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
             let childControl = await CreateControlFromXML(child, xmlNode);
 
             if (childControl && control.Controls && childControl.xType !== "TabPage")
+            {
                 control.Controls.Add(childControl);
+                ApplyDeferredControlPropertiesRecursive(childControl);
+            }
         }
         return control;
     }
 
     // get all groups (only current level)
-    let allGroups = Array.from(xmlNode.getElementsByTagName("__array__Groups"));
-    let aGroups = allGroups.filter(item => item.parentNode === xmlNode && item.nodeName !== "#text");
+    let aGroups = GetDirectChildNodes(xmlNode, "__array__Groups");
 
     if (aGroups && aGroups.length > 0)
     {
@@ -310,14 +462,14 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
             if (childControl && control.Groups)
             {
                 control.Groups.Add(childControl);
+                ApplyDeferredControlPropertiesRecursive(childControl);
             }
         }
         return control;
     }
 
     // get all items (only current level)
-    let allItems = Array.from(xmlNode.getElementsByTagName("__array__Items"));
-    let aItems = allItems.filter(item => item.parentNode === xmlNode && item.nodeName !== "#text");
+    let aItems = GetDirectChildNodes(xmlNode, "__array__Items");
 
     if (aItems && aItems.length > 0)
     {
@@ -331,9 +483,15 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
             if (childControl)
             {
                 if(control.TabPages)
+                {
                     control.TabPages.Add(childControl);
+                    ApplyDeferredControlPropertiesRecursive(childControl);
+                }
                 else if(control.Items)
+                {
                     control.Items.Add(childControl);
+                    ApplyDeferredControlPropertiesRecursive(childControl);
+                }
             }
         }
         
@@ -345,8 +503,7 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
     }
 
     // get all columns (only current level)
-    let allColumns = Array.from(xmlNode.getElementsByTagName("__array__Columns"));
-    let aColumns = allColumns.filter(item => item.parentNode === xmlNode && item.nodeName !== "#text");
+    let aColumns = GetDirectChildNodes(xmlNode, "__array__Columns");
 
     if (aColumns && aColumns.length > 0)
     {
@@ -361,13 +518,16 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
             let childControl = await CreateControlFromXML(column, xmlNode);
 
             if (childControl)
+            {
                 control.Columns.Add(childControl);
+                ApplyDeferredControlPropertiesRecursive(childControl);
+            }
         }
         return control;
     }
     
     // get root table for datagrid
-    let xmlRootTable = xmlNode.getElementsByTagName("RootTable")[0];
+    let xmlRootTable = GetDirectChildNode(xmlNode, "RootTable");
     if (xmlRootTable)
     {
         // set data type
@@ -376,6 +536,7 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
         let table = await CreateControlFromXML(xmlRootTable, xmlNode);
         table.id = table.Id;
         control.RootTable = table;
+        ApplyDeferredControlPropertiesRecursive(table);
         return control;
     }
 
@@ -385,9 +546,9 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
 // get property value from xml node
 function GetProperty(column, name, bReturnEmptyString = false)
 {
-    let element = column.getElementsByTagName(name);
-    if (element.length > 0 && element[0].textContent)
-        return element[0].textContent;
+    let element = GetDirectChildNode(column, name);
+    if (element && element.textContent)
+        return element.textContent;
     else
     {
         // generate guid for new columns
@@ -401,15 +562,13 @@ function GetProperty(column, name, bReturnEmptyString = false)
 // load control properties
 async function LoadDataProperties(control)
 {
-    
-    let xmlProperties = await lims.GetData("FormDesigner.dsControlProperties", [control.xType]);
-    if (!xmlProperties)
+    let propertySchema = await GetCachedPropertySchema(control.xType);
+    if (!propertySchema)
     {
         await Dialogs.MessageBox("Error loading properties for control " + control.xType, "Error", "ERROR", "OKONLY");
         return;
     }
 
-    _dgdProperties.Data = xmlProperties;
-    control.DataPropertiesXml = xmlProperties;
-    control.DataProperties = _dgdProperties.DataSet.Tables[0].Select("PROPERTY_VALUE is not null");
+    control.DataPropertiesXml = propertySchema.xml;
+    control.DataProperties = CloneDataProperties(propertySchema.rows);
 }

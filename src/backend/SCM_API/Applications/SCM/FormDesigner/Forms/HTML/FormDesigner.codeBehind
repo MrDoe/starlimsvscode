@@ -16,13 +16,14 @@ Date......... : 2623-07-11
 var _pnlTree = form.All("_pnlTree"); // Panel
 var _cboForm = form.All("_cboForm"); // ComboBox 
 var _pnlTop = form.All("_pnlTop"); // Panel
-//var _tpProperties = form.All( "_tpProperties" ); // TabPage
 var _cboControl = form.All("_cboControl"); // ComboBox
 var _txtDescription = form.All("_txtDescription"); // TextArea
 var _lblDescription = form.All("_lblDescription"); // Label
 var _Form1 = form.All("_Form1"); // Panel
 var _lbrControls = form.All("_lbrControls"); // LinkBar
 var _dgdProperties = form.All("_dgdProperties"); // DataGrid
+var _btnToggleControls = form.All("_btnToggleControls"); // Button
+var _splitDesignerSidebar = form.All("_splitDesignerSidebar"); // SplitContainerV
 
 //END_GLOBAL_DECLARATIONS
 
@@ -31,6 +32,238 @@ var controlCounter = 0;
 var selectedControl;
 var pnlSelected;
 var htControls = new Hashtable();
+
+function GetGlobalScope()
+{
+    if (typeof globalThis !== "undefined")
+        return globalThis;
+
+    if (typeof window !== "undefined")
+        return window;
+
+    return this;
+}
+
+function GetNormalizedHandlerName(value)
+{
+    if (value == null || value === "")
+        return "";
+
+    if (typeof value === "function")
+    {
+        var functionName = value.name || value.toString().split("(")[0].replace("async ", "").replace("function ", "").Trim();
+        return functionName === "__control_OnClick" ? "" : functionName;
+    }
+
+    var sValue = value.toString().trim();
+    if (sValue === "")
+        return "";
+
+    if (sValue.includes("("))
+        sValue = sValue.substring(0, sValue.indexOf("(")).trim();
+
+    return sValue.replace("async ", "").replace("function ", "").trim();
+}
+
+function RegisterFunctionNames(aFunctionNames)
+{
+    var uniqueNames = [];
+    var lookup = {};
+
+    if (aFunctionNames)
+    {
+        for (let i = 0; i < aFunctionNames.length; ++i)
+        {
+            let functionName = GetNormalizedHandlerName(aFunctionNames[i]);
+            if (!functionName || lookup[functionName])
+                continue;
+
+            lookup[functionName] = true;
+            uniqueNames.push(functionName);
+        }
+    }
+
+    form.Variables["FunctionNames"] = uniqueNames;
+    form.Variables["FunctionNameLookup"] = lookup;
+}
+
+function ResolveEventHandlerReference(value)
+{
+    var functionName = GetNormalizedHandlerName(value);
+    if (!functionName)
+        return "";
+
+    var globalScope = GetGlobalScope();
+    var handler = globalScope ? globalScope[functionName] : null;
+
+    if (typeof handler === "function")
+        return handler;
+
+    return functionName;
+}
+
+function GetPropertyDisplayValue(control, sPropertyName)
+{
+    var value = control[sPropertyName];
+
+    if (value == null)
+        return "";
+
+    if (sPropertyName.includes("On"))
+        return GetNormalizedHandlerName(value);
+
+    if (value === true)
+        return "True";
+
+    if (value === false)
+        return "False";
+
+    if (sPropertyName === "(Id)")
+        return control.Id;
+
+    return value;
+}
+
+function ApplyControlProperty(control, sPropertyName, value)
+{
+    var normalizedValue = value;
+
+    if (sPropertyName.includes("On"))
+    {
+        control[sPropertyName] = ResolveEventHandlerReference(value);
+        return;
+    }
+
+    normalizedValue = normalizedValue === "True" ? true : normalizedValue === "False" ? false : normalizedValue;
+
+    switch (sPropertyName)
+    {
+        case "(Id)":
+            control.itemId = normalizedValue;
+            control.Id = normalizedValue;
+            control.id = normalizedValue;
+            UpdateTreeNodeId(control.Guid, normalizedValue);
+            return;
+        case "Visible":
+            control.Visible = normalizedValue;
+            $('[automation-id="' + control.Id + '"]').css("opacity", normalizedValue ? "1" : "0.2");
+            return;
+        case "Height":
+        case "Width":
+        case "Top":
+        case "Left":
+            control[sPropertyName] = parseInt(normalizedValue);
+            return;
+        case "Image":
+            return;
+        case "SelectedPage":
+            control.SelectedPage = normalizedValue;
+            if (control.TabPages && control.TabPages[normalizedValue])
+                control.TabPages[normalizedValue].Selected = true;
+            return;
+        case "Dock":
+            if (!normalizedValue)
+                normalizedValue = "NONE";
+
+            control.Dock = normalizedValue;
+
+            if (normalizedValue === "FILL" || normalizedValue === "TOP" || normalizedValue === "BOTTOM")
+            {
+                if (normalizedValue === "TOP" || normalizedValue === "FILL")
+                    control.Top = 0;
+                if (normalizedValue === "BOTTOM")
+                    control.Top = control.Parent.Height - control.Height;
+
+                control.Left = 0;
+                control.Width = control.Parent.Width;
+            }
+            if (normalizedValue === "LEFT" || normalizedValue === "RIGHT" || normalizedValue === "FILL")
+            {
+                if (normalizedValue === "LEFT" || normalizedValue === "FILL")
+                    control.Left = 0;
+                if (normalizedValue === "RIGHT")
+                    control.Left = control.Parent.Width - control.Width;
+
+                control.Top = 0;
+                control.Height = control.Parent.Height;
+            }
+            UpdateSelectionFrame(control);
+            return;
+        case "Anchor":
+            control.m_dto.Anchor = control._FixAnchor(normalizedValue);
+            return;
+        default:
+            control[sPropertyName] = normalizedValue;
+    }
+}
+
+function ResizeOutlineTree()
+{
+    if (typeof _treePanel === "undefined" || !_treePanel)
+        return;
+
+    var treeHost = Ext.ComponentQuery.query('#_pnlTree')[0];
+    if (!treeHost)
+        return;
+
+    var nWidth = treeHost.getWidth ? treeHost.getWidth() : treeHost.Width;
+    var nHeight = treeHost.getHeight ? treeHost.getHeight() : treeHost.Height;
+
+    if (nWidth > 0)
+        _treePanel.setWidth(nWidth);
+    if (nHeight > 0)
+        _treePanel.setHeight(nHeight);
+}
+
+function UpdateControlsToggleButtonPosition()
+{
+    if (!_btnToggleControls)
+        return;
+
+    var bControlsVisible = form.Variables["ControlsPaneVisible"] !== false;
+    var nTop = (_lbrControls ? _lbrControls.Top : 40) + 4;
+    var nLeft = 4;
+
+    if (bControlsVisible && _lbrControls)
+        nLeft = Math.max(_lbrControls.Left + _lbrControls.Width - _btnToggleControls.Width - 4, 4);
+
+    _btnToggleControls.Left = nLeft;
+    _btnToggleControls.Top = nTop;
+    _btnToggleControls.Text = bControlsVisible ? "<" : ">";
+
+    $('[automation-id="_btnToggleControls"]').css("cssText", "position: sticky !important; z-index: 100001 !important;");
+}
+
+function UpdateDesignerShellLayout()
+{
+    if (!_splitDesignerSidebar || !_lbrControls)
+        return;
+
+    var nControlsWidth = form.Variables["ControlsPaneWidth"] || 160;
+    var bControlsVisible = form.Variables["ControlsPaneVisible"] !== false;
+    var nAvailableWidth = _pnlTop && _pnlTop.Width ? _pnlTop.Width : form.Width;
+    var nLeft = bControlsVisible ? nControlsWidth : 0;
+    var nWidth = Math.max(nAvailableWidth - nLeft, 320);
+
+    _lbrControls.Visible = bControlsVisible;
+    _lbrControls.Width = bControlsVisible ? nControlsWidth : 0;
+    _splitDesignerSidebar.Left = nLeft;
+    _splitDesignerSidebar.Width = nWidth;
+
+    UpdateControlsToggleButtonPosition();
+}
+
+async function btnToggleControls_OnClick(sender, eventArgs)
+{
+    if (_lbrControls && _lbrControls.Visible && _lbrControls.Width > 0)
+        form.Variables["ControlsPaneWidth"] = _lbrControls.Width;
+
+    form.Variables["ControlsPaneVisible"] = form.Variables["ControlsPaneVisible"] === false;
+    UpdateDesignerShellLayout();
+
+    await Application.DoEvents();
+    ResizeOutlineTree();
+}
 
 async function lbrControls_OnItemClick(sender, eventArgs)
 {
@@ -44,85 +277,7 @@ async function dgdProperties_OnUpdatingCell(sender, eventArgs)
     var sPropertyName = _dgdProperties.GetCurrentRowData("PROPERTY_NAME");
     var value = eventArgs["value"];
 
-    // convert event handler string to function
-    if (sPropertyName.includes("On"))
-    {
-        selectedControl[sPropertyName] = eval(value);
-        return;
-    }
-
-    // convert string to boolean
-    value = value === "True" ? true : value === "False" ? false : value;
-
-    switch (sPropertyName)
-    {
-        case "(Id)":
-            selectedControl.itemId = value;
-            // refresh tree node
-            let oldId = selectedControl.Id;
-            let newId = value;
-            UpdateTreeNodeId(oldId, newId);
-            return;
-        case "Visible":
-            // change opacity
-            if (value === "True")
-                $('[automation-id="' + selectedControl.Id + '"]').css("opacity", "1");
-            else
-                $('[automation-id="' + selectedControl.Id + '"]').css("opacity", "0.2");
-            return;
-        case "Height":
-            selectedControl.Height = parseInt(value);
-            return;
-        case "Width":
-            selectedControl.Width = parseInt(value);
-            return;
-        case "Top":
-            selectedControl.Top = parseInt(value);
-            return;
-        case "Left":
-            selectedControl.Left = parseInt(value);
-            return;
-        case "Image":
-            //selectedControl.Image = value;
-            return;
-        case "SelectedPage":
-            selectedControl.SelectedPage = value;
-            selectedControl.TabPages[value].Selected = true;
-            return;
-        case "Dock":
-            if (!value)
-                value = "NONE";
-            selectedControl.Dock = value;
-
-            if (value === "FILL" || value === "TOP" || value === "BOTTOM")
-            {
-                if (value === "TOP" || value === "FILL")
-                    selectedControl.Top = 0;
-                if (value === "BOTTOM")
-                    selectedControl.Top = selectedControl.Parent.Height - selectedControl.Height;
-
-                selectedControl.Left = 0;
-                selectedControl.Width = selectedControl.Parent.Width;
-            }
-            if (value === "LEFT" || value === "RIGHT" || value === "FILL")
-            {
-                if (value === "LEFT" || value === "FILL")
-                    selectedControl.Left = 0;
-                if (value === "RIGHT")
-                    selectedControl.Left = selectedControl.Parent.Width - selectedControl.Width;
-
-                selectedControl.Top = 0;
-                selectedControl.Height = selectedControl.Parent.Height;
-            }
-            UpdateSelectionFrame(selectedControl);
-            return;
-        case "Anchor":
-            // circumvent bug in starlims-all.js (which prevents unsetting of anchor)
-            selectedControl.m_dto.Anchor = selectedControl._FixAnchor(value);
-            return;
-        default:
-            selectedControl[sPropertyName] = value;
-    }
+    ApplyControlProperty(selectedControl, sPropertyName, value);
 }
 
 async function dgdProperties_OnCellDoubleClick(sender, eventArgs)
@@ -145,6 +300,7 @@ async function dgdProperties_OnCellDoubleClick(sender, eventArgs)
 
     // set new function name in grid
     eventArgs["record"][1] = sFunctionName;
+    RegisterFunctionNames((form.Variables["FunctionNames"] || []).concat([sFunctionName]));
 }
 
 async function dgdProperties_OnUdCellEditorRequest(sender, eventArgs)
@@ -214,6 +370,9 @@ async function dgdProperties_OnRowChange(sender, eventArgs)
 async function frmFormDesigner_OnLoad(sender, eventArgs)
 {
     _dgdProperties.OnCellDoubleClick = dgdProperties_OnCellDoubleClick;
+    RegisterFunctionNames([]);
+    form.Variables["ControlsPaneVisible"] = true;
+    form.Variables["ControlsPaneWidth"] = _lbrControls ? _lbrControls.Width : 160;
 
     if (form.formArguments)
     {
@@ -310,9 +469,13 @@ async function cboForm_OnSelectionChanged(sender, eventArgs)
             scriptEl.textContent = aFunctionDeclarations.join('\n');
             document.head.appendChild(scriptEl);
 
-            form.Variables["FunctionNames"] = aFunctionNames;
+            RegisterFunctionNames(aFunctionNames);
         }
+        else
+            RegisterFunctionNames([]);
     }
+    else
+        RegisterFunctionNames([]);
 
     await Application.DoEvents();
 
@@ -352,17 +515,23 @@ async function frmFormDesigner_OnShow(sender, eventArgs)
 {
     // hide x-tool css class from LinkBarGroup in _lbrControls
     $('[automation-id="_lbrControls"] .x-tool').css("display", "none");
+    $('[automation-id="_btnToggleControls"]').css("cssText", "z-index: 100001 !important;");
 
     // add tree to _pnlTree
     var _pnlTree = Ext.ComponentQuery.query('#_pnlTree')[0];
-    _pnlTree.add(_treePanel);
+    if (_pnlTree && _treePanel.ownerCt !== _pnlTree)
+    {
+        _pnlTree.add(_treePanel);
+        _pnlTree.on('resize', ResizeOutlineTree);
+    }
 
-    // let treePanel fill whole panel
-    _treePanel.setWidth(_pnlTree.Width);
-    _treePanel.setHeight(_pnlTree.Height);
+    if (_lbrControls)
+        _lbrControls.on('resize', UpdateControlsToggleButtonPosition);
+
+    var tabSidebar = Ext.ComponentQuery.query('#_tabSidebar')[0];
+    if (tabSidebar)
+        tabSidebar.on('tabchange', ResizeOutlineTree);
+
+    UpdateDesignerShellLayout();
+    ResizeOutlineTree();
 }
-//BEGIN_GLOBAL_DECLARATIONS (place global declarations inside this section)
-
-
-//END_GLOBAL_DECLARATIONS
-

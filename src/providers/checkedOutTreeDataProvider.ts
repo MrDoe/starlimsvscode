@@ -27,6 +27,14 @@ export class CheckedOutTreeDataProvider implements vscode.TreeDataProvider<TreeE
   }
 
   /**
+   * Replace the current checked-out tree data and refresh the view.
+   */
+  updateData(xmlDS: string): void {
+    this.treeItems = this.getDataObject(xmlDS);
+    this._onDidChangeTreeData.fire(null);
+  }
+
+  /**
    * Set the active ticket to display prominently
    */
   setActiveTicket(ticketId: number, ticketTitle: string): void {

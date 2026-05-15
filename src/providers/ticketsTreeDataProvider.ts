@@ -42,6 +42,7 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
   readonly onDidChangeTreeData: vscode.Event<TicketTreeItem | null> = this.onDidChangeTreeDataEmitter.event;
   private readonly descriptionCache = new Map<number, string | undefined>();
   private readonly pendingDescriptionLoads = new Map<number, Promise<string | undefined>>();
+  private titleFilter = "";
 
   constructor(private readonly options: TicketsTreeDataProviderOptions) { }
 
@@ -53,6 +54,20 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
 
   public getTreeItem(item: TicketTreeItem): vscode.TreeItem {
     return item;
+  }
+
+  public getTitleFilterText(): string {
+    return this.titleFilter;
+  }
+
+  public setTitleFilter(filterText: string | undefined): void {
+    const normalizedFilter = (filterText || "").trim();
+    if (normalizedFilter === this.titleFilter) {
+      return;
+    }
+
+    this.titleFilter = normalizedFilter;
+    this.onDidChangeTreeDataEmitter.fire(null);
   }
 
   public async resolveTreeItem(item: TicketTreeItem, _element: TicketTreeItem, token: vscode.CancellationToken): Promise<TicketTreeItem> {
@@ -91,25 +106,43 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
   }
 
   private createStatusGroupItems(tickets: TicketOverview[], activeTicket: TicketReference | undefined, currentUser: string): TicketTreeItem[] {
-    return TICKET_STATUS_GROUPS.map((statusGroupName) => {
-      const groupedTickets = tickets.filter((ticket) => ticket.statusGroupName === statusGroupName);
-      const children = groupedTickets.map((ticket) => this.createTicketItem(ticket, activeTicket, currentUser));
-      const item = new TicketTreeItem(
-        statusGroupName,
-        children.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
-        {
-          children,
-          itemKind: "group",
-          statusGroupName
-        }
-      );
+    const hasActiveTitleFilter = this.titleFilter.length > 0;
+    const visibleTickets = this.applyTitleFilter(tickets);
 
-      item.contextValue = "ticketStatusGroup";
-      item.description = String(groupedTickets.length);
-      item.iconPath = this.getStatusGroupIcon(statusGroupName);
-      item.tooltip = `${statusGroupName}: ${groupedTickets.length}`;
-      return item;
-    });
+    if (hasActiveTitleFilter && visibleTickets.length === 0) {
+      return [this.createPlaceholderItem(`No tickets match "${this.titleFilter}".`)];
+    }
+
+    return TICKET_STATUS_GROUPS
+      .map((statusGroupName) => {
+        const groupedTickets = visibleTickets.filter((ticket) => ticket.statusGroupName === statusGroupName);
+        const children = groupedTickets.map((ticket) => this.createTicketItem(ticket, activeTicket, currentUser));
+        const item = new TicketTreeItem(
+          statusGroupName,
+          children.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+          {
+            children,
+            itemKind: "group",
+            statusGroupName
+          }
+        );
+
+        item.contextValue = "ticketStatusGroup";
+        item.description = String(groupedTickets.length);
+        item.iconPath = this.getStatusGroupIcon(statusGroupName);
+        item.tooltip = `${statusGroupName}: ${groupedTickets.length}`;
+        return item;
+      })
+      .filter((groupItem) => !hasActiveTitleFilter || (groupItem.children?.length ?? 0) > 0);
+  }
+
+  private applyTitleFilter(tickets: TicketOverview[]): TicketOverview[] {
+    if (!this.titleFilter) {
+      return tickets;
+    }
+
+    const normalizedFilter = this.titleFilter.toLocaleLowerCase();
+    return tickets.filter((ticket) => (ticket.title || "").toLocaleLowerCase().includes(normalizedFilter));
   }
 
   private createTicketItem(ticket: TicketOverview, activeTicket: TicketReference | undefined, currentUser: string): TicketTreeItem {

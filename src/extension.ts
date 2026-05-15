@@ -34,6 +34,7 @@ const MAX_CHECKIN_FILE_EXCERPT_CHARACTERS = 2000;
 const DEFAULT_COMMIT_MESSAGE_TIMEOUT_MS = 4000;
 const DEFAULT_COMMIT_MESSAGE_MAX_LENGTH = 200;
 const ACTIVE_TICKET_STATE_PREFIX = "ticketManagement.activeTicket";
+const TICKET_TITLE_FILTER_CONTEXT_KEY = "starlims.ticketTitleFilterActive";
 const MAX_TICKET_REFERENCE_TITLE_LENGTH = 80;
 const MAX_TICKET_MEASURE_TITLE_LENGTH = 120;
 const DEFAULT_COPILOT_COMMIT_MESSAGE_SYSTEM_PROMPT = [
@@ -276,7 +277,9 @@ export async function activate(context: vscode.ExtensionContext) {
         await loadStoredActiveTicketForCurrentServer();
         if (enterpriseTreeProvider) {
           enterpriseTreeProvider.refresh();
-          vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
+        }
+        if (checkedOutTreeDataProvider) {
+          await refreshCheckedOutItems(false);
         }
         if (ticketsTreeDataProvider) {
           ticketsTreeDataProvider.refresh();
@@ -399,6 +402,29 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
+  function updateTicketTreeFilterUi(): void {
+    const filterText = ticketsTreeDataProvider?.getTitleFilterText() || "";
+    const hasActiveFilter = filterText.length > 0;
+
+    if (ticketsTreeView) {
+      ticketsTreeView.message = hasActiveFilter ? `Title filter: ${filterText}` : undefined;
+    }
+
+    void vscode.commands.executeCommand("setContext", TICKET_TITLE_FILTER_CONTEXT_KEY, hasActiveFilter);
+  }
+
+  async function refreshCheckedOutItems(includeAllUsers: boolean = false): Promise<void> {
+    const checkedOutItemsXml = await enterpriseService.getCheckedOutItems(includeAllUsers);
+    checkedOutTreeDataProvider.updateData(checkedOutItemsXml);
+
+    if (activeTicket) {
+      checkedOutTreeDataProvider.setActiveTicket(activeTicket.id, activeTicket.title);
+      return;
+    }
+
+    checkedOutTreeDataProvider.clearActiveTicket();
+  }
+
   async function releaseTicket(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
     const selectedTreeItem = ticketsTreeView?.selection?.[0];
     const selectedTicket = item instanceof TicketTreeItem
@@ -474,6 +500,15 @@ export async function activate(context: vscode.ExtensionContext) {
           .map((selectedItem) => selectedItem.item as TreeEnterpriseItem | undefined)
           .filter((checkedOutItem): checkedOutItem is TreeEnterpriseItem => !!checkedOutItem);
 
+        const gitAutomationReady = await ensureGitAutomationRepositoryReady();
+        const gitFilePaths = gitAutomationReady
+          ? Array.from(new Set(
+            checkedInItems
+              .map((checkedOutItem) => getSavedLocalPath(checkedOutItem, checkedOutItem.language || checkedOutItem.scriptLanguage))
+              .filter((filePath): filePath is string => !!filePath && fs.existsSync(filePath))
+          ))
+          : [];
+
         let checkinReason =
           (await vscode.window.showInputBox({
             title: `Check in items for ticket #${ticketToSolve.id}`,
@@ -506,6 +541,20 @@ export async function activate(context: vscode.ExtensionContext) {
             outputChannel.appendLine(`[TicketManagement] ${measureError}`);
             vscode.window.showWarningMessage(`STARLIMS items were checked in, but the ticket measure could not be created: ${measureError}`);
           }
+
+          if (gitAutomationReady) {
+            try {
+              if (gitFilePaths.length === 0) {
+                vscode.window.showWarningMessage("STARLIMS items were checked in, but no local files were found to commit in the SLVSCODE Git repository.");
+              }
+
+              for (const gitFilePath of gitFilePaths) {
+                await commitAndPushGitFile(checkinReason, gitFilePath);
+              }
+            } catch (error) {
+              vscode.window.showErrorMessage(`STARLIMS items were checked in, but Git commit/push failed: ${getGitErrorMessage(error)}`);
+            }
+          }
         }
       }
     }
@@ -529,7 +578,7 @@ export async function activate(context: vscode.ExtensionContext) {
       ticketsTreeDataProvider.refresh();
     }
     if (checkedOutTreeDataProvider) {
-      checkedOutTreeDataProvider.refresh();
+      await refreshCheckedOutItems(false);
     }
     vscode.window.showInformationMessage(`Marked ticket #${ticketToSolve.id} as Fertig (solved).`);
   }
@@ -1903,11 +1952,7 @@ export async function activate(context: vscode.ExtensionContext) {
     activeUser = selectedServerConfig.user || activeUser;
   }
   await loadStoredActiveTicketForCurrentServer();
-
-  // Display active ticket in checked out items if one is set
-  if (activeTicket) {
-    checkedOutTreeDataProvider.setActiveTicket(activeTicket.id, activeTicket.title);
-  }
+  await refreshCheckedOutItems(false);
 
   ticketsTreeDataProvider = new TicketsTreeDataProvider({
     getActiveTicket: () => activeTicket,
@@ -1931,12 +1976,41 @@ export async function activate(context: vscode.ExtensionContext) {
     showCollapseAll: false
   });
   context.subscriptions.push(ticketsTreeView);
+  updateTicketTreeFilterUi();
   serverSelectorProvider.refresh();
 
   vscode.commands.registerCommand(
     "STARLIMS.RefreshTickets",
     async () => {
       ticketsTreeDataProvider.refresh();
+    }
+  );
+
+  vscode.commands.registerCommand(
+    "STARLIMS.FilterTicketsByTitle",
+    async () => {
+      const filterText = await vscode.window.showInputBox({
+        title: "Filter tickets by title",
+        prompt: "Show only tickets whose title contains this text.",
+        placeHolder: "Leave empty to clear the current filter",
+        value: ticketsTreeDataProvider.getTitleFilterText(),
+        ignoreFocusOut: true
+      });
+
+      if (filterText === undefined) {
+        return;
+      }
+
+      ticketsTreeDataProvider.setTitleFilter(filterText);
+      updateTicketTreeFilterUi();
+    }
+  );
+
+  vscode.commands.registerCommand(
+    "STARLIMS.ClearTicketTitleFilter",
+    async () => {
+      ticketsTreeDataProvider.setTitleFilter("");
+      updateTicketTreeFilterUi();
     }
   );
 
@@ -2009,9 +2083,7 @@ export async function activate(context: vscode.ExtensionContext) {
   vscode.commands.registerCommand(
     "STARLIMS.GetCheckedOutItems",
     async () => {
-      let checkedOutItems = await enterpriseService.getCheckedOutItems(false);
-      vscode.window.registerTreeDataProvider("STARLIMSCheckedOutTree",
-        new CheckedOutTreeDataProvider(checkedOutItems, enterpriseService));
+      await refreshCheckedOutItems(false);
     }
   );
 
@@ -2029,9 +2101,7 @@ export async function activate(context: vscode.ExtensionContext) {
   vscode.commands.registerCommand(
     "STARLIMS.GetAllCheckedOutItems",
     async () => {
-      let checkedOutItems = await enterpriseService.getCheckedOutItems(true);
-      vscode.window.registerTreeDataProvider("STARLIMSCheckedOutTree",
-        new CheckedOutTreeDataProvider(checkedOutItems, enterpriseService));
+      await refreshCheckedOutItems(true);
     }
   );
 

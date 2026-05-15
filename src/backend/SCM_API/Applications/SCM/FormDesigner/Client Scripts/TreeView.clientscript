@@ -17,6 +17,8 @@ Ext.define('ControlNode', {
 
 Ext.data.NodeInterface.decorate('ControlNode');
 
+var _treeNodesByGuid = {};
+
 const _store = Ext.create('Ext.data.TreeStore', {
     model: 'ControlNode',
     root: {
@@ -24,6 +26,31 @@ const _store = Ext.create('Ext.data.TreeStore', {
         expanded: true
     }
 });
+
+function ResetTreeNodeIndex()
+{
+    _treeNodesByGuid = {};
+}
+
+function RegisterTreeNode(node)
+{
+    if (!node || !node.data || !node.data.guid)
+        return;
+
+    _treeNodesByGuid[node.data.guid] = node;
+}
+
+function UnregisterTreeNode(node)
+{
+    if (!node)
+        return;
+
+    for (let child of node.childNodes)
+        UnregisterTreeNode(child);
+
+    if (node.data && node.data.guid)
+        delete _treeNodesByGuid[node.data.guid];
+}
 
 // add custom extjs tree to tpOutline
 const _treePanel = Ext.create('Ext.tree.Panel', {
@@ -62,7 +89,13 @@ const _treePanel = Ext.create('Ext.tree.Panel', {
 // get treePanel node from xml node 
 async function GetNodeFromXML(xmlNode)
 {
-    let sGuid = xmlNode.getElementsByTagName("Guid")[0].textContent;
+    if (!xmlNode)
+        return null;
+
+    let sGuid = GetDirectChildNodeText(xmlNode, "Guid", true);
+    if (!sGuid)
+        return null;
+
     let node = await FindNodeByGuid(sGuid);
     return node;
 }
@@ -135,23 +168,30 @@ async function AddControlToOutline(control, parentNode, parentNodeId)
 
     // add node to tree
     parentNode.appendChild(newNode);
+    RegisterTreeNode(newNode);
 
     return newNode;
 }
 
 // update tree node id
-async function UpdateTreeNodeId(oldId, newId)
+async function UpdateTreeNodeId(guid, newId)
 {
-    let node = await FindNodeByGuid(oldId);
+    let node = await FindNodeByGuid(guid);
     if (node)
-        node.set('id', newId);
+        node.set('text', newId);
 }
 
 // find tree node by id, starting from parentNode
 async function FindNodeByGuid(guid, parentNode)
 {
+    if (_treeNodesByGuid[guid])
+        return _treeNodesByGuid[guid];
+
     if (!parentNode)
         parentNode = _treePanel.getRootNode().firstChild;
+
+    if (!parentNode)
+        return null;
 
     if (parentNode.data.guid === guid)
         return parentNode;
@@ -443,12 +483,16 @@ async function __control_OnDelete(control)
 
     // delete control from outline treeview
     var node = await FindNodeByGuid(control.Guid);
-    node.remove();
+    if (node)
+    {
+        UnregisterTreeNode(node);
+        node.remove();
+    }
 
     // delete control from hashtable
     htControls.Remove(control.Guid);
 
     // select form in _cboControl
-    _cboControl.SelectedValue = _Form1.Id;
+    _cboControl.SelectedValue = _Form1.Guid;
     UpdateSelectionFrame(_Form1);
 }

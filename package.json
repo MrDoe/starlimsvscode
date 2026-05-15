@@ -3,7 +3,7 @@
     "displayName":  "STARLIMS VS Code Extension",
     "description":  "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license":  "SEE LICENSE IN LICENSE.md",
-    "version":  "1.4.30",
+    "version":  "1.4.31",
     "icon":  "resources/extension/starlimsvscode.png",
     "publisher":  "Christoph Döllinger",
     "author":  {
@@ -302,6 +302,16 @@
                                                       }
                                          },
                                          {
+                                             "command":  "STARLIMS.FilterTicketsByTitle",
+                                             "title":  "Filter tickets by title",
+                                             "icon":  "$(filter)"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.ClearTicketTitleFilter",
+                                             "title":  "Clear ticket title filter",
+                                             "icon":  "$(close)"
+                                         },
+                                         {
                                              "command":  "STARLIMS.UndertakeTicket",
                                              "title":  "Undertake ticket",
                                              "icon":  "$(play)"
@@ -428,6 +438,16 @@
                                                          {
                                                              "command":  "STARLIMS.RefreshTickets",
                                                              "when":  "view == STARLIMSTicketsTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
+                                                             "command":  "STARLIMS.FilterTicketsByTitle",
+                                                             "when":  "view == STARLIMSTicketsTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
+                                                             "command":  "STARLIMS.ClearTicketTitleFilter",
+                                                             "when":  "view == STARLIMSTicketsTree \u0026\u0026 starlims.ticketTitleFilterActive",
                                                              "group":  "navigation"
                                                          },
                                                          {
