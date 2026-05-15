@@ -51,6 +51,55 @@ const DEFAULT_COPILOT_TICKET_MEASURE_SYSTEM_PROMPT = [
   "The description must summarize the implemented changes in plain language.",
   "Do not use markdown or code fences."
 ].join("\n");
+const DEFAULT_SLVSCODE_COPILOT_INSTRUCTIONS = [
+  "# SLVSCODE - Copilot Instructions",
+  "",
+  "## What This Workspace Is",
+  "",
+  "This workspace contains STARLIMS application code, synchronized scripts, forms, data sources, SQL assets, and other Enterprise Designer content.",
+  "",
+  "Treat the local files in this workspace as working copies of STARLIMS items, not as the authoritative source when STARLIMS MCP tools can verify the remote item.",
+  "",
+  "## Prefer STARLIMS MCP Tools",
+  "",
+  "When the task is about STARLIMS application behavior, item lookup, remote metadata, or authoritative code content, prefer STARLIMS MCP tools before generic workspace search.",
+  "",
+  "Prefer STARLIMS MCP when the user asks to:",
+  "- find STARLIMS items by name or partial name",
+  "- search STARLIMS code across scripts, forms, data sources, or server items",
+  "- browse the STARLIMS folder tree",
+  "- inspect the authoritative code for a STARLIMS item",
+  "- check out a STARLIMS item so the local workspace is synced before editing",
+  "",
+  "Use the local workspace first only when:",
+  "- the task is explicitly about already-synced local files",
+  "- the user asks for a local refactor across checked-out files",
+  "- MCP is unavailable or does not return enough information",
+  "",
+  "## Decision Rule",
+  "",
+  "- If the user is asking where a STARLIMS item lives, use STARLIMS search or browse tools first.",
+  "- If the user is asking what a STARLIMS item currently contains, read it through STARLIMS MCP first.",
+  "- If the user wants to edit a STARLIMS item, check it out through STARLIMS MCP before editing the synced local file when possible.",
+  "- If both local code and remote STARLIMS state matter, verify remote state first and then edit locally.",
+  "",
+  "## Preferred Workflow",
+  "",
+  "1. Locate the item with STARLIMS search or tree browsing.",
+  "2. Read the item code through STARLIMS MCP to confirm the current authoritative version.",
+  "3. Check out the item through STARLIMS MCP when edits are needed.",
+  "4. Edit the synced local file in this workspace.",
+  "5. Use local search as a secondary source for cross-file impact analysis after the item has been identified.",
+  "",
+  "## Working Style",
+  "",
+  "Do not guess STARLIMS item names, locations, or code contents when STARLIMS MCP can verify them.",
+  "",
+  "When a STARLIMS-specific path is appropriate, prefer the `STARLIMS` subagent or STARLIMS MCP tools over generic workspace exploration.",
+  "",
+  "Use Windows-compatible commands and paths in any terminal guidance.",
+  ""
+].join("\n");
 const execFile = promisify(execFileCallback);
 
 type CommitMessageDetailLevel = "short" | "standard" | "detailed";
@@ -155,6 +204,22 @@ function ensureSLVSCODEStarlimsAgent(slvscodePath: string): void {
       "When making changes to STARLIMS items, use the STARLIMS MCP tools to check out items to ensure local changes are properly synced with the remote STARLIMS server.",
       ""
     ].join("\n"),
+    { encoding: "utf8" }
+  );
+}
+
+function ensureSLVSCODECopilotInstructions(slvscodePath: string): void {
+  const githubFolderPath = path.join(slvscodePath, ".github");
+  const instructionsFilePath = path.join(githubFolderPath, "copilot-instructions.md");
+
+  if (fs.existsSync(instructionsFilePath)) {
+    return;
+  }
+
+  fs.mkdirSync(githubFolderPath, { recursive: true });
+  fs.writeFileSync(
+    instructionsFilePath,
+    DEFAULT_SLVSCODE_COPILOT_INSTRUCTIONS,
     { encoding: "utf8" }
   );
 }
@@ -1705,6 +1770,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const getMcpConfig = () => vscode.workspace.getConfiguration("STARLIMS");
   ensureSLVSCODEMcpConfig(rootPath, getMcpConfig().get<number>("mcp.port", 3001));
   ensureSLVSCODEStarlimsAgent(rootPath);
+  ensureSLVSCODECopilotInstructions(rootPath);
   const automationService = new StarlimsAutomationService(enterpriseService, {
     getDefaultFormLanguage: resolveDefaultFormLanguage,
     getMaxCodeCharacters: () => getMcpConfig().get<number>("mcp.maxCodeCharacters", 20000),
