@@ -862,8 +862,8 @@
       <Enabled>true</Enabled>
       <Left>132</Left>
       <Top>44</Top>
-      <Height>22</Height>
-      <Width>24</Width>
+      <Height>50</Height>
+      <Width>50</Width>
       <Anchor>LEFT,TOP</Anchor>
       <TabIndex>0</TabIndex>
       <TabStop>true</TabStop>

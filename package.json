@@ -3,7 +3,7 @@
     "displayName":  "STARLIMS VS Code Extension",
     "description":  "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license":  "SEE LICENSE IN LICENSE.md",
-    "version":  "1.4.31",
+    "version":  "1.5.1",
     "icon":  "resources/extension/starlimsvscode.png",
     "publisher":  "Christoph Döllinger",
     "author":  {
@@ -503,7 +503,7 @@
                                                                 },
                                                                 {
                                                                     "command":  "STARLIMS.CheckOutInLanguage",
-                                                                    "when":  "view == STARLIMSMainTree && (viewItem == HTMLFORMXML || viewItem == HTMLFORMCODE || viewItem == HTMLFORMGUIDE || viewItem == HTMLFORMRESOURCES)",
+                                                                    "when":  "view == STARLIMSMainTree \u0026\u0026 (viewItem == HTMLFORMXML || viewItem == HTMLFORMCODE || viewItem == HTMLFORMGUIDE || viewItem == HTMLFORMRESOURCES)",
                                                                     "group":  "sourceControl"
                                                                 },
                                                                 {
