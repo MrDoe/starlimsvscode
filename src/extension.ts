@@ -309,6 +309,25 @@ export async function activate(context: vscode.ExtensionContext) {
       itemType === EnterpriseItemType.HTMLFormResources;
   }
 
+  function isHtmlFormItemType(itemType: EnterpriseItemType): boolean {
+    return itemType === EnterpriseItemType.HTMLFormXML ||
+      itemType === EnterpriseItemType.HTMLFormCode ||
+      itemType === EnterpriseItemType.HTMLFormGuide ||
+      itemType === EnterpriseItemType.HTMLFormResources;
+  }
+
+  async function ensureLanguageOptionsLoaded(): Promise<void> {
+    if (languages.length > 0) {
+      return;
+    }
+
+    await enterpriseService.getLanguages();
+    languages = enterpriseService.languages.map((lang) => ({
+      label: lang[0],
+      description: lang[1]
+    }));
+  }
+
   function resolveDefaultFormLanguage(): string | undefined {
     const latestConfig = vscode.workspace.getConfiguration("STARLIMS");
     const configuredLanguage = (latestConfig.get<string>("defaultFormLanguage", "") || "").trim();
@@ -324,6 +343,92 @@ export async function activate(context: vscode.ExtensionContext) {
     });
 
     return matchingLanguage?.label;
+  }
+
+  async function resolveCheckoutTarget(item: TreeEnterpriseItem | vscode.Uri | { path?: string; fsPath?: string } | undefined): Promise<TreeEnterpriseItem | undefined> {
+    if (item instanceof TreeEnterpriseItem) {
+      return item;
+    }
+
+    let targetPath: string | undefined;
+    if (item instanceof vscode.Uri) {
+      targetPath = item.fsPath || item.path;
+    } else if (item?.fsPath && typeof item.fsPath === "string") {
+      targetPath = item.fsPath;
+    } else if (item?.path && typeof item.path === "string") {
+      targetPath = item.path;
+    } else {
+      targetPath = vscode.window.activeTextEditor?.document.uri.fsPath;
+    }
+
+    if (!targetPath) {
+      return undefined;
+    }
+
+    return enterpriseTreeProvider.getTreeItemFromPath(targetPath, false);
+  }
+
+  async function resolveCheckoutLanguage(item: TreeEnterpriseItem, forceLanguagePrompt: boolean): Promise<string | undefined | null> {
+    if (!isFormItemType(item.type)) {
+      return undefined;
+    }
+
+    if (!forceLanguagePrompt) {
+      const defaultLanguage = resolveDefaultFormLanguage();
+      if (defaultLanguage) {
+        return defaultLanguage;
+      }
+    }
+
+    await ensureLanguageOptionsLoaded();
+    if (languages.length === 0) {
+      vscode.window.showErrorMessage("No STARLIMS languages are available for checkout.");
+      return null;
+    }
+
+    const selection = await vscode.window.showQuickPick(
+      languages,
+      {
+        title: forceLanguagePrompt ? "Check Out in Language" : "Check Out",
+        placeHolder: `Select checkout language for ${toDisplayLabel(item)}`,
+        ignoreFocusOut: true
+      }
+    );
+
+    if (!selection) {
+      return null;
+    }
+
+    return selection.label;
+  }
+
+  async function checkOutEnterpriseItem(
+    item: TreeEnterpriseItem | vscode.Uri | { path?: string; fsPath?: string } | undefined,
+    options?: { forceLanguagePrompt?: boolean; htmlFormsOnly?: boolean }
+  ): Promise<void> {
+    const targetItem = await resolveCheckoutTarget(item);
+    if (!targetItem) {
+      return;
+    }
+
+    if (options?.htmlFormsOnly && !isHtmlFormItemType(targetItem.type)) {
+      vscode.window.showErrorMessage("Check Out in Language is only available for HTML form items.");
+      return;
+    }
+
+    const language = await resolveCheckoutLanguage(targetItem, options?.forceLanguagePrompt === true);
+    if (language === null) {
+      return;
+    }
+
+    const success = await enterpriseService.checkOutItem(targetItem.uri, language);
+    if (!success) {
+      return;
+    }
+
+    enterpriseTreeProvider.setItemCheckedOutStatus(targetItem, true, language ?? "");
+    await vscode.commands.executeCommand("STARLIMS.GetLocal", targetItem);
+    await refreshCheckedOutItems(false);
   }
 
   function truncateText(text: string, maxLength: number): string {
@@ -2578,41 +2683,18 @@ export async function activate(context: vscode.ExtensionContext) {
   // register the checkout command
   vscode.commands.registerCommand(
     "STARLIMS.CheckOut",
-    async (item: TreeEnterpriseItem | any) => {
-      if (!(item instanceof TreeEnterpriseItem)) {
-        item = await enterpriseTreeProvider.getTreeItemFromPath(item.path, false);
-      }
+    async (item: TreeEnterpriseItem | vscode.Uri | { path?: string; fsPath?: string } | undefined) => {
+      await checkOutEnterpriseItem(item);
+    }
+  );
 
-      // choose language for forms only
-      let language;
-      if (isFormItemType(item.type)) {
-        language = resolveDefaultFormLanguage();
-
-        if (!language) {
-          let oReturn = await vscode.window.showQuickPick(
-            languages,
-            {
-              placeHolder: "Select language",
-              ignoreFocusOut: true
-            }
-          );
-
-          if (!oReturn) {
-            return;
-          }
-
-          language = oReturn.label;
-        }
-      }
-      // check out the item
-      let bSuccess = await enterpriseService.checkOutItem(item.uri, language);
-      if (bSuccess) {
-        enterpriseTreeProvider.setItemCheckedOutStatus(item, true, language);
-        vscode.commands.executeCommand("STARLIMS.GetLocal", item);
-
-        // refresh checked out items
-        vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
-      }
+  vscode.commands.registerCommand(
+    "STARLIMS.CheckOutInLanguage",
+    async (item: TreeEnterpriseItem | vscode.Uri | { path?: string; fsPath?: string } | undefined) => {
+      await checkOutEnterpriseItem(item, {
+        forceLanguagePrompt: true,
+        htmlFormsOnly: true
+      });
     }
   );
 
