@@ -653,6 +653,12 @@ function SetProperties(sPropertyName, sPropertyValue)
         return;
     }
 
+    if (IsColorPropertyName(sPropertyName))
+    {
+        sColumn.Type = "UD";
+        return;
+    }
+
     switch (sPropertyName)
     {
         case "Anchor":
@@ -708,10 +714,6 @@ function SetProperties(sPropertyName, sPropertyValue)
         case "DataLoadingBehavior":
             sColumn.Type = "ComboBox";
             sColumn.DataArray = [["AUTOLOAD", "AUTOLOAD"], ["ONDEMAND", "ONDEMAND"], ["RESETDATA", "RESETDATA"]];
-        case "BackColor":
-        case "ForeColor":
-            sColumn.Type = "TEXTBOX";
-            break;
         case "FixedPanel":
             sColumn.Type = "ComboBox";
             sColumn.DataArray = [["PANEL1", "PANEL1"], ["PANEL2", "PANEL2"]];
