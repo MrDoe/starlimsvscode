@@ -13,6 +13,7 @@ Date......... : 2623-07-11
 
 //BEGIN_GLOBAL_DECLARATIONS (place global declarations inside this section)
 
+var _btnToggleControls = form.All( "_btnToggleControls" ); // Button
 var _pnlTree = form.All("_pnlTree"); // Panel
 var _cboForm = form.All("_cboForm"); // ComboBox 
 var _pnlTop = form.All("_pnlTop"); // Panel
@@ -22,7 +23,6 @@ var _lblDescription = form.All("_lblDescription"); // Label
 var _Form1 = form.All("_Form1"); // Panel
 var _lbrControls = form.All("_lbrControls"); // LinkBar
 var _dgdProperties = form.All("_dgdProperties"); // DataGrid
-var _btnToggleControls = form.All("_btnToggleControls"); // Button
 var _splitDesignerSidebar = form.All("_splitDesignerSidebar"); // SplitContainerV
 
 //END_GLOBAL_DECLARATIONS
@@ -231,7 +231,7 @@ function UpdateControlsToggleButtonPosition()
     _btnToggleControls.Top = nTop;
     _btnToggleControls.Text = bControlsVisible ? "<" : ">";
 
-    $('[automation-id="_btnToggleControls"]').css("cssText", "position: sticky !important; z-index: 100001 !important;");
+    $('[automation-id="_btnToggleControls"]').css("z-index", "100001");
 }
 
 function UpdateDesignerShellLayout()
@@ -515,8 +515,8 @@ async function frmFormDesigner_OnShow(sender, eventArgs)
 {
     // hide x-tool css class from LinkBarGroup in _lbrControls
     $('[automation-id="_lbrControls"] .x-tool').css("display", "none");
-    $('[automation-id="_btnToggleControls"]').css("cssText", "z-index: 100001 !important;");
-
+    $('[automation-id="_btnToggleControls"]').css("z-index", "100001");
+	
     // add tree to _pnlTree
     var _pnlTree = Ext.ComponentQuery.query('#_pnlTree')[0];
     if (_pnlTree && _treePanel.ownerCt !== _pnlTree)
