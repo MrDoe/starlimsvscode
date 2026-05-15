@@ -1005,7 +1005,7 @@
                     "lint":  "eslint src --ext ts",
                     "test":  "node ./out/test/runTest.js",
                     "build":  "(rm -rf out || true) \u0026\u0026 mkdir out \u0026\u0026 cp package.json out \u0026\u0026 cd ./src/backend \u0026\u0026 ./create-packages.sh \u0026\u0026 cd ../.. \u0026\u0026 vsce package",
-                    "build-windows":  "if exist out rmdir /s /q out \u0026 mkdir out \u0026 copy package.json out \u0026 cd .\\src\\backend \u0026 .\\create-packages.sh \u0026 cd ..\\.. \u0026 vsce package",
+                    "build-windows":  "if exist out rmdir /s /q out \u0026 mkdir out \u0026 copy package.json out \u0026 cd .\\src\\backend \u0026 .\\create-packages.ps1 \u0026 cd ..\\.. \u0026 vsce package",
                     "publish":  "npm run build-windows \u0026\u0026 copy *.vsix \"\\\\BMBH02\\SL_Connector\\VSCode\\\"",
                     "vsce":  "vsce"
                 },
