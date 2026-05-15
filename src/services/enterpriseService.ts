@@ -20,6 +20,7 @@ import {
 const TICKET_MANAGEMENT_APP_ROOT = "/Applications/BMBH_Modules/BMBH_Ticketmanagement";
 const TICKETS_SERVERSCRIPT_URI = `/ServerScripts/SCM_API/GetTickets`;
 const TICKET_DATA_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scGetTicketData`;
+const SCM_API_FORM_CALLBACK_PORT_SCRIPT_URI = "/ServerScripts/SCM_API/FormCallbackPort";
 const SCM_API_TICKET_MANAGEMENT_SCRIPT_URI = "/ServerScripts/SCM_API/TicketManagement";
 
 /**
@@ -599,6 +600,25 @@ export class EnterpriseService implements IEnterpriseService {
 
   public async getOpenTicketsResult(): Promise<EnterpriseOperationResult<TicketOverview[]>> {
     return this.getTicketsResult();
+  }
+
+  public async setFormCallbackPortResult(port: number): Promise<EnterpriseOperationResult<boolean>> {
+    const result = await this.executeRemoteScriptResult(SCM_API_FORM_CALLBACK_PORT_SCRIPT_URI, {
+      parameters: [port],
+      entryPoint: "SetPort"
+    });
+
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not publish form callback port ${port}.`
+      };
+    }
+
+    return {
+      ok: true,
+      data: true
+    };
   }
 
   public async addTicketMeasureResult(

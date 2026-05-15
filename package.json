@@ -3,7 +3,7 @@
     "displayName":  "STARLIMS VS Code Extension",
     "description":  "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license":  "SEE LICENSE IN LICENSE.md",
-    "version":  "1.5.3",
+    "version":  "1.5.4",
     "icon":  "resources/extension/starlimsvscode.png",
     "publisher":  "Christoph Döllinger",
     "author":  {
@@ -801,10 +801,10 @@
                                                                                                },
                                                                      "STARLIMS.mcp.port":  {
                                                                                                "type":  "number",
-                                                                                               "default":  3001,
+                                                                                               "default":  3002,
                                                                                                "minimum":  1,
                                                                                                "maximum":  65535,
-                                                                                               "description":  "Loopback TCP port used by the STARLIMS MCP endpoint. This is separate from the form callback server on port 3000."
+                                                                                               "description":  "Loopback TCP port used by the STARLIMS MCP endpoint. This is separate from the form callback server, which uses a free port in the range 3003-3099."
                                                                                            },
                                                                      "STARLIMS.mcp.maxCodeCharacters":  {
                                                                                                             "type":  "number",

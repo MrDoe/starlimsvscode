@@ -292,8 +292,12 @@ async function dgdProperties_OnCellDoubleClick(sender, eventArgs)
     // create a new function
     lims.CallServer("FormDesigner.scModifyCodeBehind.AddFunction", [sFormID, sFunctionName]);
 
-    // execute HTTP GET request to http://localhost:3000/OpenCodeBehind/FormID
-    var sURL = "http://localhost:3000/OpenCodeBehind/" + sFormID + "/" + sFunctionName;
+    // execute HTTP GET request to the callback port published by VS Code
+    var nCallbackPort = Number(await lims.CallServer("SCM_API.FormCallbackPort.GetPort", []));
+    if (!nCallbackPort)
+        return;
+
+    var sURL = "http://localhost:" + nCallbackPort + "/OpenCodeBehind/" + sFormID + "/" + sFunctionName;
     var oReq = new XMLHttpRequest();
     oReq.open("GET", sURL, true);
     oReq.send();
