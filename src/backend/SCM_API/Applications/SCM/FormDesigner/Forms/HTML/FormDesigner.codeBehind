@@ -65,6 +65,182 @@ function GetNormalizedHandlerName(value)
     return sValue.replace("async ", "").replace("function ", "").trim();
 }
 
+function IsColorPropertyName(sPropertyName)
+{
+    return typeof sPropertyName === "string" && sPropertyName.includes("Color") && sPropertyName !== "AlternatingColors";
+}
+
+function ExpandHexColor(sColor)
+{
+    var sHex = sColor.replace("#", "").toUpperCase();
+
+    if (sHex.length === 3)
+        return "#" + sHex[0] + sHex[0] + sHex[1] + sHex[1] + sHex[2] + sHex[2];
+
+    return "#" + sHex;
+}
+
+function RgbStringToHex(sColor)
+{
+    var match = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(sColor || "");
+    if (!match)
+        return null;
+
+    function toHex(component)
+    {
+        var sHex = parseInt(component, 10).toString(16).toUpperCase();
+        return sHex.length === 1 ? "0" + sHex : sHex;
+    }
+
+    return "#" + toHex(match[1]) + toHex(match[2]) + toHex(match[3]);
+}
+
+function NormalizeColorPickerValue(value)
+{
+    if (typeof value !== "string" || value.trim() === "")
+        return "#000000";
+
+    var sValue = value.trim();
+
+    if (/^#[0-9a-f]{3}$/i.test(sValue))
+        return ExpandHexColor(sValue);
+
+    if (/^#[0-9a-f]{6}$/i.test(sValue))
+        return ExpandHexColor(sValue);
+
+    if (/^rgba?\(/i.test(sValue))
+        return RgbStringToHex(sValue) || "#000000";
+
+    if (typeof document === "undefined" || typeof window === "undefined" || !document.body)
+        return "#000000";
+
+    var colorProbe = document.createElement("div");
+    colorProbe.style.color = "";
+    colorProbe.style.color = sValue;
+
+    if (!colorProbe.style.color)
+        return "#000000";
+
+    colorProbe.style.position = "fixed";
+    colorProbe.style.left = "-9999px";
+    colorProbe.style.top = "-9999px";
+    document.body.appendChild(colorProbe);
+
+    var computedColor = window.getComputedStyle(colorProbe).color;
+    document.body.removeChild(colorProbe);
+
+    return RgbStringToHex(computedColor) || "#000000";
+}
+
+function GetMousePosition()
+{
+    var currentEvent = typeof event !== "undefined" ? event : null;
+    if (!currentEvent)
+        return null;
+
+    if (typeof currentEvent.clientX === "number" && typeof currentEvent.clientY === "number")
+        return { x: currentEvent.clientX, y: currentEvent.clientY };
+
+    if (typeof currentEvent.pageX === "number" && typeof currentEvent.pageY === "number")
+    {
+        var nScrollX = typeof window !== "undefined" ? (window.scrollX || window.pageXOffset || 0) : 0;
+        var nScrollY = typeof window !== "undefined" ? (window.scrollY || window.pageYOffset || 0) : 0;
+
+        return {
+            x: currentEvent.pageX - nScrollX,
+            y: currentEvent.pageY - nScrollY
+        };
+    }
+
+    return null;
+}
+
+function GetColorPickerPosition(mousePos)
+{
+    var pickerWidth = 32;
+    var pickerHeight = 32;
+    var margin = 12;
+    var viewportWidth = typeof window !== "undefined" ? window.innerWidth : 0;
+    var viewportHeight = typeof window !== "undefined" ? window.innerHeight : 0;
+    var left = margin;
+    var top = margin;
+
+    if (mousePos)
+    {
+        left = mousePos.x + margin;
+        top = mousePos.y + margin;
+    }
+
+    if (viewportWidth > 0)
+        left = Math.max(margin, Math.min(left, viewportWidth - pickerWidth - margin));
+
+    if (viewportHeight > 0)
+        top = Math.max(margin, Math.min(top, viewportHeight - pickerHeight - margin));
+
+    return { left: left, top: top };
+}
+
+async function ShowColorPicker(value, mousePos)
+{
+    if (typeof document === "undefined" || typeof window === "undefined" || !document.body)
+        return null;
+
+    return await new Promise(function (resolve)
+    {
+        var colorInput = document.createElement("input");
+        var settled = false;
+        var pickerPosition = GetColorPickerPosition(mousePos);
+
+        function cleanup(result)
+        {
+            if (settled)
+                return;
+
+            settled = true;
+
+            if (colorInput.parentNode)
+                colorInput.parentNode.removeChild(colorInput);
+
+            resolve(result);
+        }
+
+        colorInput.type = "color";
+        colorInput.value = NormalizeColorPickerValue(value);
+        colorInput.style.position = "fixed";
+        colorInput.style.left = pickerPosition.left + "px";
+        colorInput.style.top = pickerPosition.top + "px";
+        colorInput.style.width = "32px";
+        colorInput.style.height = "32px";
+        colorInput.style.opacity = "0";
+        colorInput.style.pointerEvents = "none";
+        colorInput.style.zIndex = "2147483647";
+
+        colorInput.addEventListener("change", function ()
+        {
+            cleanup((colorInput.value || "").toUpperCase());
+        });
+
+        colorInput.addEventListener("blur", function ()
+        {
+            window.setTimeout(function ()
+            {
+                cleanup(null);
+            }, 0);
+        });
+
+        if ("oncancel" in colorInput)
+        {
+            colorInput.addEventListener("cancel", function ()
+            {
+                cleanup(null);
+            });
+        }
+
+        document.body.appendChild(colorInput);
+        colorInput.click();
+    });
+}
+
 function RegisterFunctionNames(aFunctionNames)
 {
     var uniqueNames = [];
@@ -314,6 +490,18 @@ async function dgdProperties_OnUdCellEditorRequest(sender, eventArgs)
     // open image picker for Image property
     if (eventArgs["column"].Id === "PROPERTY_VALUE")
     {
+        if (IsColorPropertyName(sPropertyName))
+        {
+            var sColor = await ShowColorPicker(eventArgs["Value"] || GetPropertyDisplayValue(selectedControl, sPropertyName), GetMousePosition());
+            if (sColor == null)
+                return;
+
+            eventArgs.Set("Value", sColor);
+            eventArgs["value"] = sColor;
+            dgdProperties_OnUpdatingCell(sender, eventArgs);
+            return;
+        }
+
         if (sPropertyName.includes("Image"))
         {
             var sImageID = await form.ShowModalDialog(lims.GetFormSource("FormDesigner.dlgImagePicker"));
