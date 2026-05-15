@@ -32,8 +32,10 @@ async function CreateEmptyForm()
 
     // clear extjs tree store
     await _treePanel.store.getRootNode().removeAll();
+    ResetTreeNodeIndex();
 
     var node = Ext.create("ControlNode", {
+        guid: _Form1.Guid,
         text: "_Form1",
         icon: 'htmlruntime/images/10B98BB5-80D7-B54B-A9BF-F87A586A5675',
         leaf: true,
@@ -44,6 +46,7 @@ async function CreateEmptyForm()
 
     // add form to outline
     _treePanel.getRootNode().appendChild(node);
+    RegisterTreeNode(node);
     _treePanel.getRootNode().expand(true);
 
     // bind click event
@@ -356,35 +359,36 @@ async function AddControl(controlType)
 
 async function BindControlEvents(control)
 {
-    var control = $('[automation-id="' + control.Id + '"]');
+    var designerControl = control;
+    var controlElement = $('[automation-id="' + designerControl.Id + '"]');
 
     // remove existing click event
-    control.off("click");
+    controlElement.off("click");
 
     // bind click event
-    control.click(__control_OnClick);
+    controlElement.click(__control_OnClick);
 
-    if (control.Id !== "_Form1")
+    if (designerControl.Id !== "_Form1")
     {
         // bind mouse drag event
-        control.mousedown(__control_OnDrag);
+        controlElement.mousedown(__control_OnDrag);
 
         // bind keyDown event
-        control.keydown(__control_OnKeyDown);
+        controlElement.keydown(__control_OnKeyDown);
     }
 
     // recursively bind events to child controls
-    if (control.Controls)
+    if (designerControl.Controls)
     {
-        for (let i = 0; i < control.Controls.Count; ++i)
-            BindControlEvents(control.Controls[i]);
+        for (let i = 0; i < designerControl.Controls.Count; ++i)
+            BindControlEvents(designerControl.Controls[i]);
     }
 
     // recursively bind events to child panels
-    if (control.Panel1)
-        BindControlEvents(control.Panel1);
-    if (control.Panel2)
-        BindControlEvents(control.Panel2);
+    if (designerControl.Panel1)
+        BindControlEvents(designerControl.Panel1);
+    if (designerControl.Panel2)
+        BindControlEvents(designerControl.Panel2);
 }
 
 // load controls from hashtable to combobox
@@ -463,24 +467,10 @@ async function __control_OnClick(e)
 
         let value = control[sPropertyName];
 
-        if (value == null)
-            value = "";
+        value = GetPropertyDisplayValue(control, sPropertyName);
 
-        // convert function to string and get only function name
-        if (sPropertyName.includes("On") && typeof value === "function")
-        {
-            value = value.toString().split("(")[0].replace("async ", "").replace("function ", "").Trim();
-            if (value == "__control_OnClick")
-                continue;
-        }
-
-        if (value.toString() === "true")
-            value = "True";
-        else if (value.toString() === "false")
-            value = "False";
-
-        if (sPropertyName === "(Id)")
-            value = control.Id;
+        if (sPropertyName.includes("On") && value === "")
+            continue;
 
         row["PROPERTY_VALUE"] = value;
     }
