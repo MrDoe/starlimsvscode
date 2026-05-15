@@ -92,7 +92,7 @@ async function GetNodeFromXML(xmlNode)
     if (!xmlNode)
         return null;
 
-    let sGuid = GetDirectChildNodeText(xmlNode, "Guid", true);
+    let sGuid = GetDirectChildNodeText(xmlNode, "Guid", true) || xmlNode.Guid || xmlNode.__designerGuid;
     if (!sGuid)
         return null;
 
