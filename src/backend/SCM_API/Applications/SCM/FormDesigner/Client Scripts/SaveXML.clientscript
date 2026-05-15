@@ -148,6 +148,36 @@ async function GetXMLProperties(control, sIndentation = "")
 }
 
 // generate XML from javascript control
+function GetSplitContainerPanelNode(node, panelControl, panelIndex)
+{
+    if (!node || !node.childNodes || node.childNodes.length === 0)
+        return null;
+
+    if (panelControl && panelControl.Guid)
+    {
+        for (let childNode of node.childNodes)
+        {
+            if (!childNode || !childNode.data || !childNode.data.control)
+                continue;
+
+            if (childNode.data.control.Guid === panelControl.Guid)
+                return childNode;
+        }
+    }
+
+    let splitterPanelNodes = [];
+    for (let childNode of node.childNodes)
+    {
+        if (childNode && childNode.data && childNode.data.control && childNode.data.control.xType === "SplitterPanel")
+            splitterPanelNodes.push(childNode);
+    }
+
+    if (splitterPanelNodes.length > panelIndex)
+        return splitterPanelNodes[panelIndex];
+
+    return node.childNodes.length > panelIndex ? node.childNodes[panelIndex] : null;
+}
+
 async function GetXMLControl(node, sIndentation = "")
 {
     var control = node.data.control;
@@ -208,11 +238,16 @@ async function GetXMLControl(node, sIndentation = "")
     // generate splitter panels
     if (control.xType.includes("SplitContainer"))
     {
+        let panel1Node = GetSplitContainerPanelNode(node, control.Panel1, 0);
+        let panel2Node = GetSplitContainerPanelNode(node, control.Panel2, 1);
+
         sXML += sIndentation + "<Panel1>\n";
-        sXML += await GetXMLControl(node.childNodes[0], sIndentation);
+        if (panel1Node)
+            sXML += await GetXMLControl(panel1Node, sIndentation);
         sXML += sIndentation + "</Panel1>\n";
         sXML += sIndentation + "<Panel2>\n";
-        sXML += await GetXMLControl(node.childNodes[1], sIndentation);
+        if (panel2Node)
+            sXML += await GetXMLControl(panel2Node, sIndentation);
         sXML += sIndentation + "</Panel2>\n";
     }
 

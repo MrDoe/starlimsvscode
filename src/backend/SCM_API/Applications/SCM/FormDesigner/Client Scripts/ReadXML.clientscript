@@ -375,6 +375,9 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
     if(!control.id)
         control.id = control.Id;
 
+    xmlNode.Guid = control.Guid;
+    xmlNode.__designerGuid = control.Guid;
+
     xmlNode.Id = control.Id;
 
     if (sType !== "Form")
