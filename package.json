@@ -81,6 +81,10 @@
                                              "title":  "Check Out"
                                          },
                                          {
+                                             "command":  "STARLIMS.CheckOutInLanguage",
+                                             "title":  "Check Out in Language"
+                                         },
+                                         {
                                              "command":  "STARLIMS.Checkin",
                                              "title":  "Check In"
                                          },
@@ -498,6 +502,11 @@
                                                                     "group":  "sourceControl"
                                                                 },
                                                                 {
+                                                                    "command":  "STARLIMS.CheckOutInLanguage",
+                                                                    "when":  "view == STARLIMSMainTree && (viewItem == HTMLFORMXML || viewItem == HTMLFORMCODE || viewItem == HTMLFORMGUIDE || viewItem == HTMLFORMRESOURCES)",
+                                                                    "group":  "sourceControl"
+                                                                },
+                                                                {
                                                                     "command":  "STARLIMS.UndoCheckOut",
                                                                     "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 viewItem != SERVERLOG \u0026\u0026 !(viewItem =~ /CAT/) \u0026\u0026 viewItem != APP \u0026\u0026 viewItem != ENT_TABLES_DATABASE \u0026\u0026 viewItem != ENT_TABLES_DICTIONARY",
                                                                     "group":  "sourceControl"
@@ -660,6 +669,11 @@
                                                              {
                                                                  "command":  "STARLIMS.CheckOut",
                                                                  "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 editorLangId != \u0027log\u0027",
+                                                                 "group":  "sourceControl"
+                                                             },
+                                                             {
+                                                                 "command":  "STARLIMS.CheckOutInLanguage",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 resourcePath =~ /HTMLForms/ \u0026\u0026 editorLangId != \u0027log\u0027",
                                                                  "group":  "sourceControl"
                                                              },
                                                              {
