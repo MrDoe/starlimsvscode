@@ -3,7 +3,7 @@
     "displayName":  "STARLIMS VS Code Extension",
     "description":  "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license":  "SEE LICENSE IN LICENSE.md",
-    "version":  "1.5.6",
+    "version":  "1.5.17",
     "icon":  "resources/extension/starlimsvscode.png",
     "publisher":  "Christoph Döllinger",
     "author":  {
@@ -162,7 +162,7 @@
                                          },
                                          {
                                              "command":  "STARLIMS.Delete",
-                                             "title":  "Release Ticket",
+                                             "title":  "Delete",
                                              "icon":  "$(stop)"
                                          },
                                          {
@@ -184,6 +184,22 @@
                                          {
                                              "command":  "STARLIMS.GenerateTableDelete",
                                              "title":  "Generate DELETE"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.EditTable",
+                                             "title":  "Edit Table"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.CheckOutTable",
+                                             "title":  "Check Out Table"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.CheckInTable",
+                                             "title":  "Check In Table"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.AddTable",
+                                             "title":  "Add New Table"
                                          },
                                          {
                                              "command":  "STARLIMS.GoToServerScript",
@@ -324,6 +340,11 @@
                                              "command":  "STARLIMS.ReleaseTicket",
                                              "title":  "Release Ticket",
                                              "icon":  "$(stop)"
+                                         },
+                                         {
+                                             "command":  "STARLIMS.SolveTicketWithCopilot",
+                                             "title":  "Solve ticket with Copilot",
+                                             "icon":  "$(copilot)"
                                          },
                                          {
                                              "command":  "STARLIMS.SolveTicket",
@@ -541,6 +562,11 @@
                                                                     "group":  "addRemove"
                                                                 },
                                                                 {
+                                                                    "command":  "STARLIMS.AddTable",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 (viewItem == ENT_TABLES_DATABASE || viewItem == ENT_TABLES_DICTIONARY)",
+                                                                    "group":  "addRemove"
+                                                                },
+                                                                {
                                                                     "command":  "STARLIMS.OpenXFDForm",
                                                                     "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 (viewItem == XFDFORMXML || viewItem == XFDFORMCODE)",
                                                                     "group":  "run"
@@ -571,6 +597,11 @@
                                                                     "group":  "table"
                                                                 },
                                                                 {
+                                                                    "command":  "STARLIMS.EditTable",
+                                                                    "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 viewItem == TABLE",
+                                                                    "group":  "navigation"
+                                                                },
+                                                                {
                                                                     "command":  "STARLIMS.Rename",
                                                                     "when":  "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) \u0026\u0026 viewItem != SERVERLOG \u0026\u0026 viewItem != CATEGORY \u0026\u0026 viewItem != TABLE \u0026\u0026 viewItem != ENT_TABLES_DATABASE \u0026\u0026 viewItem != ENT_TABLES_DICTIONARY",
                                                                     "group":  "addRemove"
@@ -593,6 +624,11 @@
                                                                 {
                                                                     "command":  "STARLIMS.ReleaseTicket",
                                                                     "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == activeTicket || viewItem == ticketInProgressByCurrentUser)",
+                                                                    "group":  "navigation"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.SolveTicketWithCopilot",
+                                                                    "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == ticket || viewItem == activeTicket || viewItem == ticketInProgressByCurrentUser)",
                                                                     "group":  "navigation"
                                                                 },
                                                                 {

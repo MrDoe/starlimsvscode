@@ -1,0 +1,61 @@
+/******************************************************************************
+Description.. :	Save a modified table DTO XML through Enterprise_Data_Providers.TableProvider
+Author....... :	Copilot
+Date......... :	2026-05-18
+*******************************************************************************/;
+:DECLARE String, oPayload, oResponse, oResult, sRequestAsFile, sTableXml;
+String := "";
+
+:DECLARE oResultWrapper;
+oResultWrapper := CreateUDObject();
+oResponse := CreateUDObject({
+	{"success", .T.},
+	{"data", NIL}
+});
+
+:TRY;
+	sRequestAsFile := Request:SaveInputStream();
+	oPayload := FromJSON(ReadText(sRequestAsFile));
+	FileSupport(sRequestAsFile, "DELETE");
+:CATCH;
+	UsrMes("ERROR:", GetLastSSLError():FullDescription);
+	Response:ContentType := "application/problem+json";
+	Response:StatusCode := 500;
+	oResponse:success := .F.;
+	oResponse:data := "Could not deserialize request body.";
+	:RETURN oResponse;
+:ENDTRY;
+
+:IF Empty(oPayload);
+	Response:StatusCode := 400;
+	oResponse:success := .F.;
+	oResponse:data := "No payload found!";
+	:RETURN oResponse;
+:ENDIF;
+
+:IF oPayload:IsProperty("TableXml");
+	sTableXml := oPayload:TableXml;
+:ELSE;
+	Response:StatusCode := 400;
+	oResponse:success := .F.;
+	oResponse:data := String:Format("Missing required property '{0}'", "TableXml");
+	:RETURN oResponse;
+:ENDIF;
+
+:TRY;
+	oResult := DoProc("Enterprise_Data_Providers.TableProvider.Modify", {sTableXml, .F., .T., .F.});
+:CATCH;
+	:DECLARE sError;
+	sError := GetLastSSLError():FullDescription;
+	UsrMes("ERROR:", sError);
+	Response:ContentType := "application/problem+json";
+	Response:StatusCode := 500;
+	oResponse:success := .F.;
+	oResponse:data := sError;
+	:RETURN oResponse;
+:ENDTRY;
+
+Response:StatusCode := 200;
+	oResponse:success := .T.;
+	oResponse:data := oResult;
+	:RETURN oResponse;

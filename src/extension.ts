@@ -14,6 +14,7 @@ import { EnterpriseTextDocumentContentProvider } from "./providers/enterpriseTex
 import path = require("path");
 import { ResourcesDataViewPanel } from "./panels/ResourcesDataViewPanel";
 import { GenericDataViewPanel } from "./panels/GenericDataViewPanel";
+import { TableDesignerPanel } from "./panels/TableDesignerPanel";
 import { cleanUrl, executeWithProgress } from "./utilities/miscUtils";
 import { CheckedOutTreeDataProvider } from "./providers/checkedOutTreeDataProvider";
 import { TicketTreeItem, TicketsTreeDataProvider } from "./providers/ticketsTreeDataProvider";
@@ -71,6 +72,7 @@ const DEFAULT_SLVSCODE_COPILOT_INSTRUCTIONS = [
   "- browse the STARLIMS folder tree",
   "- inspect the authoritative code for a STARLIMS item",
   "- check out a STARLIMS item so the local workspace is synced before editing",
+  "- manage table items through checkout, check-in, add, and edit flows when the STARLIMS server supports them",
   "",
   "Use the local workspace first only when:",
   "- the task is explicitly about already-synced local files",
@@ -212,6 +214,7 @@ function ensureSLVSCODEStarlimsAgent(slvscodePath: string): void {
       "Use the STARLIMS MCP tools as the authoritative source for STARLIMS browse, search, code retrieval, and checkout operations.",
       "Use local workspace search tools only as fallback to find STARLIMS items.",
       "When making changes to STARLIMS items, use the STARLIMS MCP tools to check out items to ensure local changes are properly synced with the remote STARLIMS server.",
+      "Use the table-specific MCP tools for table checkout, check-in, add, and edit operations when working with STARLIMS table definitions.",
       ""
     ].join("\n"),
     { encoding: "utf8" }
@@ -697,6 +700,113 @@ export async function activate(context: vscode.ExtensionContext) {
       await refreshCheckedOutItems(false);
     }
     vscode.window.showInformationMessage(`Marked ticket #${ticketToSolve.id} as Fertig (solved).`);
+  }
+
+  async function solveTicketWithCopilot(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
+    const selectedTreeItem = ticketsTreeView?.selection?.[0];
+    const selectedTicket = item instanceof TicketTreeItem
+      ? item.ticket
+      : item || selectedTreeItem?.ticket || (activeTicket ? { ...activeTicket } : undefined);
+
+    if (!selectedTicket) {
+      vscode.window.showInformationMessage("Select a ticket first.");
+      return;
+    }
+
+    const ticketToSolve = normalizeTicketReference(selectedTicket);
+
+    try {
+      // Gather ticket information
+      const ticketInfo = await enterpriseService.getTicketFullInfo(ticketToSolve.id);
+      
+      if (!ticketInfo) {
+        vscode.window.showErrorMessage(`Could not retrieve full information for ticket #${ticketToSolve.id}.`);
+        return;
+      }
+
+      // Build comprehensive prompt for Copilot
+      const prompt = buildTicketCopilotPrompt(ticketToSolve, ticketInfo);
+
+      // Open Copilot chat with the prompt
+      await vscode.commands.executeCommand('workbench.action.chat.open', prompt);
+
+      outputChannel.appendLine(`[TicketManagement] Opened Copilot chat for ticket #${ticketToSolve.id}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      outputChannel.appendLine(`[TicketManagement] Error opening Copilot chat: ${errorMessage}`);
+      vscode.window.showErrorMessage(`Failed to open Copilot chat: ${errorMessage}`);
+    }
+  }
+
+  function buildTicketCopilotPrompt(ticket: TicketReference, ticketInfo: any): string {
+    return `# 🎯 STARLIMS Ticket Solution Request
+
+## 📋 Ticket Details
+
+### Identity
+- **Ticket ID**: ${ticket.id}
+- **Title**: ${ticket.title || 'N/A'}
+
+### Current Status
+- **Status**: ${ticket.statusName || 'N/A'}
+- **Type**: ${ticket.typeName || 'N/A'}
+- **Priority**: ${ticket.priorityName || 'N/A'}
+- **Assigned To**: ${ticket.assignedTo || 'Unassigned'}
+
+### Ticket Information
+${ticketInfo.description || 'No description provided'}
+
+### Stack Trace / Error Details
+\`\`\`
+${ticketInfo.stackTrace || 'No stack trace available'}
+\`\`\`
+
+### Comments & Notes
+${ticketInfo.comments || 'No comments available'}
+
+---
+
+## 🛠️ Task: Help Solve This Ticket
+
+Please analyze this ticket and provide a solution. When you need to:
+
+### 1. **Search for STARLIMS Items**
+- Use the STARLIMS MCP tools to search for scripts, forms, data sources, or server items
+- Search by name, pattern, or application
+
+### 2. **Access Item Code** 
+- Use STARLIMS MCP to read the authoritative code for any STARLIMS item
+- This ensures you're viewing the most current version from STARLIMS Enterprise Designer
+
+### 3. **Make Changes**
+- **CRITICAL**: Always use the STARLIMS MCP tool to **check out** items BEFORE editing
+- This ensures your local workspace is synchronized with the remote STARLIMS items
+- After checking out, edit the synced local file in the workspace
+- Follow this workflow:
+  1. Search for the item using STARLIMS MCP
+  2. Read it through STARLIMS MCP to confirm current state
+  3. Check it out using STARLIMS MCP
+  4. Edit the local synced file
+  5. Check it back in
+
+### 4. **STARLIMS MCP Tool Usage**
+- The STARLIMS MCP server is available and provides:
+  - Search/browse STARLIMS items
+  - Read authoritative item code
+  - Check out items to workspace
+  - Verify item state before editing
+  
+**Remember**: Always prefer STARLIMS MCP tools over local workspace search when working with STARLIMS items to ensure you have the correct, checked-out version.
+
+---
+
+## ✅ Expected Outcome
+Please provide:
+1. Root cause analysis
+2. Detailed solution steps
+3. Code changes needed (if applicable)
+4. Testing recommendations
+5. Any STARLIMS items that need to be modified`;
   }
 
   async function setActiveTicketSelection(ticket: TicketOverview | TicketReference, silent: boolean = false): Promise<void> {
@@ -2185,6 +2295,13 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   vscode.commands.registerCommand(
+    "STARLIMS.SolveTicketWithCopilot",
+    async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
+      await solveTicketWithCopilot(item);
+    }
+  );
+
+  vscode.commands.registerCommand(
     "STARLIMS.SolveTicket",
     async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
       await solveTicket(item);
@@ -2501,6 +2618,24 @@ export async function activate(context: vscode.ExtensionContext) {
       // get server-specific workspace path
       const serverWorkspacePath = enterpriseService.getServerWorkspacePath(rootPath!);
 
+      let resolvedItem = item as TreeEnterpriseItem | undefined;
+      if (!(resolvedItem instanceof TreeEnterpriseItem)) {
+        if (item?.path !== undefined) {
+          resolvedItem = await enterpriseTreeProvider.getTreeItemFromPath(item.path, false);
+        } else if (item?.uri !== undefined) {
+          resolvedItem = await enterpriseTreeProvider.getTreeItemByUri(item.uri);
+        }
+      }
+
+      if (resolvedItem?.type === EnterpriseItemType.Table) {
+        const localFilePath = await enterpriseService.getTableLocalCopy(resolvedItem.uri, serverWorkspacePath);
+        if (localFilePath) {
+          const uri = vscode.Uri.file(localFilePath);
+          await vscode.window.showTextDocument(uri);
+        }
+        return;
+      }
+
       // get local copy of the item
       const localFilePath = await enterpriseService.getLocalCopy(
         item.uri ||
@@ -2538,8 +2673,15 @@ export async function activate(context: vscode.ExtensionContext) {
    * @param item the enterprise tree item to handle
    */
   async function handleSelectTableItem(item: TreeEnterpriseItem) {
+    const tableName = item.uri.split("/").pop() || "Table";
+
+    // If checked out, open the full designer; otherwise show read-only definition
+    if (await enterpriseService.isCheckedOut(item.uri)) {
+      TableDesignerPanel.render(context.extensionUri, enterpriseService, item.uri, tableName);
+      return;
+    }
+
     const result = await enterpriseService.getTableDefinition(item.uri);
-    const tableName = item.uri.split('/').pop();
     if (result) {
       GenericDataViewPanel.render(context.extensionUri, {
         name: tableName,
@@ -2719,6 +2861,13 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   vscode.commands.registerCommand(
+    "STARLIMS.CheckOutTable",
+    async (item: TreeEnterpriseItem | vscode.Uri | { path?: string; fsPath?: string } | undefined) => {
+      await checkOutEnterpriseItem(item);
+    }
+  );
+
+  vscode.commands.registerCommand(
     "STARLIMS.CheckOutInLanguage",
     async (item: TreeEnterpriseItem | vscode.Uri | { path?: string; fsPath?: string } | undefined) => {
       await checkOutEnterpriseItem(item, {
@@ -2808,6 +2957,38 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  vscode.commands.registerCommand(
+    "STARLIMS.CheckInTable",
+    async (item: TreeEnterpriseItem | any) => {
+      await vscode.commands.executeCommand("STARLIMS.Checkin", item);
+    }
+  );
+
+  vscode.commands.registerCommand(
+    "STARLIMS.EditTable",
+    async (item: TreeEnterpriseItem | any) => {
+      const targetItem = item instanceof TreeEnterpriseItem ? item : selectedItem;
+      if (!targetItem || targetItem.type !== EnterpriseItemType.Table) {
+        vscode.window.showErrorMessage("Please select a table from the enterprise tree to edit.");
+        return;
+      }
+
+      // Ensure the table is checked out
+      if (!await enterpriseService.isCheckedOut(targetItem.uri)) {
+        const checkoutResult = await enterpriseService.checkOutItemResult(targetItem.uri, undefined);
+        if (!checkoutResult.ok) {
+          vscode.window.showErrorMessage(checkoutResult.error ?? "Could not check out the table for editing.");
+          return;
+        }
+        enterpriseTreeProvider.refresh();
+        vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
+      }
+
+      const tableName = targetItem.uri.split("/").pop() || targetItem.label?.toString() || "Table";
+      TableDesignerPanel.render(context.extensionUri, enterpriseService, targetItem.uri, tableName);
+    }
+  );
+
   // register the UndoCheckOut command
   vscode.commands.registerCommand(
     "STARLIMS.UndoCheckOut",
@@ -2869,9 +3050,67 @@ export async function activate(context: vscode.ExtensionContext) {
 
       if (editor) {
         let remoteUri = enterpriseService.getUriFromLocalPath(editor.document.uri.path);
+        const editorItem = await enterpriseTreeProvider.getTreeItemFromPath(editor.document.uri.fsPath, true);
         if (await enterpriseService.isCheckedOut(remoteUri)) {
-          enterpriseService.saveEnterpriseItemCode(remoteUri, editor.document.getText(), "");
+          if (editorItem?.type === EnterpriseItemType.Table) {
+            enterpriseService.saveTableDefinition(remoteUri, editor.document.getText());
+          } else {
+            enterpriseService.saveEnterpriseItemCode(remoteUri, editor.document.getText(), "");
+          }
         }
+      }
+    }
+  );
+
+  vscode.commands.registerCommand(
+    "STARLIMS.AddTable",
+    async (item: TreeEnterpriseItem | any) => {
+      const targetItem = item instanceof TreeEnterpriseItem ? item : selectedItem;
+      const isTableDatabaseNode = !!targetItem && [
+        EnterpriseItemType.TableCategory,
+        "ENT_TABLES_DATABASE",
+        "ENT_TABLES_DICTIONARY"
+      ].includes(targetItem.type);
+
+      if (!isTableDatabaseNode) {
+        vscode.window.showErrorMessage("Please select a table database node to add the table to.");
+        return;
+      }
+
+      const tableName = await vscode.window.showInputBox({
+        title: "Add STARLIMS Table",
+        prompt: "Please enter a name for the new table.",
+        placeHolder: "Table name...",
+        ignoreFocusOut: true
+      });
+
+      if (!tableName) {
+        return;
+      }
+
+      const normalizedTableName = tableName.trim().toUpperCase();
+      const dsn = targetItem.uri.split("/").filter(Boolean).pop() || targetItem.label?.toString() || "DATABASE";
+      const addResult = await enterpriseService.addTable(normalizedTableName, dsn);
+      if (!addResult) {
+        return;
+      }
+
+      const tableUri = `/Tables/${dsn}/${normalizedTableName}`;
+      await enterpriseService.setCheckedOut(tableUri, null);
+      enterpriseTreeProvider.refresh();
+
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      const serverWorkspacePath = enterpriseService.getServerWorkspacePath(rootPath!);
+      const localFilePath = await enterpriseService.getTableLocalCopy(tableUri, serverWorkspacePath);
+      if (localFilePath) {
+        const localUri = vscode.Uri.file(localFilePath);
+        await vscode.window.showTextDocument(localUri, { preview: false });
+      }
+
+      const newItem = await enterpriseTreeProvider.getTreeItemByUri(tableUri);
+      if (newItem !== undefined) {
+        vscode.commands.executeCommand("STARLIMS.selectEnterpriseItem", newItem);
       }
     }
   );

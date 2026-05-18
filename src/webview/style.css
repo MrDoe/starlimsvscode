@@ -80,3 +80,147 @@ vscode-data-grid-cell[contenteditable='plaintext-only'] {
 vscode-data-grid-cell[grid-column="1"] {
   display: none;
 } */
+
+/* ===== Table Designer Styles ===== */
+#app {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.td-header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding: 0 0.5rem;
+}
+
+.td-header h1 {
+  margin: 0;
+  font-size: 1.3em;
+  color: #e0e0e0;
+}
+
+.td-section {
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 6px;
+  padding: 1rem 1.2rem;
+  margin-bottom: 1rem;
+  overflow-x: auto;
+}
+
+.td-section h2 {
+  margin: 0;
+  font-size: 1.05em;
+  color: #ccc;
+  font-weight: 600;
+}
+
+.td-section-header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.8rem;
+}
+
+.td-form-grid {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 0.6rem 1rem;
+  align-items: center;
+}
+
+.td-form-grid label {
+  color: #aaa;
+  font-size: 0.85rem;
+  text-align: right;
+}
+
+.td-form-grid input {
+  background: #3c3c3c;
+  border: 1px solid #555;
+  color: #e0e0e0;
+  padding: 0.35rem 0.6rem;
+  border-radius: 3px;
+  font-size: 0.85rem;
+}
+
+.td-table-wrapper {
+  overflow-x: auto;
+}
+
+.td-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.td-table th {
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  background: #333;
+  color: #aaa;
+  border-bottom: 1px solid #444;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.td-table td {
+  padding: 0.25rem 0.4rem;
+  border-bottom: 1px solid #333;
+  vertical-align: middle;
+}
+
+.td-table tr:hover td {
+  background: #2a2a2a;
+}
+
+.td-input {
+  background: #3c3c3c;
+  border: 1px solid #555;
+  color: #e0e0e0;
+  padding: 0.3rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.82rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.td-input:focus {
+  outline: none;
+  border-color: #007acc;
+}
+
+.td-num {
+  width: 70px;
+}
+
+.td-select {
+  background: #3c3c3c;
+  border: 1px solid #555;
+  color: #e0e0e0;
+  padding: 0.3rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.82rem;
+}
+
+.td-select:focus {
+  outline: none;
+  border-color: #007acc;
+}
+
+.td-del-btn {
+  --button-hover-background: #5a1d1d;
+  color: #e06060;
+}
+
+#loading-indicator {
+  color: #aaa;
+  padding: 2rem;
+  text-align: center;
+}

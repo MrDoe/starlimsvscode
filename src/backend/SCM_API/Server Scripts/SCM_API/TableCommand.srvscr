@@ -42,7 +42,7 @@ oResponse := CreateUDObject({
 :DECLARE oUtils, oEnterpriseItem, sItemID, sGUID, sCommand, oTableDTO;
 oUtils := CreateUDObject("SCM_API.Utils", {});
 oEnterpriseItem := oUtils:ParseURI(sURI);
-sGUID := oUtils:GetItemGUID(oEnterpriseItem:Name, oEnterpriseItem:Type);
+sGUID := oUtils:GetItemGUID(oEnterpriseItem:CategoryName + "." + oEnterpriseItem:Name, oEnterpriseItem:Type);
 
 oTableDTO := DoProc("Enterprise_Data_Providers.TableProvider.GetById", {sGUID, .F., {}, .F., .T.});
 

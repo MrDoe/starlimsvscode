@@ -70,6 +70,16 @@ try {
 }
 ```
 
+### Table Workflows
+- Use the table-specific STARLIMS MCP tools for table checkout, check-in, add, and edit operations.
+- Treat table definitions as XML round-trips when saving or editing them locally.
+- Keep table edits aligned with the checked-out local file so the server-side XML remains authoritative.
+
+### Item Creation
+- Use the generic `create_item` MCP tool for standard enterprise items such as server scripts, client scripts, forms, and data sources.
+- Use the table-specific create tool when creating new tables.
+- Prefer MCP creation over ad hoc workspace edits so the server-side source of truth stays in sync.
+
 ### Data Models
 - STARLIMS items have consistent structure: category, name, type
 - Use TypeScript interfaces for API response types

@@ -54,8 +54,11 @@ Server Script Category: SCM_API
 	- RunScript
 	- SaveCode
 	- Search
+	- TableAdd
 	- TableCommand
 	- TableDefinition
+	- TableGetById
+	- TableSave
 	- TicketManagement
 	- UndoCheckOut
 	- Utils

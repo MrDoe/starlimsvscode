@@ -80,6 +80,7 @@ sType := oEnterpriseItem:Type;
 		DoProc("Enterprise_Data_Providers.CheckOutProvider.CheckOutItem", {sItemID, "Form", sUserLang});
 	:EXITCASE;
 	:CASE sType == "TABLE";
+		sItemName := sCategory + "." + sItemName;
 		sItemID := oUtils:GetItemGUID(sItemName, sType);
 		DoProc("Enterprise_Data_Providers.CheckOutProvider.CheckOutItem", {sItemID, "Table"});
 	:EXITCASE;
