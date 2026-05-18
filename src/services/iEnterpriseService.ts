@@ -5,8 +5,10 @@ export interface IEnterpriseService {
   getEnterpriseItems(uri: string, bSilent: boolean): any;
   getEnterpriseItemCode(uri: string, language: string | undefined): any;
   getLocalCopy(uri: string, workspaceFolder: string, returnCode: boolean, language: string): Promise<string | null>;
+  getTableLocalCopy(uri: string, workspaceFolder: string): Promise<string | null>;
   getConfig(): any;
   saveEnterpriseItemCode(uri: string, code: string, language: string): any;
+  saveTableDefinition(uri: string, tableXml: string): any;
   runScript(uri: string, parameters?: unknown[], outputType?: string, entryPoint?: string): any;
   clearLog(uri: string): any;
   getEnterpriseItemUri(uri: string, rootPath: string): any;
@@ -20,6 +22,8 @@ export interface IEnterpriseService {
   getCheckedOutItems(): any;
   checkInAllItems(reason: string | undefined): any;
   getTableDefinition(uri: string): any;
+  getTableDefinitionXml(uri: string): any;
+  addTable(tableName: string, dsn: string): any;
   getVersion(): any;
   upgradeBackend(sdpPackage: string): any;
   isCheckedOut(uri: string): any;

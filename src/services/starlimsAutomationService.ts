@@ -181,6 +181,227 @@ export class StarlimsAutomationService {
     };
   }
 
+  public async getTableDefinition(
+    uri: string,
+    maxCharacters?: number
+  ): Promise<StarlimsAutomationResult> {
+    const normalizedUri = uri.trim();
+    if (!normalizedUri) {
+      return {
+        ok: false,
+        error: "The item URI cannot be empty."
+      };
+    }
+
+    const result = await this.enterpriseService.getTableDefinitionXml(normalizedUri);
+    if (!result) {
+      return {
+        ok: false,
+        error: "Could not retrieve table definition XML.",
+        uri: normalizedUri
+      };
+    }
+
+    const bounded = this.limitCode(result, maxCharacters);
+    return {
+      ok: true,
+      code: bounded.code,
+      language: "XML",
+      maxCharacters: bounded.maxCharacters,
+      serverName: this.enterpriseService.getCurrentServerName(),
+      totalCharacters: bounded.totalCharacters,
+      truncated: bounded.truncated,
+      uri: normalizedUri
+    };
+  }
+
+  public async checkoutTable(uri: string): Promise<StarlimsAutomationResult> {
+    const normalizedUri = uri.trim();
+    if (!normalizedUri) {
+      return {
+        ok: false,
+        error: "The item URI cannot be empty."
+      };
+    }
+
+    const workspaceRoot = this.options.getWorkspaceRoot();
+    if (!workspaceRoot) {
+      return {
+        ok: false,
+        error: "The STARLIMS workspace root is not configured."
+      };
+    }
+
+    const checkoutResult = await this.enterpriseService.checkOutItemResult(normalizedUri, undefined);
+    if (!checkoutResult.ok) {
+      return {
+        ok: false,
+        error: checkoutResult.error ?? "Could not check out table item.",
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: normalizedUri
+      };
+    }
+
+    const localCopyResult = await this.enterpriseService.getTableLocalCopyResult(
+      normalizedUri,
+      this.enterpriseService.getServerWorkspacePath(workspaceRoot)
+    );
+    if (!localCopyResult.ok || !localCopyResult.data) {
+      return {
+        ok: false,
+        checkedOut: true,
+        error: `Checkout succeeded but local sync failed: ${localCopyResult.error ?? "Unknown local sync error."}`,
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: normalizedUri
+      };
+    }
+
+    return {
+      ok: true,
+      localPath: localCopyResult.data.localFilePath,
+      serverName: this.enterpriseService.getCurrentServerName(),
+      uri: normalizedUri
+    };
+  }
+
+  public async checkinTable(uri: string, reason: string): Promise<StarlimsAutomationResult> {
+    const normalizedUri = uri.trim();
+    if (!normalizedUri) {
+      return {
+        ok: false,
+        error: "The item URI cannot be empty."
+      };
+    }
+
+    const result = await this.enterpriseService.checkInItem(normalizedUri, reason, undefined);
+    if (!result) {
+      return {
+        ok: false,
+        error: "Could not check in table item.",
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: normalizedUri
+      };
+    }
+
+    return {
+      ok: true,
+      serverName: this.enterpriseService.getCurrentServerName(),
+      uri: normalizedUri
+    };
+  }
+
+  public async addTable(tableName: string, dsn: string): Promise<StarlimsAutomationResult> {
+    const normalizedTableName = tableName.trim();
+    const normalizedDsn = dsn.trim();
+    if (!normalizedTableName) {
+      return {
+        ok: false,
+        error: "The table name cannot be empty."
+      };
+    }
+
+    if (!normalizedDsn) {
+      return {
+        ok: false,
+        error: "The table location cannot be empty."
+      };
+    }
+
+    const result = await this.enterpriseService.addTable(normalizedTableName, normalizedDsn);
+    if (!result) {
+      return {
+        ok: false,
+        error: "Could not add table."
+      };
+    }
+
+    return {
+      ok: true,
+      dsn: normalizedDsn,
+      serverName: this.enterpriseService.getCurrentServerName(),
+      tableName: normalizedTableName
+    };
+  }
+
+  public async editTable(uri: string, tableXml: string): Promise<StarlimsAutomationResult> {
+    const normalizedUri = uri.trim();
+    if (!normalizedUri) {
+      return {
+        ok: false,
+        error: "The item URI cannot be empty."
+      };
+    }
+
+    if (!tableXml.trim()) {
+      return {
+        ok: false,
+        error: "The table XML cannot be empty."
+      };
+    }
+
+    const result = await this.enterpriseService.saveTableDefinition(normalizedUri, tableXml);
+    if (!result) {
+      return {
+        ok: false,
+        error: "Could not save table definition.",
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: normalizedUri
+      };
+    }
+
+    return {
+      ok: true,
+      serverName: this.enterpriseService.getCurrentServerName(),
+      uri: normalizedUri
+    };
+  }
+
+  public async createItem(
+    itemName: string,
+    itemType: string,
+    language: string,
+    categoryName: string,
+    appName: string
+  ): Promise<StarlimsAutomationResult> {
+    const normalizedItemName = itemName.trim();
+    const normalizedItemType = itemType.trim();
+    const normalizedLanguage = language.trim();
+    const normalizedCategoryName = categoryName.trim();
+    const normalizedAppName = appName.trim();
+
+    if (!normalizedItemName || !normalizedItemType || !normalizedLanguage) {
+      return {
+        ok: false,
+        error: "The item name, type, and language cannot be empty."
+      };
+    }
+
+    const result = await this.enterpriseService.addItem(
+      normalizedItemName,
+      normalizedItemType,
+      normalizedLanguage,
+      normalizedCategoryName,
+      normalizedAppName
+    );
+
+    if (!result) {
+      return {
+        ok: false,
+        error: "Could not create enterprise item."
+      };
+    }
+
+    return {
+      ok: true,
+      appName: normalizedAppName,
+      categoryName: normalizedCategoryName,
+      itemName: normalizedItemName,
+      itemType: normalizedItemType,
+      language: normalizedLanguage,
+      serverName: this.enterpriseService.getCurrentServerName()
+    };
+  }
+
   public async checkoutItem(uri: string, language: string | undefined): Promise<StarlimsAutomationResult> {
     const normalizedUri = uri.trim();
     if (!normalizedUri) {

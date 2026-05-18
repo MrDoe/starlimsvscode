@@ -142,7 +142,8 @@ sItemType := oEnterpriseItem:Type;
 		oResult:language := "LOG";
 	:EXITCASE;
 	:CASE sItemType == "TABLE";
-		oResult:code := DoProc("Enterprise_Data_Providers.TableProvider.GetByName", {sItemName});
+		sItemID := oUtils:GetItemGUID(oEnterpriseItem:CategoryName + "." + sItemName, sItemType);
+		oResult:code := DoProc("Enterprise_Data_Providers.TableProvider.GetById", {sItemID, .F., {}, .T., .F.});
 		oResult:language := "XML";
 	:EXITCASE;
 	

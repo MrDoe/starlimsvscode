@@ -20,7 +20,7 @@ oResponse := CreateUDObject({
 	:RETURN oResponse;
 :ENDIF;
 
-:DECLARE oUtils, oEnterpriseItem, sTableName;
+:DECLARE oUtils, oEnterpriseItem, sTableName, sTableId;
 oUtils := CreateUDObject("SCM_API.Utils", {});
 oEnterpriseItem := oUtils:ParseURI(sURI);
 
@@ -35,13 +35,22 @@ Response:StatusCode := 200;
 oResponse:success := .T.;
 
 sTableName := oEnterpriseItem:Name;
-oResponse:data := DoProc("RetrieveTableDefinition", {sTableName});
+sTableId := oUtils:GetItemGUID(oEnterpriseItem:CategoryName + "." + sTableName, "TABLE");
+
+:IF Empty(sTableId);
+  Response:StatusCode := 404;
+  oResponse:success := .F.;
+  oResponse:data := "The requested table could not be resolved.";
+  :RETURN oResponse;
+:ENDIF;
+
+oResponse:data := DoProc("RetrieveTableDefinition", {sTableId});
 
 :RETURN oResponse;
 
 :PROCEDURE RetrieveTableDefinition;
-:PARAMETERS sTableName;
-:DEFAULT sTableName, "";
+:PARAMETERS sTableId;
+:DEFAULT sTableId, "";
 	
   :DECLARE aTableDefinition, nCounter, nCounter2, aIndexes, sLastIndex, nLastIndexCounter, sSQL;
 	
@@ -122,7 +131,7 @@ oResponse:data := DoProc("RetrieveTableDefinition", {sTableName});
       and LTR.LANGID = 'ENG'
       and LTR.CAPTION is not null
     where 
-      LT.TABLENAME = ?sTableName?
+      LT.TABLEID = ?sTableId?
     order by
       FIELD_ORDER, LTF.NAME
   ";

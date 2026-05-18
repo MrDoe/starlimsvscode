@@ -284,7 +284,7 @@ Returns the GUID of an item
 			sGUID := Me:GetFormId(aItemName[1], aItemName[2], "XFD");
 		:EXITCASE;
 		:CASE sItemType == "TABLE";
-			sGUID := Me:GetTableId(aItemName[1]);
+			sGUID := Me:GetTableId(aItemName[Len(aItemName)], iif(Len(aItemName) > 1, aItemName[1], ""));
 		:EXITCASE;
 	:ENDCASE;
 	
@@ -579,12 +579,24 @@ Returns the Data source GUID for the script identified by CatName and ScriptName
 Returns the table ID for the table identified by TableName
 ----------------------------------------------------------------------------------;
 :PROCEDURE GetTableId;
-:PARAMETERS sTableName;
-	:DECLARE sSQL, aReturn, sSysLayerId;
+:PARAMETERS sTableName, sTableCategory;
+	:DECLARE sSQL, aReturn, sSysLayerId, sCategoryFilter;
+	sSysLayerId := GetSystemLayerId();
 	sTableName := Upper(sTableName);
+	sTableCategory := Upper(sTableCategory);
+	sCategoryFilter := "";
+
+	:IF sTableCategory == "DICTIONARY";
+		sCategoryFilter := " and t.ISSYSTEM = 'Y'";
+	:ELSE;
+		:IF sTableCategory == "DATABASE";
+			sCategoryFilter := " and t.ISSYSTEM = 'N'";
+		:ENDIF;
+	:ENDIF;
+
 	sSQL := "SELECT t.TABLEID
 				FROM LIMSTABLES t
-				WHERE t.TABLENAME=?sTableName?
+				WHERE t.TABLENAME=?sTableName?" + sCategoryFilter + "
 				order by
 					case
 						when t.LAYERID <= ?sSysLayerId? then ?sSysLayerId? - t.LAYERID
@@ -592,6 +604,18 @@ Returns the table ID for the table identified by TableName
 					end";
  
 	aReturn := SqlExecute(sSQL, "DICTIONARY"); 
+	
+	:IF Len(aReturn) = 0 .AND. !Empty(sCategoryFilter);
+		sSQL := "SELECT t.TABLEID
+				FROM LIMSTABLES t
+				WHERE t.TABLENAME=?sTableName?
+				order by
+					case
+						when t.LAYERID <= ?sSysLayerId? then ?sSysLayerId? - t.LAYERID
+						else t.LAYERID
+					end";
+		aReturn := SqlExecute(sSQL, "DICTIONARY");
+	:ENDIF;
 	
 	:IF Len(aReturn) = 0;
 		:RETURN "";

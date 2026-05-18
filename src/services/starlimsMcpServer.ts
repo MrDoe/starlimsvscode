@@ -46,6 +46,38 @@ const checkoutItemInputSchema = z.object({
   language: z.string().optional().describe("Optional form language identifier for form checkout.")
 });
 
+const getTableDefinitionInputSchema = z.object({
+  uri: z.string().describe("STARLIMS table URI."),
+  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return from the table XML.")
+});
+
+const checkoutTableInputSchema = z.object({
+  uri: z.string().describe("STARLIMS table URI.")
+});
+
+const checkinTableInputSchema = z.object({
+  uri: z.string().describe("STARLIMS table URI."),
+  reason: z.string().describe("Check-in reason.")
+});
+
+const addTableInputSchema = z.object({
+  tableName: z.string().describe("New table name."),
+  dsn: z.string().describe("Target table location, usually DATABASE or DICTIONARY.")
+});
+
+const editTableInputSchema = z.object({
+  uri: z.string().describe("STARLIMS table URI."),
+  tableXml: z.string().describe("Full serialized table XML.")
+});
+
+const createItemInputSchema = z.object({
+  itemName: z.string().describe("New item name."),
+  itemType: z.string().describe("STARLIMS item type, for example SS, APPSS, HTMLFORMXML, APPDS, or CS."),
+  language: z.string().describe("Item language, for example SSL, JS, XML, or SQL."),
+  categoryName: z.string().describe("Category or application category name, depending on the item type."),
+  appName: z.string().describe("Application name or N/A, depending on the item type.")
+});
+
 export class StarlimsMcpServer {
   constructor(
     private readonly automationService: StarlimsAutomationService,
@@ -194,6 +226,112 @@ export class StarlimsMcpServer {
         { language, uri },
         () => this.automationService.checkoutItem(uri, language),
         (result) => `Checked out ${this.toUriLabel(result.uri)} to ${typeof result.localPath === "string" ? result.localPath : "the local workspace"}.`
+      )
+    );
+
+    server.registerTool(
+      "create_item",
+      {
+        description: "Create a STARLIMS enterprise item using the existing add workflow.",
+        inputSchema: createItemInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ appName, categoryName, itemName, itemType, language }) => this.executeTool(
+        "create_item",
+        { appName, categoryName, itemName, itemType, language },
+        () => this.automationService.createItem(itemName, itemType, language, categoryName, appName),
+        (result) => `Created ${typeof result.itemType === "string" ? result.itemType : "item"} ${typeof result.itemName === "string" ? result.itemName : ""}.`
+      )
+    );
+
+    server.registerTool(
+      "get_table_definition",
+      {
+        annotations: { readOnlyHint: true },
+        description: "Read the full XML table definition for a STARLIMS table.",
+        inputSchema: getTableDefinitionInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ uri, maxCharacters }) => this.executeTool(
+        "get_table_definition",
+        { maxCharacters, uri },
+        () => this.automationService.getTableDefinition(uri, maxCharacters),
+        (result) => `Retrieved ${this.toCount(result.totalCharacters)} character(s) from ${this.toUriLabel(result.uri)}.`
+      )
+    );
+
+    server.registerTool(
+      "checkout_table",
+      {
+        description: "Check out a STARLIMS table and sync the local XML working copy into the SLVSCODE workspace.",
+        inputSchema: checkoutTableInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ uri }) => this.executeTool(
+        "checkout_table",
+        { uri },
+        () => this.automationService.checkoutTable(uri),
+        (result) => `Checked out ${this.toUriLabel(result.uri)} to ${typeof result.localPath === "string" ? result.localPath : "the local workspace"}.`
+      )
+    );
+
+    server.registerTool(
+      "checkin_table",
+      {
+        description: "Check in a STARLIMS table.",
+        inputSchema: checkinTableInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ uri, reason }) => this.executeTool(
+        "checkin_table",
+        { reason, uri },
+        () => this.automationService.checkinTable(uri, reason),
+        (result) => `Checked in ${this.toUriLabel(result.uri)}.`
+      )
+    );
+
+    server.registerTool(
+      "create_table",
+      {
+        description: "Create a new STARLIMS table.",
+        inputSchema: addTableInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ tableName, dsn }) => this.executeTool(
+        "create_table",
+        { dsn, tableName },
+        () => this.automationService.addTable(tableName, dsn),
+        (result) => `Created table ${typeof result.tableName === "string" ? result.tableName : ""} in ${typeof result.dsn === "string" ? result.dsn : "the target location"}.`
+      )
+    );
+
+    server.registerTool(
+      "add_table",
+      {
+        description: "Create a new STARLIMS table.",
+        inputSchema: addTableInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ tableName, dsn }) => this.executeTool(
+        "add_table",
+        { dsn, tableName },
+        () => this.automationService.addTable(tableName, dsn),
+        (result) => `Created table ${typeof result.tableName === "string" ? result.tableName : ""} in ${typeof result.dsn === "string" ? result.dsn : "the target location"}.`
+      )
+    );
+
+    server.registerTool(
+      "edit_table",
+      {
+        description: "Save a modified STARLIMS table XML definition.",
+        inputSchema: editTableInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ uri, tableXml }) => this.executeTool(
+        "edit_table",
+        { uri, tableXml },
+        () => this.automationService.editTable(uri, tableXml),
+        (result) => `Saved ${this.toUriLabel(result.uri)}.`
       )
     );
 

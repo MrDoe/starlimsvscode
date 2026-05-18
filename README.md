@@ -98,8 +98,8 @@ The MCP integration is intentionally limited:
 
 - Binds to loopback only
 - Uses the currently selected STARLIMS server
-- Supports browse, search, code retrieval, and checkout operations
-- Destructive actions such as check-in, delete, rename, move, and script execution are currently not exposed
+- Supports browse, search, code retrieval, table definition retrieval, checkout, check-in, item creation, table creation, and edit operations
+- Destructive actions such as delete, rename, move, and script execution are currently not exposed
 
 Related settings:
 
@@ -108,7 +108,7 @@ Related settings:
 - `STARLIMS.mcp.maxItems`: Limits browse and search result sizes
 - `STARLIMS.mcp.maxCodeCharacters`: Limits code returned by read requests
 
-When the local `SLVSCODE` workspace is created, the extension also seeds Copilot-facing helper files so agents can discover the STARLIMS MCP endpoint and prefer STARLIMS-native browse, search, code retrieval, and checkout operations.
+When the local `SLVSCODE` workspace is created, the extension also seeds Copilot-facing helper files so agents can discover the STARLIMS MCP endpoint and prefer STARLIMS-native browse, search, code retrieval, checkout, item creation, and table management operations.
 
 ## Default Shortcuts
 

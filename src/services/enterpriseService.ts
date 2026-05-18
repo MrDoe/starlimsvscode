@@ -547,6 +547,46 @@ export class EnterpriseService implements IEnterpriseService {
     return result.ok ? result.data : undefined;
   }
 
+  public async getTicketFullInfo(ticketId: number): Promise<{ description: string; stackTrace: string; comments: string } | null> {
+    // Get the ticket to retrieve stackTraceId
+    const ticketsResult = await this.getTicketsResult();
+    if (!ticketsResult.ok) {
+      return null;
+    }
+
+    const tickets = ticketsResult.data ?? [];
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) {
+      return null;
+    }
+
+    // Get description and stack trace
+    const description = await this.getTicketDescription(ticketId, ticket.stackTraceId);
+    
+    // Get comments
+    let comments = "";
+    try {
+      const commentsResult = await this.executeRemoteScriptResult(
+        `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scGetTicketComment`,
+        {
+          parameters: [ticketId],
+          outputType: "ARRAY"
+        }
+      );
+      if (commentsResult.ok && Array.isArray(commentsResult.data) && commentsResult.data.length > 0) {
+        comments = this.normalizeString(commentsResult.data[0]) || "";
+      }
+    } catch (error) {
+      console.warn("Error retrieving ticket comments:", error);
+    }
+
+    return {
+      description: description || "",
+      stackTrace: description || "",
+      comments
+    };
+  }
+
   public async getTicketsResult(): Promise<EnterpriseOperationResult<TicketOverview[]>> {
     const result = await this.executeRemoteScriptResult(TICKETS_SERVERSCRIPT_URI, {
       parameters: [],
@@ -903,7 +943,12 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJsonInternal(response, true);
+      if (!result) {
+        return null;
+      }
+
+      const { success, data }: { success: boolean; data: any } = result;
       if (success) {
         const newData = [
           ["Field Name", "Caption", "Data Type", "Field Size", "Allow Nulls", "Default", "Notes", "Sorter"],
@@ -911,7 +956,7 @@ export class EnterpriseService implements IEnterpriseService {
         ];
         return JSON.stringify(newData, null, 2);
       } else {
-        vscode.window.showErrorMessage("Could not retrieve table definition.");
+        vscode.window.showErrorMessage(this.getOperationErrorMessage(data, "Could not retrieve table definition."));
         console.log(data);
         return null;
       }
@@ -919,6 +964,128 @@ export class EnterpriseService implements IEnterpriseService {
       console.error(e);
       vscode.window.showErrorMessage("Could not retrieve table definition.");
       return null;
+    }
+  }
+
+  /**
+   * Gets the full table XML definition from STARLIMS.
+   * @param uri the URI of the table item
+   */
+  public async getTableDefinitionXml(uri: string) {
+    const params = new URLSearchParams([["URI", uri]]);
+    const url = `${this.baseUrl}/SCM_API.TableGetById.${this.urlSuffix}?${params}`;
+    const headers = new Headers(await this.getAPIHeaders());
+    const options: any = {
+      method: "GET",
+      headers
+    };
+
+    try {
+      const response = await fetch(url, options);
+      const result = await this.safeParseJsonInternal(response, true);
+      if (!result) {
+        return null;
+      }
+
+      const { success, data }: { success: boolean; data: any } = result;
+      if (success) {
+        return data instanceof Object ? JSON.stringify(data) : String(data ?? "");
+      } else {
+        vscode.window.showErrorMessage(this.getOperationErrorMessage(data, "Could not retrieve table definition XML."));
+        console.log(data);
+        return null;
+      }
+    } catch (e: any) {
+      console.error(e);
+      vscode.window.showErrorMessage("Could not retrieve table definition XML.");
+      return null;
+    }
+  }
+
+  /**
+   * Gets a local copy of the table XML definition.
+   * @param uri the URI of the table item
+   * @param workspaceFolder the local workspace folder where to download the file
+   * @returns the local file path if the download was successful
+   */
+  public async getTableLocalCopy(uri: string, workspaceFolder: string): Promise<string | null> {
+    const result = await this.getTableLocalCopyResult(uri, workspaceFolder);
+    if (!result.ok || !result.data) {
+      if (result.error) {
+        vscode.window.showErrorMessage(result.error);
+      }
+      return null;
+    }
+
+    return result.data.localFilePath;
+  }
+
+  public async getTableLocalCopyResult(
+    uri: string,
+    workspaceFolder: string
+  ): Promise<EnterpriseOperationResult<LocalCopyResult>> {
+    const normalizedUri = this.normalizeEnterpriseUri(uri);
+    const tableXml = await this.getTableDefinitionXml(normalizedUri);
+    if (!tableXml) {
+      return {
+        ok: false,
+        error: "Could not retrieve table definition XML."
+      };
+    }
+
+    try {
+      return {
+        ok: true,
+        data: await this.writeLocalCopy(normalizedUri, workspaceFolder, {
+          code: tableXml,
+          language: "XML"
+        })
+      };
+    } catch (e) {
+      console.error(e);
+      const localFilePath = this.getLocalFilePath(normalizedUri, workspaceFolder, "XML");
+      return {
+        ok: false,
+        error: `Cannot write file ${localFilePath}.`
+      };
+    }
+  }
+
+  /**
+   * Adds a new table through the backend package.
+   * @param tableName the new table name
+   * @param dsn the target data source name (DATABASE or DICTIONARY)
+   */
+  public async addTable(tableName: string, dsn: string) {
+    const url = `${this.baseUrl}/SCM_API.TableAdd.${this.urlSuffix}`;
+    const headers = new Headers(await this.getAPIHeaders());
+    const options: any = {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        TableName: tableName,
+        Dsn: dsn
+      })
+    };
+
+    try {
+      const response = await fetch(url, options);
+      const result = await this.safeParseJsonInternal(response, true);
+      if (!result) {
+        return;
+      }
+
+      const { success, data }: { success: boolean; data: any } = result;
+      if (success) {
+        vscode.window.showInformationMessage(this.getOperationErrorMessage(data, "Table added successfully."));
+      } else {
+        vscode.window.showErrorMessage(this.getOperationErrorMessage(data, "Could not add table."));
+      }
+      return data instanceof Object ? JSON.stringify(data) : data;
+    } catch (e: any) {
+      vscode.window.showErrorMessage("Failed to execute HTTP call to remote service.");
+      console.error(e);
+      return;
     }
   }
 
@@ -1324,6 +1491,44 @@ export class EnterpriseService implements IEnterpriseService {
         vscode.window.showInformationMessage("Code saved successfully.");
       } else {
         vscode.window.showErrorMessage(data);
+      }
+      return data instanceof Object ? JSON.stringify(data) : data;
+    } catch (e: any) {
+      vscode.window.showErrorMessage("Failed to execute HTTP call to remote service.");
+      console.error(e);
+      return;
+    }
+  }
+
+  /**
+   * Saves the XML definition of a STARLIMS table.
+   * @param uri The URI of the remote STARLIMS table item.
+   * @param tableXml The XML definition to save.
+   */
+  public async saveTableDefinition(uri: string, tableXml: string) {
+    const url = `${this.baseUrl}/SCM_API.TableSave.${this.urlSuffix}`;
+    const headers = new Headers(await this.getAPIHeaders());
+    const options: any = {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        URI: uri,
+        TableXml: tableXml
+      })
+    };
+
+    try {
+      const response = await fetch(url, options);
+      const result = await this.safeParseJsonInternal(response, true);
+      if (!result) {
+        return;
+      }
+
+      const { success, data }: { success: boolean; data: any } = result;
+      if (success) {
+        vscode.window.showInformationMessage("Table saved successfully.");
+      } else {
+        vscode.window.showErrorMessage(this.getOperationErrorMessage(data, "Could not save table definition."));
       }
       return data instanceof Object ? JSON.stringify(data) : data;
     } catch (e: any) {
