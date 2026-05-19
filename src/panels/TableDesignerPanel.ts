@@ -7,6 +7,7 @@ import { EnterpriseService } from "../services/enterpriseService";
 // --- XML to JSON / JSON to XML helpers ---
 
 interface TableField {
+  id?: string;
   name: string;
   type: string;
   length: number;
@@ -20,9 +21,11 @@ interface TableField {
   viewPrivilege: string;
   editPrivilege: string;
   ddlState?: string;
+  layerId?: string;
 }
 
 interface TableIndex {
+  id?: string;
   name: string;
   type: string; // P, U, R
   ddlState?: string;
@@ -30,6 +33,7 @@ interface TableIndex {
 }
 
 interface TableRelation {
+  id?: string;
   name: string;
   refTableName: string;
   cascadeDelete: boolean;
@@ -107,6 +111,7 @@ function xmlToModel(xml: string): TableDesignerModel {
     const fieldElements: any[] = Array.from(fieldsArrEl.getElementsByTagName("item") || []);
     for (const f of fieldElements) {
       model.fields.push({
+        id: getDirectChildText(f, "Id"),
         name: getDirectChildText(f, "Name"),
         type: getDirectChildText(f, "Type"),
         length: parseInt(getDirectChildText(f, "Length") || "0", 10),
@@ -119,7 +124,8 @@ function xmlToModel(xml: string): TableDesignerModel {
         picture: getDirectChildText(f, "Picture"),
         viewPrivilege: getDirectChildText(f, "ViewPrivilege"),
         editPrivilege: getDirectChildText(f, "EditPrivilege"),
-        ddlState: getDirectChildText(f, "DdlState")
+        ddlState: getDirectChildText(f, "DdlState"),
+        layerId: getDirectChildText(f, "LayerID")
       });
     }
   }
@@ -130,6 +136,7 @@ function xmlToModel(xml: string): TableDesignerModel {
     const indexElements: any[] = Array.from(indexesArrEl.getElementsByTagName("item") || []);
     for (const ix of indexElements) {
       const idx: TableIndex = {
+        id: getDirectChildText(ix, "Id"),
         name: getDirectChildText(ix, "Name"),
         type: getDirectChildText(ix, "Type"),
         ddlState: getDirectChildText(ix, "DdlState"),
@@ -155,6 +162,7 @@ function xmlToModel(xml: string): TableDesignerModel {
     const relElements: any[] = Array.from(relationsArrEl.getElementsByTagName("item") || []);
     for (const r of relElements) {
       const rel: TableRelation = {
+        id: getDirectChildText(r, "Id"),
         name: getDirectChildText(r, "Name"),
         refTableName: getDirectChildText(r, "RefTableName"),
         cascadeDelete: getDirectChildText(r, "CascadeDelete").toLowerCase() === "true" || getDirectChildText(r, "CascadeDelete") === "Y",
@@ -187,6 +195,16 @@ function modelToXml(model: TableDesignerModel, originalXml: string): string {
     throw new Error("Could not parse original table XML.");
   }
 
+  const getEffectiveState = (ddlState: string | undefined, id: string | undefined): string => {
+    if (ddlState === "Deleted") {
+      return "Deleted";
+    }
+    if (!id) {
+      return "New";
+    }
+    return ddlState ?? "";
+  };
+
   const setText = (tag: string, value: string) => {
     const elements = root.getElementsByTagName(tag);
     let el = elements?.length > 0 ? elements[0] : null;
@@ -206,17 +224,23 @@ function modelToXml(model: TableDesignerModel, originalXml: string): string {
   // rebuild Fields
   const fieldsArrEl: any = root.getElementsByTagName("__array__Fields")?.[0];
   if (fieldsArrEl) {
+    // compute next ID for new fields (mirrors DTOTable.GetNextFieldId)
+    const maxFieldId = model.fields.reduce((m, f) => Math.max(m, parseInt(f.id || "0", 10)), 0);
+    let nextFieldId = maxFieldId + 1;
+
     while (fieldsArrEl.firstChild) { fieldsArrEl.removeChild(fieldsArrEl.firstChild); }
     for (const f of model.fields) {
+      const effectiveState = getEffectiveState(f.ddlState, f.id);
+      const assignedId = (f.ddlState === "New" || !f.id) ? String(nextFieldId++) : f.id;
       const item = doc.createElement("item");
       item.setAttribute("type", "FieldDTO");
       const addEl = (t: string, v: string) => { const e = doc.createElement(t); e.textContent = v; item.appendChild(e); };
-      addEl("DdlState", f.ddlState ?? "New");
+      addEl("DdlState", effectiveState);
       addEl("IsMetadataDirty", "false");
       addEl("CommitState", "");
       addEl("CommitError", "");
       addEl("Name", f.name);
-      addEl("Id", "");
+      addEl("Id", assignedId);
       addEl("TableId", model.id);
       addEl("Type", f.type);
       addEl("Description", f.description);
@@ -232,7 +256,7 @@ function modelToXml(model: TableDesignerModel, originalXml: string): string {
       const caps = doc.createElement("__array__Captions");
       item.appendChild(caps);
       addEl("SCaptions", "");
-      addEl("LayerID", "");
+      addEl("LayerID", f.layerId || "200");
       fieldsArrEl.appendChild(item);
     }
   }
@@ -240,24 +264,32 @@ function modelToXml(model: TableDesignerModel, originalXml: string): string {
   // rebuild Indexes
   const indexesArrEl: any = root.getElementsByTagName("__array__Indexes")?.[0];
   if (indexesArrEl) {
+    // compute next ID for new indexes (mirrors DTOTable.GetNextIndexId)
+    const maxIndexId = model.indexes.reduce((m, ix) => Math.max(m, parseInt(ix.id || "0", 10)), 0);
+    let nextIndexId = maxIndexId + 1;
+
     while (indexesArrEl.firstChild) { indexesArrEl.removeChild(indexesArrEl.firstChild); }
     for (const ix of model.indexes) {
       // Never re-apply the primary key — skip it entirely
       if (ix.type === "P") { continue; }
+      const effectiveState = getEffectiveState(ix.ddlState, ix.id);
+      const assignedId = (ix.ddlState === "New" || !ix.id) ? String(nextIndexId++) : ix.id;
       const item = doc.createElement("item");
       item.setAttribute("type", "IndexDTO");
       const addEl = (t: string, v: string) => { const e = doc.createElement(t); e.textContent = v; item.appendChild(e); };
-      addEl("DdlState", ix.ddlState ?? "New");
+      addEl("DdlState", effectiveState);
       addEl("IsMetadataDirty", "false");
       addEl("CommitState", "");
       addEl("CommitError", "");
-      addEl("Id", "");
+      addEl("Id", assignedId);
       addEl("TableName", model.tableName);
       addEl("TableId", model.id);
       addEl("Name", ix.name);
       addEl("Type", ix.type);
       const ixFields = doc.createElement("__array__Fields");
+      let ixFieldIdx = 0;
       for (const ixf of ix.fields) {
+        ixFieldIdx++;
         const ixItem = doc.createElement("item");
         ixItem.setAttribute("type", "IndexFieldDTO");
         const a = (t: string, v: string) => { const e = doc.createElement(t); e.textContent = v; ixItem.appendChild(e); };
@@ -267,7 +299,7 @@ function modelToXml(model: TableDesignerModel, originalXml: string): string {
         a("CommitError", "");
         a("FieldName", ixf.fieldName);
         a("Sort", ixf.sort);
-        a("Sorter", "1");
+        a("Sorter", String(ixFieldIdx));
         a("Included", "false");
         ixFields.appendChild(ixItem);
       }
@@ -279,16 +311,22 @@ function modelToXml(model: TableDesignerModel, originalXml: string): string {
   // rebuild Relations
   const relationsArrEl: any = root.getElementsByTagName("__array__Relations")?.[0];
   if (relationsArrEl) {
+    // compute next ID for new relations (mirrors DTOTable.GetNextRelationId)
+    const maxRelId = model.relations.reduce((m, r) => Math.max(m, parseInt(r.id || "0", 10)), 0);
+    let nextRelId = maxRelId + 1;
+
     while (relationsArrEl.firstChild) { relationsArrEl.removeChild(relationsArrEl.firstChild); }
     for (const rel of model.relations) {
+      const effectiveState = getEffectiveState(rel.ddlState, rel.id);
+      const assignedId = (rel.ddlState === "New" || !rel.id) ? String(nextRelId++) : rel.id;
       const item = doc.createElement("item");
       item.setAttribute("type", "RelationDTO");
       const addEl = (t: string, v: string) => { const e = doc.createElement(t); e.textContent = v; item.appendChild(e); };
-      addEl("DdlState", rel.ddlState ?? "New");
+      addEl("DdlState", effectiveState);
       addEl("IsMetadataDirty", "false");
       addEl("CommitState", "");
       addEl("CommitError", "");
-      addEl("Id", "");
+      addEl("Id", assignedId);
       addEl("TableName", model.tableName);
       addEl("TableId", model.id);
       addEl("Name", rel.name);
@@ -391,7 +429,6 @@ export class TableDesignerPanel {
 
   private _getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri): string {
     const nonce = getNonce();
-    const webviewUri = getUri(webview, extensionUri, ["dist", "webview.js"]);
     const styleUri = getUri(webview, extensionUri, ["dist", "style.css"]);
     const codiconUri = getUri(webview, extensionUri, ["dist", "codicon.css"]);
 
@@ -409,7 +446,7 @@ export class TableDesignerPanel {
   <div id="app">
     <div class="td-header">
       <h1 id="table-name-label">Table Designer</h1>
-      <vscode-button id="save-btn" appearance="primary">Save Changes</vscode-button>
+      <button id="save-btn" class="td-btn td-btn-primary" type="button">Save Changes</button>
     </div>
     <div id="loading-indicator">Loading table definition...</div>
     <div id="editor-content" style="display:none">
@@ -428,7 +465,7 @@ export class TableDesignerPanel {
       <section class="td-section">
         <div class="td-section-header">
           <h2>Columns</h2>
-          <vscode-button id="add-column-btn" appearance="secondary">+ Add Column</vscode-button>
+          <button id="add-column-btn" class="td-btn td-btn-secondary" type="button">+ Add Column</button>
         </div>
         <div class="td-table-wrapper">
           <table class="td-table" id="columns-table">
@@ -444,7 +481,7 @@ export class TableDesignerPanel {
       <section class="td-section">
         <div class="td-section-header">
           <h2>Indexes</h2>
-          <vscode-button id="add-index-btn" appearance="secondary">+ Add Index</vscode-button>
+          <button id="add-index-btn" class="td-btn td-btn-secondary" type="button">+ Add Index</button>
         </div>
         <div class="td-table-wrapper">
           <table class="td-table" id="indexes-table">
@@ -460,7 +497,7 @@ export class TableDesignerPanel {
       <section class="td-section">
         <div class="td-section-header">
           <h2>Foreign Keys</h2>
-          <vscode-button id="add-fk-btn" appearance="secondary">+ Add Foreign Key</vscode-button>
+          <button id="add-fk-btn" class="td-btn td-btn-secondary" type="button">+ Add Foreign Key</button>
         </div>
         <div class="td-table-wrapper">
           <table class="td-table" id="relations-table">
@@ -500,10 +537,16 @@ export class TableDesignerPanel {
       renderRelations();
     }
 
+    function isProtectedFieldName(name) {
+      const normalizedName = (name || "").trim().toUpperCase();
+      return normalizedName === "ORIGREC" || normalizedName === "ORIGSTS";
+    }
+
     function renderColumns() {
       const tbody = document.querySelector("#columns-table tbody");
       tbody.innerHTML = "";
       (model.fields || []).forEach((f, i) => {
+        const isProtectedField = isProtectedFieldName(f.name);
         const tr = document.createElement("tr");
         tr.innerHTML = \`<td><input value="\${esc(f.name)}" data-idx="\${i}" data-field="name" class="td-input" /></td>
           <td><select data-idx="\${i}" data-field="type" class="td-select">\${STARLIMS_TYPES.map(t => \`<option value="\${t}" \${f.type===t?'selected':''}>\${t}</option>\`).join("")}</select></td>
@@ -511,7 +554,7 @@ export class TableDesignerPanel {
           <td><input type="checkbox" data-idx="\${i}" data-field="isNullable" \${f.isNullable?'checked':''} /></td>
           <td><input value="\${esc(f.defaultValue)}" data-idx="\${i}" data-field="defaultValue" class="td-input" /></td>
           <td><input value="\${esc(f.description)}" data-idx="\${i}" data-field="description" class="td-input" /></td>
-          <td><vscode-button appearance="icon" class="td-del-btn" data-idx="\${i}" data-type="field" title="Remove">\u2715</vscode-button></td>\`;
+          <td><button type="button" class="td-btn td-icon-btn td-del-btn" data-idx="\${i}" data-type="field" title="\${isProtectedField ? "System field cannot be removed" : "Remove"}" aria-label="\${isProtectedField ? "System field cannot be removed" : "Remove column"}" \${isProtectedField ? "disabled" : ""}>\u2715</button></td>\`;
         tbody.appendChild(tr);
       });
       bindInputs("field");
@@ -521,12 +564,12 @@ export class TableDesignerPanel {
       const tbody = document.querySelector("#indexes-table tbody");
       tbody.innerHTML = "";
       (model.indexes || []).forEach((ix, i) => {
-        const fieldsStr = (ix.fields || []).map(f => f.fieldName + (f.sort==="D"?" DESC":"")).join(", ");
+        const fieldsStr = (ix.fields || []).map(f => f.fieldName + (f.sort==="DESC"?" DESC":"")).join(", ");
         const tr = document.createElement("tr");
         tr.innerHTML = \`<td><input value="\${esc(ix.name)}" data-idx="\${i}" data-field="name" data-type="index" class="td-input" /></td>
           <td><select data-idx="\${i}" data-field="type" data-type="index" class="td-select"><option value="P" \${ix.type==='P'?'selected':''}>PK</option><option value="U" \${ix.type==='U'?'selected':''}>Unique</option><option value="R" \${ix.type==='R'?'selected':''}>Regular</option></select></td>
           <td><input value="\${esc(fieldsStr)}" data-idx="\${i}" data-field="fieldsStr" data-type="index" class="td-input" placeholder="col1,col2 ASC" /></td>
-          <td><vscode-button appearance="icon" class="td-del-btn" data-idx="\${i}" data-type="index" title="Remove">\u2715</vscode-button></td>\`;
+          <td><button type="button" class="td-btn td-icon-btn td-del-btn" data-idx="\${i}" data-type="index" title="Remove" aria-label="Remove index">\u2715</button></td>\`;
         tbody.appendChild(tr);
       });
       bindInputs("index");
@@ -542,7 +585,7 @@ export class TableDesignerPanel {
           <td><input value="\${esc(rel.refTableName)}" data-idx="\${i}" data-field="refTableName" data-type="relation" class="td-input" /></td>
           <td><input value="\${esc(fieldsStr)}" data-idx="\${i}" data-field="fieldsStr" data-type="relation" class="td-input" placeholder="col->refCol" /></td>
           <td><input type="checkbox" data-idx="\${i}" data-field="cascadeDelete" data-type="relation" \${rel.cascadeDelete?'checked':''} /></td>
-          <td><vscode-button appearance="icon" class="td-del-btn" data-idx="\${i}" data-type="relation" title="Remove">\u2715</vscode-button></td>\`;
+          <td><button type="button" class="td-btn td-icon-btn td-del-btn" data-idx="\${i}" data-type="relation" title="Remove" aria-label="Remove foreign key">\u2715</button></td>\`;
         tbody.appendChild(tr);
       });
       bindInputs("relation");
@@ -562,6 +605,9 @@ export class TableDesignerPanel {
         btn.onclick = () => {
           const idx = parseInt(btn.dataset.idx);
           const arr = type === "field" ? model.fields : type === "index" ? model.indexes : model.relations;
+          if (type === "field" && isProtectedFieldName(arr[idx]?.name)) {
+            return;
+          }
           arr.splice(idx, 1);
           if (type === "field") renderColumns();
           else if (type === "index") renderIndexes();
@@ -582,6 +628,10 @@ export class TableDesignerPanel {
       } else {
         arr[idx][field] = el.type === "number" ? parseInt(el.value, 10) || 0 : el.value;
       }
+      // Only persisted items should transition to Modified; new items must stay New.
+      if (arr[idx].id && (arr[idx].ddlState === "" || arr[idx].ddlState === undefined)) {
+        arr[idx].ddlState = "Modified";
+      }
     }
 
     function syncCheckbox(el, type) {
@@ -590,6 +640,10 @@ export class TableDesignerPanel {
       const arr = type === "field" ? model.fields : type === "index" ? model.indexes : model.relations;
       if (!arr[idx]) return;
       arr[idx][field] = el.checked;
+      // Only persisted items should transition to Modified; new items must stay New.
+      if (arr[idx].id && (arr[idx].ddlState === "" || arr[idx].ddlState === undefined)) {
+        arr[idx].ddlState = "Modified";
+      }
     }
 
     function parseFieldList(str) {
@@ -606,15 +660,15 @@ export class TableDesignerPanel {
 
     // --- buttons ---
     document.getElementById("add-column-btn").onclick = () => {
-      model.fields.push({ name:"NEWCOL", type:"VARCHAR", length:50, precision:0, scale:0, defaultValue:"", isNullable:true, description:"", controlType:"", picture:"", viewPrivilege:"", editPrivilege:"" });
+      model.fields.push({ name:"NEWCOL", type:"VARCHAR", length:50, precision:0, scale:0, defaultValue:"", isNullable:true, description:"", controlType:"", picture:"", viewPrivilege:"", editPrivilege:"", ddlState:"New" });
       renderColumns();
     };
     document.getElementById("add-index-btn").onclick = () => {
-      model.indexes.push({ name: "IX_" + (model.tableName||"T"), type: "R", fields: [{ fieldName: (model.fields[0]?.name||""), sort: "ASC" }] });
+      model.indexes.push({ name: "IX_" + (model.tableName||"T"), type: "R", ddlState: "New", fields: [{ fieldName: (model.fields[0]?.name||""), sort: "ASC" }] });
       renderIndexes();
     };
     document.getElementById("add-fk-btn").onclick = () => {
-      model.relations.push({ name: "FK_" + (model.tableName||"T"), refTableName: "", cascadeDelete: false, cascadeUpdate: false, fields: [{ fieldName: (model.fields[0]?.name||""), refFieldName: "ORIGREC" }] });
+      model.relations.push({ name: "FK_" + (model.tableName||"T"), refTableName: "", cascadeDelete: false, cascadeUpdate: false, ddlState: "New", fields: [{ fieldName: (model.fields[0]?.name||""), refFieldName: "ORIGREC" }] });
       renderRelations();
     };
     document.getElementById("save-btn").onclick = () => {
