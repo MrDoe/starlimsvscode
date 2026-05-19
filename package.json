@@ -342,6 +342,11 @@
                                              "icon":  "$(stop)"
                                          },
                                          {
+                                             "command":  "STARLIMS.ViewTicketStackTrace",
+                                             "title":  "View ticket stacktrace",
+                                             "icon":  "$(output)"
+                                         },
+                                         {
                                              "command":  "STARLIMS.SolveTicketWithCopilot",
                                              "title":  "Solve ticket with Copilot",
                                              "icon":  "$(copilot)"
@@ -486,6 +491,11 @@
                                                              "group":  "navigation"
                                                          },
                                                          {
+                                                             "command":  "STARLIMS.ViewTicketStackTrace",
+                                                             "when":  "view == STARLIMSTicketsTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
                                                              "command":  "STARLIMS.SolveTicket",
                                                              "when":  "view == STARLIMSTicketsTree",
                                                              "group":  "navigation"
@@ -624,6 +634,11 @@
                                                                 {
                                                                     "command":  "STARLIMS.ReleaseTicket",
                                                                     "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == activeTicket || viewItem == ticketInProgressByCurrentUser)",
+                                                                    "group":  "navigation"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.ViewTicketStackTrace",
+                                                                    "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == ticket || viewItem == activeTicket || viewItem == ticketInProgressByCurrentUser || viewItem == lockedTicket)",
                                                                     "group":  "navigation"
                                                                 },
                                                                 {
