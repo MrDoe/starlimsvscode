@@ -50,3 +50,12 @@ export type TicketMeasureDraft = {
   title: string;
   description: string;
 };
+
+export type TicketDataDetails = {
+  description: string;
+  stackTrace: string;
+};
+
+export type TicketFullInfo = TicketDataDetails & {
+  comments: string;
+};

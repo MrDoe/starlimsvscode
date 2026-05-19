@@ -20,7 +20,8 @@ import { CheckedOutTreeDataProvider } from "./providers/checkedOutTreeDataProvid
 import { TicketTreeItem, TicketsTreeDataProvider } from "./providers/ticketsTreeDataProvider";
 import { ServerSelectorWebviewProvider, ServerConfig } from "./providers/serverSelectorWebviewProvider";
 import { GitService } from "./services/gitService";
-import { TicketMeasureDraft, TicketOverview, TicketReference } from "./services/ticketManagementTypes";
+import { TicketFullInfo, TicketMeasureDraft, TicketOverview, TicketReference } from "./services/ticketManagementTypes";
+import { TicketStackTraceContentProvider } from "./providers/ticketStackTraceContentProvider";
 import * as crypto from 'crypto';
 import { promisify } from "util";
 
@@ -36,6 +37,7 @@ const DEFAULT_COMMIT_MESSAGE_TIMEOUT_MS = 4000;
 const DEFAULT_COMMIT_MESSAGE_MAX_LENGTH = 200;
 const ACTIVE_TICKET_STATE_PREFIX = "ticketManagement.activeTicket";
 const TICKET_TITLE_FILTER_CONTEXT_KEY = "starlims.ticketTitleFilterActive";
+const TICKET_STACKTRACE_SCHEME = "starlims-ticket-stacktrace";
 const MAX_TICKET_REFERENCE_TITLE_LENGTH = 80;
 const MAX_TICKET_MEASURE_TITLE_LENGTH = 120;
 const DEFAULT_COPILOT_COMMIT_MESSAGE_SYSTEM_PROMPT = [
@@ -156,40 +158,73 @@ async function ensureSLVSCODEWorkspace(slvscodePath: string): Promise<void> {
   }
 }
 
+function shouldManageStarlimsMcpServer(serverConfig: unknown): boolean {
+  if (!serverConfig || typeof serverConfig !== "object" || Array.isArray(serverConfig)) {
+    return true;
+  }
+
+  const candidate = serverConfig as { type?: unknown; url?: unknown };
+  if (candidate.type !== "http" || typeof candidate.url !== "string") {
+    return false;
+  }
+
+  try {
+    const parsedUrl = new URL(candidate.url);
+    return (parsedUrl.hostname === "127.0.0.1" || parsedUrl.hostname === "localhost") && parsedUrl.pathname === "/mcp";
+  } catch {
+    return candidate.url === "http://127.0.0.1:3001/mcp";
+  }
+}
+
 function ensureSLVSCODEMcpConfig(slvscodePath: string, mcpPort: number): void {
   const vscodeFolderPath = path.join(slvscodePath, ".vscode");
   const mcpConfigPath = path.join(vscodeFolderPath, "mcp.json");
-  const defaultMcpConfig = {
-    servers: {
-      starlims: {
-        type: "http",
-        url: `http://127.0.0.1:${mcpPort}/mcp`
-      }
-    }
+  const defaultStarlimsServer = {
+    type: "http",
+    url: `http://127.0.0.1:${mcpPort}/mcp`
+  };
+
+  const writeMcpConfig = (config: Record<string, unknown>) => {
+    fs.mkdirSync(vscodeFolderPath, { recursive: true });
+    fs.writeFileSync(
+      mcpConfigPath,
+      JSON.stringify(config, null, 2) + "\n",
+      { encoding: "utf8" }
+    );
   };
 
   if (fs.existsSync(mcpConfigPath)) {
     try {
-      const existingConfig = JSON.parse(fs.readFileSync(mcpConfigPath, "utf8"));
-      if (existingConfig?.servers?.starlims?.type === "http" && existingConfig.servers.starlims.url === "http://127.0.0.1:3001/mcp") {
-        fs.writeFileSync(
-          mcpConfigPath,
-          JSON.stringify(defaultMcpConfig, null, 2) + "\n",
-          { encoding: "utf8" }
-        );
+      const existingConfigRaw = JSON.parse(fs.readFileSync(mcpConfigPath, "utf8"));
+      const existingConfig = existingConfigRaw && typeof existingConfigRaw === "object" && !Array.isArray(existingConfigRaw)
+        ? existingConfigRaw as Record<string, unknown>
+        : {};
+      const existingServers = existingConfig.servers && typeof existingConfig.servers === "object" && !Array.isArray(existingConfig.servers)
+        ? existingConfig.servers as Record<string, unknown>
+        : {};
+
+      if (!shouldManageStarlimsMcpServer(existingServers.starlims)) {
+        return;
       }
+
+      writeMcpConfig({
+        ...existingConfig,
+        servers: {
+          ...existingServers,
+          starlims: defaultStarlimsServer
+        }
+      });
     } catch {
       // Leave user-managed MCP configs untouched when they are not valid JSON.
     }
     return;
   }
 
-  fs.mkdirSync(vscodeFolderPath, { recursive: true });
-  fs.writeFileSync(
-    mcpConfigPath,
-    JSON.stringify(defaultMcpConfig, null, 2) + "\n",
-    { encoding: "utf8" }
-  );
+  writeMcpConfig({
+    servers: {
+      starlims: defaultStarlimsServer
+    }
+  });
 }
 
 function ensureSLVSCODEStarlimsAgent(slvscodePath: string): void {
@@ -256,6 +291,7 @@ export async function activate(context: vscode.ExtensionContext) {
   let enterpriseService!: EnterpriseService;
   let enterpriseTreeProvider!: EnterpriseTreeDataProvider;
   let ticketsTreeDataProvider!: TicketsTreeDataProvider;
+  let ticketStackTraceContentProvider!: TicketStackTraceContentProvider;
   let ticketsTreeView: vscode.TreeView<TicketTreeItem> | undefined;
 
   const workspaceKey = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "default";
@@ -769,7 +805,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  function buildTicketCopilotPrompt(ticket: TicketReference, ticketInfo: any): string {
+  function buildTicketCopilotPrompt(ticket: TicketReference, ticketInfo: TicketFullInfo): string {
     return `# 🎯 STARLIMS Ticket Solution Request
 
 ## 📋 Ticket Details
@@ -838,6 +874,75 @@ Please provide:
 3. Code changes needed (if applicable)
 4. Testing recommendations
 5. Any STARLIMS items that need to be modified`;
+  }
+
+  function sanitizeTicketDocumentSegment(value: string | undefined, fallback: string): string {
+    const normalizedValue = (value || "")
+      .trim()
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLocaleLowerCase();
+
+    return normalizedValue || fallback;
+  }
+
+  function createTicketStackTraceDocumentUri(ticket: TicketReference): vscode.Uri {
+    const safeServerName = sanitizeTicketDocumentSegment(ticket.serverName || getCurrentStarlimsServerName(), "default-server");
+    const safeTitle = sanitizeTicketDocumentSegment(ticket.title, `ticket-${ticket.id}`);
+
+    return vscode.Uri.from({
+      scheme: TICKET_STACKTRACE_SCHEME,
+      path: `/${safeServerName}/ticket-${ticket.id}-${safeTitle}.log`
+    });
+  }
+
+  function buildTicketStackTraceDocument(ticket: TicketReference, ticketInfo: TicketFullInfo): string {
+    const headerLines = [
+      `Ticket #${ticket.id}${ticket.title ? ` - ${ticket.title}` : ""}`,
+      `Server: ${ticket.serverName || getCurrentStarlimsServerName()}`,
+      ticket.statusName ? `Status: ${ticket.statusName}` : undefined,
+      ticket.assignedTo ? `Assigned to: ${ticket.assignedTo}` : undefined,
+      `Retrieved: ${new Date().toLocaleString()}`
+    ].filter((line): line is string => Boolean(line));
+
+    return [
+      ...headerLines,
+      "",
+      "--------------------------------------------------------------------------------",
+      "",
+      ticketInfo.stackTrace || "No stack trace available for this ticket."
+    ].join("\n");
+  }
+
+  async function showTicketStackTrace(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
+    const selectedTreeItem = ticketsTreeView?.selection?.[0];
+    const selectedTicket = item instanceof TicketTreeItem
+      ? item.ticket
+      : item || selectedTreeItem?.ticket || (activeTicket ? { ...activeTicket } : undefined);
+
+    if (!selectedTicket) {
+      vscode.window.showInformationMessage("Select a ticket first.");
+      return;
+    }
+
+    const ticketToInspect = normalizeTicketReference(selectedTicket);
+    const ticketInfo = await enterpriseService.getTicketFullInfo(ticketToInspect.id);
+
+    if (!ticketInfo) {
+      vscode.window.showErrorMessage(`Could not retrieve stacktrace information for ticket #${ticketToInspect.id}.`);
+      return;
+    }
+
+    const uri = createTicketStackTraceDocumentUri(ticketToInspect);
+    ticketStackTraceContentProvider.update(uri, buildTicketStackTraceDocument(ticketToInspect, ticketInfo));
+
+    const document = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(document, {
+      preview: false,
+      preserveFocus: false
+    });
+
+    outputChannel.appendLine(`[TicketManagement] Opened stacktrace viewer for ticket #${ticketToInspect.id}`);
   }
 
   async function setActiveTicketSelection(ticket: TicketOverview | TicketReference, silent: boolean = false): Promise<void> {
@@ -2326,6 +2431,13 @@ Please provide:
   );
 
   vscode.commands.registerCommand(
+    "STARLIMS.ViewTicketStackTrace",
+    async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
+      await showTicketStackTrace(item);
+    }
+  );
+
+  vscode.commands.registerCommand(
     "STARLIMS.SolveTicketWithCopilot",
     async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
       await solveTicketWithCopilot(item);
@@ -2377,6 +2489,15 @@ Please provide:
     vscode.workspace.registerTextDocumentContentProvider(
       "starlims",
       enterpriseTextContentProvider
+    )
+  );
+
+  ticketStackTraceContentProvider = new TicketStackTraceContentProvider();
+  context.subscriptions.push(ticketStackTraceContentProvider);
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(
+      TICKET_STACKTRACE_SCHEME,
+      ticketStackTraceContentProvider
     )
   );
 

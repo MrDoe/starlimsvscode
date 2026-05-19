@@ -13,6 +13,8 @@ import * as crypto from 'crypto';
 import {
   RemoteScriptExecutionOptions,
   RemoteScriptOutputType,
+  TicketDataDetails,
+  TicketFullInfo,
   TicketOverview,
   TicketStatusGroupName
 } from "./ticketManagementTypes";
@@ -494,60 +496,76 @@ export class EnterpriseService implements IEnterpriseService {
     return normalized.includes("unable to find method") || normalized.includes("method not found");
   }
 
-  private async getTicketDescriptionResult(
+  private normalizeTicketDataDetails(payload: unknown): TicketDataDetails {
+    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+      const envelope = payload as Record<string, unknown>;
+      const nestedArray = Array.isArray(envelope.data)
+        ? envelope.data
+        : (Array.isArray(envelope.DATA) ? envelope.DATA : undefined);
+
+      if (nestedArray) {
+        return this.normalizeTicketDataDetails(nestedArray);
+      }
+
+      return {
+        stackTrace: this.normalizeString(
+          envelope.stackTrace ?? envelope.STACKTRACE ?? envelope.ticketStackTrace ?? envelope.TICKET_STACKTRACE
+        ) || "",
+        description: this.normalizeString(
+          envelope.formatedDescriptions
+          ?? envelope.FORMATEDDESCRIPTIONS
+          ?? envelope.formattedDescriptions
+          ?? envelope.FORMATTEDDESCRIPTIONS
+          ?? envelope.description
+          ?? envelope.DESCRIPTION
+        ) || ""
+      };
+    }
+
+    if (Array.isArray(payload)) {
+      return {
+        stackTrace: this.normalizeString(payload[0]) || "",
+        description: this.normalizeString(payload[1]) || ""
+      };
+    }
+
+    return {
+      stackTrace: "",
+      description: this.normalizeString(payload) || ""
+    };
+  }
+
+  private async getTicketDataResult(
     ticketId: number,
     stackTraceId: number | undefined
-  ): Promise<EnterpriseOperationResult<string | undefined>> {
+  ): Promise<EnterpriseOperationResult<TicketDataDetails>> {
     const result = await this.executeRemoteScriptResult(TICKET_DATA_SCRIPT_URI, {
       parameters: [stackTraceId ?? -1, ticketId]
     });
     if (!result.ok) {
       return {
         ok: false,
-        error: result.error ?? `Could not retrieve description for ticket #${ticketId}.`
-      };
-    }
-
-    let descriptionPayload: unknown = result.data;
-    if (descriptionPayload && typeof descriptionPayload === "object" && !Array.isArray(descriptionPayload)) {
-      const envelope = descriptionPayload as Record<string, unknown>;
-      const nestedArray = Array.isArray(envelope.data)
-        ? envelope.data
-        : (Array.isArray(envelope.DATA) ? envelope.DATA : undefined);
-
-      if (nestedArray) {
-        descriptionPayload = nestedArray;
-      } else {
-        const directDescription = this.normalizeString(
-          envelope.description ?? envelope.DESCRIPTION ?? envelope.data ?? envelope.DATA
-        );
-        return { ok: true, data: directDescription };
-      }
-    }
-
-    if (Array.isArray(descriptionPayload)) {
-      if (descriptionPayload.length < 2) {
-        return { ok: true, data: undefined };
-      }
-
-      return {
-        ok: true,
-        data: this.normalizeString(descriptionPayload[1])
+        error: result.error ?? `Could not retrieve ticket details for ticket #${ticketId}.`
       };
     }
 
     return {
       ok: true,
-      data: this.normalizeString(descriptionPayload)
+      data: this.normalizeTicketDataDetails(result.data)
     };
   }
 
   public async getTicketDescription(ticketId: number, stackTraceId: number | undefined): Promise<string | undefined> {
-    const result = await this.getTicketDescriptionResult(ticketId, stackTraceId);
-    return result.ok ? result.data : undefined;
+    const result = await this.getTicketDataResult(ticketId, stackTraceId);
+    return result.ok ? (result.data?.description || undefined) : undefined;
   }
 
-  public async getTicketFullInfo(ticketId: number): Promise<{ description: string; stackTrace: string; comments: string } | null> {
+  public async getTicketStackTrace(ticketId: number, stackTraceId: number | undefined): Promise<string | undefined> {
+    const result = await this.getTicketDataResult(ticketId, stackTraceId);
+    return result.ok ? (result.data?.stackTrace || undefined) : undefined;
+  }
+
+  public async getTicketFullInfo(ticketId: number): Promise<TicketFullInfo | null> {
     // Get the ticket to retrieve stackTraceId
     const ticketsResult = await this.getTicketsResult();
     if (!ticketsResult.ok) {
@@ -560,8 +578,10 @@ export class EnterpriseService implements IEnterpriseService {
       return null;
     }
 
-    // Get description and stack trace
-    const description = await this.getTicketDescription(ticketId, ticket.stackTraceId);
+    const ticketDataResult = await this.getTicketDataResult(ticketId, ticket.stackTraceId);
+    const ticketData = ticketDataResult.ok && ticketDataResult.data
+      ? ticketDataResult.data
+      : { description: "", stackTrace: "" };
     
     // Get comments
     let comments = "";
@@ -581,8 +601,8 @@ export class EnterpriseService implements IEnterpriseService {
     }
 
     return {
-      description: description || "",
-      stackTrace: description || "",
+      description: ticketData.description,
+      stackTrace: ticketData.stackTrace,
       comments
     };
   }
