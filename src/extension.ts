@@ -472,6 +472,37 @@ export async function activate(context: vscode.ExtensionContext) {
     return undefined;
   }
 
+  function getEnterpriseItemLanguage(item: TreeEnterpriseItem): string {
+    return item.language || item.scriptLanguage || "";
+  }
+
+  function findOpenLocalDocument(item: TreeEnterpriseItem, serverWorkspacePath: string): vscode.TextDocument | undefined {
+    const candidatePaths = new Set<string>();
+
+    if (item.filePath) {
+      candidatePaths.add(normalizePathForComparison(item.filePath));
+    }
+
+    const itemLanguage = getEnterpriseItemLanguage(item);
+    const savedLocalPath = getSavedLocalPath(item, itemLanguage);
+    if (savedLocalPath) {
+      candidatePaths.add(normalizePathForComparison(savedLocalPath));
+    }
+
+    if (itemLanguage) {
+      const expectedLocalPath = enterpriseService.getLocalFilePath(item.uri, serverWorkspacePath, itemLanguage);
+      candidatePaths.add(normalizePathForComparison(expectedLocalPath));
+    }
+
+    if (candidatePaths.size === 0) {
+      return undefined;
+    }
+
+    return vscode.workspace.textDocuments.find(
+      (document) => !document.isUntitled && candidatePaths.has(normalizePathForComparison(document.uri.fsPath))
+    );
+  }
+
   function getCurrentStarlimsUser(): string {
     return enterpriseService.getCurrentUser() || activeUser || user || "";
   }
@@ -2627,7 +2658,11 @@ Please provide:
         }
       }
 
-      if (resolvedItem?.type === EnterpriseItemType.Table) {
+      if (!resolvedItem) {
+        return;
+      }
+
+      if (resolvedItem.type === EnterpriseItemType.Table) {
         const localFilePath = await enterpriseService.getTableLocalCopy(resolvedItem.uri, serverWorkspacePath);
         if (localFilePath) {
           const uri = vscode.Uri.file(localFilePath);
@@ -2636,17 +2671,27 @@ Please provide:
         return;
       }
 
+      const openDocument = findOpenLocalDocument(resolvedItem, serverWorkspacePath);
+      if (openDocument?.isDirty) {
+        resolvedItem.filePath = openDocument.uri.fsPath;
+        await vscode.window.showTextDocument(openDocument, { preview: false });
+        return;
+      }
+
       // get local copy of the item
-      const localFilePath = await enterpriseService.getLocalCopy(
-        item.uri ||
-        (item.path
+      const targetUri = resolvedItem.uri ||
+        (item?.path
           ? item.path.slice(0, item.path.lastIndexOf("."))
-          : undefined),
+          : undefined);
+      const targetLanguage = getEnterpriseItemLanguage(resolvedItem);
+      const localFilePath = await enterpriseService.getLocalCopy(
+        targetUri,
         serverWorkspacePath,
         false,
-        item.language
+        targetLanguage
       );
       if (localFilePath) {
+        resolvedItem.filePath = localFilePath;
         let uri: vscode.Uri = vscode.Uri.file(localFilePath);
         await vscode.window.showTextDocument(uri);
       }
@@ -2720,11 +2765,17 @@ Please provide:
     const serverWorkspacePath = enterpriseService.getServerWorkspacePath(rootPath!);
 
     // check if the item is already open, switch the tab if it is
-    const openDocument = vscode.workspace.textDocuments.find(
-      (doc) => doc.uri.fsPath.toLowerCase() === item.filePath?.toLowerCase()
-    );
+    const openDocument = findOpenLocalDocument(item, serverWorkspacePath);
 
     if (openDocument) {
+      item.filePath = openDocument.uri.fsPath;
+
+      if (openDocument.isDirty) {
+        await vscode.window.showTextDocument(openDocument, { preview: false });
+        highlightGlobalSearchMatches(item, vscode.Uri.file(openDocument.uri.fsPath));
+        return;
+      }
+
       // reload document, if it is a log file
       if (openDocument.uri.toString().endsWith(".log")) {
         // get the remote URI
@@ -2744,7 +2795,7 @@ Please provide:
       } else {
         // other file types, just show the document
         await vscode.window.showTextDocument(openDocument);
-        highlightGlobalSearchMatches(item, vscode.Uri.file(item.filePath!));
+        highlightGlobalSearchMatches(item, vscode.Uri.file(openDocument.uri.fsPath));
       }
     } else {
       // get local copy of the item
@@ -2752,7 +2803,7 @@ Please provide:
         item.uri,
         serverWorkspacePath,
         false,
-        item.language
+        getEnterpriseItemLanguage(item)
       );
 
       // open the item locally

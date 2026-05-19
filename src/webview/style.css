@@ -128,17 +128,84 @@ vscode-data-grid-cell[grid-column="1"] {
   margin-bottom: 0.8rem;
 }
 
+.td-btn {
+  margin-left: 1rem;
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 160ms ease, background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
+.td-btn:hover {
+  transform: translateY(-1px);
+}
+
+.td-btn:active {
+  transform: translateY(0);
+}
+
+.td-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.35), 0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+.td-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  transform: none;
+}
+
+.td-btn-primary {
+  color: #08131a;
+  background: linear-gradient(135deg, #68d9ff 0%, #2aa5d6 100%);
+  border-color: rgba(133, 227, 255, 0.35);
+}
+
+.td-btn-primary:hover {
+  background: linear-gradient(135deg, #7ae1ff 0%, #36b1e4 100%);
+}
+
+.td-btn-secondary {
+  color: #ebf4ff;
+  background: linear-gradient(135deg, #344758 0%, #293a48 100%);
+  border-color: rgba(146, 183, 214, 0.18);
+}
+
+.td-btn-secondary:hover {
+  background: linear-gradient(135deg, #3b5266 0%, #314655 100%);
+}
+
+.td-icon-btn {
+  width: 1.5rem;
+  height: 1.5rem;
+  min-width: 1.5rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 0.95rem;
+}
+
 .td-form-grid {
   display: grid;
-  grid-template-columns: 120px 1fr;
+  grid-template-columns: max-content minmax(240px, 420px);
   gap: 0.6rem 1rem;
   align-items: center;
+  justify-content: start;
 }
 
 .td-form-grid label {
   color: #aaa;
   font-size: 0.85rem;
-  text-align: right;
+  text-align: left;
 }
 
 .td-form-grid input {
@@ -215,8 +282,14 @@ vscode-data-grid-cell[grid-column="1"] {
 }
 
 .td-del-btn {
-  --button-hover-background: #5a1d1d;
-  color: #e06060;
+  color: #ffd7d7;
+  background: linear-gradient(135deg, #7c2626 0%, #5f1d1d 100%);
+  border-color: rgba(255, 157, 157, 0.16);
+  box-shadow: 0 8px 20px rgba(75, 17, 17, 0.3);
+}
+
+.td-del-btn:hover {
+  background: linear-gradient(135deg, #8c2c2c 0%, #6d2121 100%);
 }
 
 #loading-indicator {
