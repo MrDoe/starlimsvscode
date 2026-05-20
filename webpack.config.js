@@ -90,6 +90,10 @@ const webviewConfig = {
         {
           from: "./src/backend/SCM_API.sdp",
           to: path.resolve(__dirname, "dist")
+        },
+        {
+          from: "./resources/instructions",
+          to: path.resolve(__dirname, "dist/instructions")
         }
       ]
     })

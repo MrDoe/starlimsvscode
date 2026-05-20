@@ -74,6 +74,9 @@ Treat `npm test` as environment-dependent; it requires launching the VS Code ext
 | `src/test/runTest.ts` | Test harness launcher (`@vscode/test-electron`). |
 | `src/test/suite/index.ts` | Mocha test suite runner (looks for `**/*.test.js` under `out/test/`). |
 
+## Conventions
+
+
 ## Lint Baseline
 
 As of the last validated run, `npm run lint` passes with warnings only. Known baseline: **7 `curly` warnings in `src/providers/serverSelectorWebviewProvider.ts`**. Do not introduce new errors; fixing warnings is welcome but not required to pass.
