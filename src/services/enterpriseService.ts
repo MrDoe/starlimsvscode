@@ -1772,6 +1772,12 @@ export class EnterpriseService implements IEnterpriseService {
       case "PHONEFORMCODE":
       case "TABLETFORMCODE":
         return "FORMCODEBEHIND";
+      case "APPSS":
+        return "SS";
+      case "APPCS":
+        return "CS";
+      case "APPDS":
+        return "DS";
       default:
         return itemType;
     }

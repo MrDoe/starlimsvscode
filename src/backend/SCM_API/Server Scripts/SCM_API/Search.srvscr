@@ -397,6 +397,16 @@ sSQL := "select * from (";
 	and LAYERID = ?nLayerID?";
 :ENDIF;
 
+:IF sSQL == "select * from (";
+	oResult := CreateUDObject({
+		{"success", .T.},
+		{"data", CreateUDObject({
+			{"items", {}}
+		})}
+	});
+	:RETURN oResult;
+:ENDIF;
+
 /* remove the types from uri before ordering;
 sSQL += ") t order by REPLACE(REPLACE(REPLACE(REPLACE(t.uri, '/HTMLForms', ''), '/XML', ''), '/Guide', ''), '/CodeBehind', ''), t.name";
 

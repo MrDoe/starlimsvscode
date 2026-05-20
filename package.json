@@ -3,7 +3,7 @@
     "displayName":  "STARLIMS VS Code Extension",
     "description":  "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license":  "SEE LICENSE IN LICENSE.md",
-    "version":  "1.5.31",
+    "version":  "1.5.32",
     "icon":  "resources/extension/starlimsvscode.png",
     "publisher":  "Christoph Döllinger",
     "author":  {
@@ -1034,7 +1034,12 @@
                                            "uiTheme":  "vs-dark",
                                            "path":  "./themes/SSL Theme-color-theme.json"
                                        }
-                                   ]
+                                   ],
+                        "chatInstructions":  [
+                                                 {
+                                                     "path":  "./dist/instructions/starlims-workspace.instructions.md"
+                                                 }
+                                             ]
                     },
     "scripts":  {
                     "vscode:prepublish":  "npm run package",
