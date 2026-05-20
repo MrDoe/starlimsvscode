@@ -241,40 +241,63 @@ export class CheckedOutTreeDataProvider implements vscode.TreeDataProvider<TreeE
     return resourceUri;
   }
 
+  private getTagValue(node: any, tagName: string): string | undefined {
+    if (!node) {
+      return undefined;
+    }
+
+    const tags = node.getElementsByTagName(tagName);
+    if (tags?.length > 0) {
+      return tags[0]?.childNodes[0]?.nodeValue?.trim();
+    }
+
+    const lowerTagName = tagName.toLowerCase();
+    for (let i = 0; i < node.childNodes.length; i++) {
+      const child = node.childNodes[i];
+      if (child.nodeType === 1 && child.localName?.toLowerCase() === lowerTagName) {
+        return child.textContent?.trim();
+      }
+    }
+
+    return undefined;
+  }
+
   /**
    * Parse XML dataset string to create array of tree view data.
    * @param checkedOutItems XML dataset as string
    * @returns data object for tree view.
    */
-  getDataObject(checkedOutItems: string): any {
+  getDataObject(checkedOutItems: any): any {
+    if (typeof checkedOutItems !== "string") {
+      if (checkedOutItems && typeof checkedOutItems.data === "string") {
+        checkedOutItems = checkedOutItems.data;
+      } else {
+        checkedOutItems = String(checkedOutItems || "");
+      }
+    }
+
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(checkedOutItems, "text/xml");
-    const pendingCheckins = xmlDoc.getElementsByTagName("PendingCheckins");
+    let pendingCheckins = xmlDoc.getElementsByTagName("PendingCheckins");
+    if (!pendingCheckins.length) {
+      pendingCheckins = xmlDoc.getElementsByTagName("pendingcheckins");
+    }
     const data: TreeEnterpriseItem[] = [];
 
     for (let i = 0; i < pendingCheckins.length; i++) {
-      const childId = pendingCheckins[i].getElementsByTagName("CHILDID")[0]?.childNodes[0].nodeValue?.trim();
-      const childName = pendingCheckins[i].getElementsByTagName("CHILDNAME")[0]?.childNodes[0].nodeValue?.trim();
-      const checkedOutBy = pendingCheckins[i].getElementsByTagName("CHECKEDOUTBY")[0]?.childNodes[0].nodeValue?.trim();
-      const childType = pendingCheckins[i].getElementsByTagName("CHILDTYPE")[0]?.childNodes[0].nodeValue?.trim();
-      const parentID = pendingCheckins[i].getElementsByTagName("PARENTID")[0]?.childNodes[0].nodeValue?.trim();
-      let parentName = pendingCheckins[i].getElementsByTagName("ParentName")[0]?.childNodes[0].nodeValue?.trim();
-
-      if (!parentName) {
-        // issue #143: in this instance the dataset XML has PARENTNAME in all uppercase so added it here as a fallback
-        parentName = pendingCheckins[i].getElementsByTagName("PARENTNAME")[0]?.childNodes[0].nodeValue?.trim();
-      }
-
-      const parentType = pendingCheckins[i].getElementsByTagName("PARENTTYPE")[0]?.childNodes[0].nodeValue?.trim();
-      const checkedOutDate = pendingCheckins[i]
-        .getElementsByTagName("CHECKEDOUTDATE")[0]
-        ?.childNodes[0].nodeValue?.trim();
-      const scriptLanguage = pendingCheckins[i]
-        .getElementsByTagName("SCRIPTLANGUAGE")[0]
-        ?.childNodes[0].nodeValue?.trim();
-      const appCatName = pendingCheckins[i].getElementsByTagName("APPCATNAME")[0]?.childNodes[0].nodeValue?.trim();
-      const isSystem = pendingCheckins[i].getElementsByTagName("ISSYSTEM")[0]?.childNodes[0].nodeValue?.trim();
-      const language = pendingCheckins[i].getElementsByTagName("LANGID")[0]?.childNodes[0].nodeValue?.trim();
+      const row = pendingCheckins[i];
+      const childId = this.getTagValue(row, "CHILDID");
+      const childName = this.getTagValue(row, "CHILDNAME");
+      const checkedOutBy = this.getTagValue(row, "CHECKEDOUTBY");
+      const childType = this.getTagValue(row, "CHILDTYPE");
+      const parentID = this.getTagValue(row, "PARENTID");
+      let parentName = this.getTagValue(row, "ParentName") || this.getTagValue(row, "PARENTNAME");
+      const parentType = this.getTagValue(row, "PARENTTYPE");
+      const checkedOutDate = this.getTagValue(row, "CHECKEDOUTDATE");
+      const scriptLanguage = this.getTagValue(row, "SCRIPTLANGUAGE");
+      const appCatName = this.getTagValue(row, "APPCATNAME");
+      const isSystem = this.getTagValue(row, "ISSYSTEM");
+      const language = this.getTagValue(row, "LANGID");
 
       // create a tree like:
       // - "Applications" > parentName > "HTML Forms" > childName (for parentType = "APP" and scriptLanguage = "HTML")

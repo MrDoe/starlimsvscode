@@ -25,6 +25,18 @@ oResponse := CreateUDObject({
 	sItemType := Request:QueryString:itemType;
 :ENDIF;
 
+:IF Upper(sItemType) == "HTMLFORMXML" .OR. Upper(sItemType) == "XFDFORMXML" .OR. Upper(sItemType) == "PHONEFORMXML" .OR. Upper(sItemType) == "TABLETFORMXML";
+	sItemType := "FORMXML";
+:ENDIF;
+
+:IF Upper(sItemType) == "HTMLFORMCODE" .OR. Upper(sItemType) == "XFDFORMCODE" .OR. Upper(sItemType) == "PHONEFORMCODE" .OR. Upper(sItemType) == "TABLETFORMCODE";
+	sItemType := "FORMCODEBEHIND";
+:ENDIF;
+
+:IF Upper(sItemType) == "HTMLFORMGUIDE";
+	sItemType := "HTMLFORMGUIDE";
+:ENDIF;
+
 bExactMatch := .F.;
 :IF Request:QueryString:IsProperty("exactMatch");
 	bExactMatch := Request:QueryString:exactMatch == "true";
@@ -146,6 +158,54 @@ sSQL := "select * from (";
 
 :IF Empty(sItemType);
 	sSQL += " union ";
+:ENDIF;
+
+:IF sItemType == "HTMLFORMRESOURCES" .OR. Empty(sItemType);
+	sSQL += "select
+	f.DISPLAYTEXT as name,
+	'HTMLFORMRESOURCES' as type,
+	'/Applications/' + c.DISPLAYTEXT + '/' + a.DISPLAYTEXT + '/HTMLForms/Resources/' + f.DISPLAYTEXT as uri,
+	f.CHECKEDOUTBY as checkedOutBy,
+	'XML' as language,
+	'N' as isFolder,
+	f.FORMID as guid
+	from LIMSXFDFORMS f
+	join LIMSAPPLICATIONS a on a.APPID = f.APPID
+	join LIMSAPPCATEGORIES c on c.CATEGORYID = a.CATEGORYID
+	where " + sFormNameFilter;
+
+	:IF !Empty(sAppCatName);
+		sSQL += " and a.DISPLAYTEXT like '%" + limsstring(sAppCatName) + "%'";
+	:ENDIF;
+
+	sSQL += " and f.FORMTYPE = 'HTML'
+			  and f.LAYERID = ?nLayerID?";
+:ENDIF;
+
+:IF Empty(sItemType);
+	sSQL += " union ";
+:ENDIF;
+
+:IF sItemType == "XFDFORMRESOURCES" .OR. Empty(sItemType);
+	sSQL += "select
+	f.DISPLAYTEXT as name,
+	'XFDFORMRESOURCES' as type,
+	'/Applications/' + c.DISPLAYTEXT + '/' + a.DISPLAYTEXT + '/XFDForms/Resources/' + f.DISPLAYTEXT as uri,
+	f.CHECKEDOUTBY as checkedOutBy,
+	'XML' as language,
+	'N' as isFolder,
+	f.FORMID as guid
+	from LIMSXFDFORMS f
+	join LIMSAPPLICATIONS a on a.APPID = f.APPID
+	join LIMSAPPCATEGORIES c on c.CATEGORYID = a.CATEGORYID
+	where " + sFormNameFilter;
+
+	:IF !Empty(sAppCatName);
+		sSQL += " and a.DISPLAYTEXT like '%" + limsstring(sAppCatName) + "%'";
+	:ENDIF;
+
+	sSQL += " and f.FORMTYPE = 'XFD'
+			  and f.LAYERID = ?nLayerID?";
 :ENDIF;
 
 :IF sItemType == "SS" .OR. Empty(sItemType);

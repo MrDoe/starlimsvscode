@@ -53,6 +53,10 @@ const DEFAULT_COPILOT_TICKET_MEASURE_SYSTEM_PROMPT = [
   "Use the exact schema {\"title\":\"...\",\"description\":\"...\"}.",
   "The title must be short and actionable.",
   "The description must summarize the implemented changes in plain language.",
+  "Include the current date and time in the description.",
+  "List each changed file with its name and a brief one-line summary of what changed.",
+  "Include relevant diff snippets (truncated if needed) for each changed file.",
+  "Use a clear structure: date/time header, then a section per changed file with its diff.",
   "Do not use markdown or code fences."
 ].join("\n");
 const DEFAULT_SLVSCODE_COPILOT_INSTRUCTIONS = [
@@ -1747,25 +1751,40 @@ Please provide:
     return normalizedText.length > 0 ? truncateText(normalizedText, maxLength) : "";
   }
 
-  function buildTicketMeasureFallback(ticket: TicketReference, checkinReason: string): TicketMeasureDraft {
+  function buildTicketMeasureFallback(ticket: TicketReference, checkinReason: string, changeContext?: string): TicketMeasureDraft {
     const normalizedReason = stripTicketReferenceFromMessage(checkinReason, ticket);
     const fallbackTitle = sanitizeTicketMeasureField(
       normalizedReason || `Document changes for ticket #${ticket.id}`,
       MAX_TICKET_MEASURE_TITLE_LENGTH
     );
 
+    const now = new Date();
+    const dateTimeLine = `${now.toLocaleDateString("de-DE")} ${now.toLocaleTimeString("de-DE")}`;
+
+    const descriptionParts = [
+      `Date/Time: ${dateTimeLine}`,
+      "",
+      `Check-in message: ${normalizedReason || checkinReason.trim() || "Checked in from VSCode."}`
+    ];
+
+    if (changeContext) {
+      descriptionParts.push("", changeContext);
+    }
+
     return {
       title: fallbackTitle.length > 0 ? fallbackTitle : `Document changes for ticket #${ticket.id}`,
-      description: [
-        `Implemented changes for ticket #${ticket.id} ${ticket.title}.`,
-        `Check-in message: ${normalizedReason || checkinReason.trim() || "Checked in from VSCode."}`
-      ].join("\n\n")
+      description: descriptionParts.join("\n")
     };
   }
 
   function buildCopilotTicketMeasurePrompt(ticket: TicketReference, checkinReason: string, changeContext: string): string {
+    const now = new Date();
+    const dateTimeLine = `${now.toLocaleDateString("de-DE")} ${now.toLocaleTimeString("de-DE")}`;
+
     const sections = [
       DEFAULT_COPILOT_TICKET_MEASURE_SYSTEM_PROMPT,
+      "",
+      `Current date/time: ${dateTimeLine}`,
       "",
       `Ticket: #${ticket.id} ${ticket.title}`
     ];
@@ -1830,7 +1849,7 @@ Please provide:
     changeContext: string
   ): Promise<TicketMeasureDraft> {
     const options = getCommitMessageOptions();
-    const fallbackMeasure = buildTicketMeasureFallback(ticket, checkinReason);
+    const fallbackMeasure = buildTicketMeasureFallback(ticket, checkinReason, changeContext);
     if (options.generatorMode !== "copilot") {
       return fallbackMeasure;
     }

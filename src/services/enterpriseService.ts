@@ -1711,12 +1711,13 @@ export class EnterpriseService implements IEnterpriseService {
     itemType: string,
     isExactMatch: boolean = false
   ): Promise<EnterpriseOperationResult<EnterpriseItemRecord[]>> {
+    const normalizedItemType = this.normalizeSearchItemType(itemType.trim());
     const params = new URLSearchParams([
       ["itemName", itemName],
       ["exactMatch", String(isExactMatch)]
     ]);
-    if (itemType !== "") {
-      params.set("itemType", itemType);
+    if (normalizedItemType !== "") {
+      params.set("itemType", normalizedItemType);
     }
 
     const url = `${this.baseUrl}/SCM_API.Search.${this.urlSuffix}?${params}`;
@@ -1757,6 +1758,23 @@ export class EnterpriseService implements IEnterpriseService {
   public async searchForItemByGUID(guid: string, itemType: string): Promise<any> {
     // get item from GUID first
     const url = `${this.baseUrl}/SCM_API.GetItemByGUID.${this.urlSuffix}?GUID=${guid}&ItemType=${itemType}`;
+  }
+
+  private normalizeSearchItemType(itemType: string): string {
+    switch (itemType.toUpperCase()) {
+      case "HTMLFORMXML":
+      case "XFDFORMXML":
+      case "PHONEFORMXML":
+      case "TABLETFORMXML":
+        return "FORMXML";
+      case "HTMLFORMCODE":
+      case "XFDFORMCODE":
+      case "PHONEFORMCODE":
+      case "TABLETFORMCODE":
+        return "FORMCODEBEHIND";
+      default:
+        return itemType;
+    }
   }
   /**
    * Global search for items by occuring text
