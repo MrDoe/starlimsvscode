@@ -86,4 +86,46 @@ suite('StarlimsAutomationService', () => {
     assert.strictEqual(result.ok, false);
     assert.strictEqual(result.requiresLanguage, true);
   });
+
+  test('checkoutItem uses configured default form language', async () => {
+    let capturedLanguage: string | undefined;
+
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        checkOutItemResult: async (_uri, language) => {
+          capturedLanguage = language;
+          return { ok: true, data: true };
+        },
+        getEnterpriseItemsResult: async () => ({
+          ok: true,
+          data: [
+            {
+              name: 'frmPatient',
+              type: EnterpriseItemType.HTMLFormCode,
+              uri: '/Applications/Lab/Forms/HTML/frmPatient'
+            }
+          ]
+        }),
+        getLocalCopyResult: async (_uri, _workspaceRoot, language) => ({
+          ok: true,
+          data: {
+            code: 'function sample() { return true; }',
+            language: language || 'GER',
+            localFilePath: path.join('C:/workspace/SLVSCODE', 'sample.js')
+          }
+        })
+      }),
+      {
+        getDefaultFormLanguage: () => 'GER',
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE'
+      }
+    );
+
+    const result = await automationService.checkoutItem('/Applications/Lab/Forms/HTML/frmPatient', undefined);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(capturedLanguage, 'GER');
+    assert.strictEqual(result.language, 'GER');
+  });
 });

@@ -84,6 +84,7 @@ export class EnterpriseTreeDataProvider implements vscode.TreeDataProvider<TreeE
    */
   public async getChildren(item?: TreeEnterpriseItem): Promise<TreeEnterpriseItem[]> {
     const _this = this;
+    const parentItem = item;
 
     // load mode - load the current node's children
     if (this.dataMode === "LOAD" || this.dataMode === "REFRESH") {
@@ -133,6 +134,7 @@ export class EnterpriseTreeDataProvider implements vscode.TreeDataProvider<TreeE
           : newItem.label;
         newItem.checkedOutBy = item.checkedOutBy;
         newItem.resourceUri = _this.getItemResource(item);
+        newItem.parent = parentItem;
 
         // add the new item to the tree
         _this.treeItems.push(newItem);
@@ -153,9 +155,18 @@ export class EnterpriseTreeDataProvider implements vscode.TreeDataProvider<TreeE
   }
 
   /**
-   * Returns the parent of the given element or undefined if no element is passed.
+   * Returns the parent of the given element.
    * @param element The element to return the parent for.
-   * @returns The parent of the given element or undefined if no element is passed.
+   * @returns The parent of the given element or undefined.
+   */
+  getParent(element: TreeEnterpriseItem): TreeEnterpriseItem | undefined {
+    return element.parent;
+  }
+
+  /**
+   * Returns the tree item UI model for the given element.
+   * @param item The element to render.
+   * @returns The tree item for the element.
    */
   getTreeItem(item: TreeEnterpriseItem): vscode.TreeItem {
     item.command = {
@@ -1035,6 +1046,16 @@ export class EnterpriseTreeDataProvider implements vscode.TreeDataProvider<TreeE
         tableDbNode?.children?.push(tableNode);
       }
     }
+    const setParentRelationships = (items: TreeEnterpriseItem[], parent?: TreeEnterpriseItem): void => {
+      for (const treeItem of items) {
+        treeItem.parent = parent;
+        if (treeItem.children && treeItem.children.length > 0) {
+          setParentRelationships(treeItem.children, treeItem);
+        }
+      }
+    };
+
+    setParentRelationships(returnItems);
     return returnItems;
   }
 }
@@ -1057,6 +1078,7 @@ export class TreeEnterpriseItem extends vscode.TreeItem {
   iconPath?: vscode.TreeItem["iconPath"];
   globalSearchTerm?: string | undefined;
   color?: string | undefined;
+  parent?: TreeEnterpriseItem | undefined;
 
   constructor(
     type: EnterpriseItemType,

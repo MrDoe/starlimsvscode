@@ -37,13 +37,13 @@ const globalCodeSearchInputSchema = z.object({
 
 const getItemCodeInputSchema = z.object({
   uri: z.string().describe("STARLIMS item URI."),
-  language: z.string().optional().describe("Optional form language identifier when reading form code."),
+  language: z.string().optional().describe("Optional form language identifier when reading form code. Defaults to GER for form items when omitted."),
   maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return from the code body.")
 });
 
 const checkoutItemInputSchema = z.object({
   uri: z.string().describe("STARLIMS item URI."),
-  language: z.string().optional().describe("Optional form language identifier for form checkout.")
+  language: z.string().optional().describe("Optional form language identifier for form checkout. Defaults to GER for form items when omitted.")
 });
 
 const getTableDefinitionInputSchema = z.object({

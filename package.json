@@ -3,7 +3,7 @@
     "displayName":  "STARLIMS VS Code Extension",
     "description":  "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license":  "SEE LICENSE IN LICENSE.md",
-    "version":  "1.5.18",
+    "version":  "1.5.19",
     "icon":  "resources/extension/starlimsvscode.png",
     "publisher":  "Christoph Döllinger",
     "author":  {
@@ -360,10 +360,6 @@
                                              "command":  "STARLIMS.RenameTicket",
                                              "title":  "Rename ticket",
                                              "icon":  "$(edit)"
-                                         },
-                                         {
-                                             "command":  "STARLIMS.SelectActiveTicket",
-                                             "title":  "Select as active ticket"
                                          }
                                      ],
                         "keybindings":  [
@@ -622,11 +618,6 @@
                                                                     "group":  "addRemove"
                                                                 },
                                                                 {
-                                                                    "command":  "STARLIMS.SelectActiveTicket",
-                                                                    "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == ticket || viewItem == activeTicket)",
-                                                                    "group":  "navigation"
-                                                                },
-                                                                {
                                                                     "command":  "STARLIMS.UndertakeTicket",
                                                                     "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == ticket || viewItem == activeTicket) \u0026\u0026 viewItem != lockedTicket",
                                                                     "group":  "navigation"
@@ -836,8 +827,8 @@
                                                                                             },
                                                                      "STARLIMS.defaultFormLanguage":  {
                                                                                                           "type":  "string",
-                                                                                                          "default":  "",
-                                                                                                          "description":  "Default language to use when checking out STARLIMS form items."
+                                                                                                          "default":  "GER",
+                                                                                                          "description":  "Default language to use when checking out STARLIMS form items. Defaults to GER."
                                                                                                       },
                                                                      "STARLIMS.mcp.enabled":  {
                                                                                                   "type":  "boolean",

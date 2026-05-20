@@ -20,7 +20,7 @@ import { CheckedOutTreeDataProvider } from "./providers/checkedOutTreeDataProvid
 import { TicketTreeItem, TicketsTreeDataProvider } from "./providers/ticketsTreeDataProvider";
 import { ServerSelectorWebviewProvider, ServerConfig } from "./providers/serverSelectorWebviewProvider";
 import { GitService } from "./services/gitService";
-import { TicketFullInfo, TicketMeasureDraft, TicketOverview, TicketReference } from "./services/ticketManagementTypes";
+import { TicketFullInfo, TicketMeasureDraft, TicketOverview, TicketReference, TicketStatusGroupName } from "./services/ticketManagementTypes";
 import { TicketStackTraceContentProvider } from "./providers/ticketStackTraceContentProvider";
 import * as crypto from 'crypto';
 import { promisify } from "util";
@@ -93,6 +93,7 @@ const DEFAULT_SLVSCODE_COPILOT_INSTRUCTIONS = [
   "1. Locate the item with STARLIMS search or tree browsing.",
   "2. Read the item code through STARLIMS MCP to confirm the current authoritative version.",
   "3. Check out the item through STARLIMS MCP when edits are needed.",
+  "   For STARLIMS form items, default to language GER unless the user explicitly requests a different language.",
   "4. Edit the synced local file in this workspace.",
   "5. Use local search as a secondary source for cross-file impact analysis after the item has been identified.",
   "",
@@ -249,6 +250,7 @@ function ensureSLVSCODEStarlimsAgent(slvscodePath: string): void {
       "Use the STARLIMS MCP tools as the authoritative source for STARLIMS browse, search, code retrieval, and checkout operations.",
       "Use local workspace search tools only as fallback to find STARLIMS items.",
       "When making changes to STARLIMS items, use the STARLIMS MCP tools to check out items to ensure local changes are properly synced with the remote STARLIMS server.",
+      "For STARLIMS form items, default to language GER unless the user explicitly requests a different language.",
       "Use the table-specific MCP tools for table checkout, check-in, add, and edit operations when working with STARLIMS table definitions.",
       ""
     ].join("\n"),
@@ -290,6 +292,7 @@ export async function activate(context: vscode.ExtensionContext) {
   let expressServer: ExpressServer | undefined;
   let enterpriseService!: EnterpriseService;
   let enterpriseTreeProvider!: EnterpriseTreeDataProvider;
+  let enterpriseTreeView: vscode.TreeView<TreeEnterpriseItem> | undefined;
   let ticketsTreeDataProvider!: TicketsTreeDataProvider;
   let ticketStackTraceContentProvider!: TicketStackTraceContentProvider;
   let ticketsTreeView: vscode.TreeView<TicketTreeItem> | undefined;
@@ -380,19 +383,21 @@ export async function activate(context: vscode.ExtensionContext) {
 
   function resolveDefaultFormLanguage(): string | undefined {
     const latestConfig = vscode.workspace.getConfiguration("STARLIMS");
-    const configuredLanguage = (latestConfig.get<string>("defaultFormLanguage", "") || "").trim();
-    if (!configuredLanguage) {
-      return undefined;
+    const configuredLanguage = (latestConfig.get<string>("defaultFormLanguage", "GER") || "").trim();
+    const fallbackLanguage = configuredLanguage || "GER";
+
+    if (languages.length === 0) {
+      return fallbackLanguage;
     }
 
     const matchingLanguage = languages.find((languageOption) => {
       const label = typeof languageOption.label === "string" ? languageOption.label : "";
       const description = typeof languageOption.description === "string" ? languageOption.description : "";
-      return label.localeCompare(configuredLanguage, undefined, { sensitivity: "accent" }) === 0 ||
-        description.localeCompare(configuredLanguage, undefined, { sensitivity: "accent" }) === 0;
+      return label.localeCompare(fallbackLanguage, undefined, { sensitivity: "accent" }) === 0 ||
+        description.localeCompare(fallbackLanguage, undefined, { sensitivity: "accent" }) === 0;
     });
 
-    return matchingLanguage?.label;
+    return matchingLanguage?.label || fallbackLanguage;
   }
 
   async function resolveCheckoutTarget(item: TreeEnterpriseItem | vscode.Uri | { path?: string; fsPath?: string } | undefined): Promise<TreeEnterpriseItem | undefined> {
@@ -597,6 +602,74 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     void vscode.commands.executeCommand("setContext", TICKET_TITLE_FILTER_CONTEXT_KEY, hasActiveFilter);
+  }
+
+  async function expandEnterpriseSearchResults(): Promise<void> {
+    if (!enterpriseTreeView) {
+      return;
+    }
+
+    const rootItems = await enterpriseTreeProvider.getChildren();
+
+    const getDeepestVisibleDescendant = (item: TreeEnterpriseItem): TreeEnterpriseItem => {
+      let currentItem = item;
+      while (currentItem.children && currentItem.children.length > 0) {
+        currentItem = currentItem.children[0];
+      }
+
+      return currentItem;
+    };
+
+    for (const rootItem of rootItems) {
+      const revealTarget = rootItem.collapsibleState === vscode.TreeItemCollapsibleState.None
+        ? rootItem
+        : getDeepestVisibleDescendant(rootItem);
+
+      await enterpriseTreeView.reveal(revealTarget, {
+        select: false,
+        focus: false,
+        expand: true
+      });
+    }
+  }
+
+  async function focusTicketInTicketsTree(ticketId: number, collapseStatusGroupName?: TicketStatusGroupName): Promise<void> {
+    if (!ticketsTreeView || !ticketsTreeDataProvider) {
+      return;
+    }
+
+    const ticketItem = await ticketsTreeDataProvider.findTicketItem(ticketId);
+    if (!ticketItem) {
+      return;
+    }
+
+    const revealOptions = {
+      select: true,
+      focus: true,
+      expand: 1
+    };
+
+    if (!collapseStatusGroupName) {
+      await ticketsTreeView.reveal(ticketItem, revealOptions);
+      return;
+    }
+
+    const groupItem = await ticketsTreeDataProvider.findStatusGroupItem(collapseStatusGroupName);
+
+    try {
+      if (groupItem?.children?.length) {
+        await ticketsTreeView.reveal(groupItem, {
+          select: true,
+          focus: true,
+          expand: true
+        });
+        await vscode.commands.executeCommand("list.collapse");
+      }
+    } catch {
+      // Fall back to revealing the ticket even if targeted collapse is unavailable.
+    }
+
+    await ticketsTreeView.reveal(ticketItem, revealOptions);
   }
 
   async function refreshCheckedOutItems(includeAllUsers: boolean = false): Promise<void> {
@@ -959,6 +1032,7 @@ Please provide:
   async function undertakeTicket(ticket: TicketOverview | TicketReference): Promise<void> {
     const normalizedTicket = normalizeTicketReference(ticket);
     const currentStarlimsUser = getCurrentStarlimsUser();
+    const sourceStatusGroupName = "statusGroupName" in ticket ? ticket.statusGroupName : undefined;
     
     // Check if ticket is already being worked on by another user
     if (ticket instanceof Object && 'statusGroupName' in ticket && ticket.statusGroupName === "In Bearbeitung" && 
@@ -991,6 +1065,7 @@ Please provide:
     await setActiveTicketSelection(normalizedTicket, true);
     if (ticketsTreeDataProvider) {
       ticketsTreeDataProvider.refresh();
+      await focusTicketInTicketsTree(normalizedTicket.id, sourceStatusGroupName);
     }
     if (checkedOutTreeDataProvider) {
       checkedOutTreeDataProvider.setActiveTicket(normalizedTicket.id, normalizedTicket.title);
@@ -2317,7 +2392,11 @@ Please provide:
 
   // register a custom tree data provider for the STARLIMS enterprise designer explorer
   enterpriseTreeProvider = new EnterpriseTreeDataProvider(enterpriseService);
-  vscode.window.registerTreeDataProvider("STARLIMSMainTree", enterpriseTreeProvider);
+  enterpriseTreeView = vscode.window.createTreeView("STARLIMSMainTree", {
+    treeDataProvider: enterpriseTreeProvider,
+    showCollapseAll: false
+  });
+  context.subscriptions.push(enterpriseTreeView);
 
   // register a custom tree data provider for the STARLIMS checked out items
   let checkedOutItems = await enterpriseService.getCheckedOutItems(false);
@@ -2392,18 +2471,6 @@ Please provide:
     async () => {
       ticketsTreeDataProvider.setTitleFilter("");
       updateTicketTreeFilterUi();
-    }
-  );
-
-  vscode.commands.registerCommand(
-    "STARLIMS.SelectActiveTicket",
-    async (item: TicketTreeItem | TicketOverview | undefined) => {
-      const ticket = item instanceof TicketTreeItem ? item.ticket : item;
-      if (!ticket) {
-        return;
-      }
-
-      await setActiveTicketSelection(ticket);
     }
   );
 
@@ -3322,6 +3389,7 @@ Please provide:
       }
       executeWithProgress(async () => {
         await enterpriseTreeProvider.search(itemName, "", false, false);
+        await expandEnterpriseSearchResults();
       }, "Searching STARLIMS Enterprise...");
     }
   );
@@ -4171,6 +4239,7 @@ Please provide:
           async (progress, token) => {
             // find all items matching the search term
             await enterpriseTreeProvider.search(searchTerm, itemTypesString, false, true);
+            await expandEnterpriseSearchResults();
           }
         );
       }
