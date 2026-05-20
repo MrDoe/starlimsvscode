@@ -52,7 +52,8 @@ suite('StarlimsAutomationService', () => {
         getDefaultFormLanguage: () => undefined,
         getMaxCodeCharacters: () => 20000,
         getMaxItems: () => 1,
-        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE'
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
       }
     );
 
@@ -81,7 +82,8 @@ suite('StarlimsAutomationService', () => {
         getDefaultFormLanguage: () => undefined,
         getMaxCodeCharacters: () => 20000,
         getMaxItems: () => 100,
-        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE'
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
       }
     );
 
@@ -122,7 +124,8 @@ suite('StarlimsAutomationService', () => {
         getDefaultFormLanguage: () => 'GER',
         getMaxCodeCharacters: () => 20000,
         getMaxItems: () => 100,
-        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE'
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
       }
     );
 
@@ -150,7 +153,8 @@ suite('StarlimsAutomationService', () => {
         getDefaultFormLanguage: () => 'GER',
         getMaxCodeCharacters: () => 20000,
         getMaxItems: () => 100,
-        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE'
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
       }
     );
 
@@ -183,7 +187,8 @@ suite('StarlimsAutomationService', () => {
         getDefaultFormLanguage: () => 'GER',
         getMaxCodeCharacters: () => 20000,
         getMaxItems: () => 100,
-        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE'
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
       }
     );
 

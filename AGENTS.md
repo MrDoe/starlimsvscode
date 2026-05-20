@@ -86,6 +86,11 @@ As of the last validated run, `npm run lint` passes with warnings only. Known ba
   - **Run Extension** (`F5`): uses `preLaunchTask: ${defaultBuildTask}` (the `npm: watch` task).
   - **Extension Tests**: uses `preLaunchTask: tasks: watch-tests` (runs both `npm: watch` and `npm: watch-tests`).
 
+## MCP Refresh Flow
+
+- The MCP server now exposes `refresh_checkout_tree` for refreshing the checked-out items tree in the GUI after server-side create/check-out operations.
+- The extension-side refresh path is `refreshCheckedOutItems(includeAllUsers)`, which calls `enterpriseService.getCheckedOutItems(...)` and updates `CheckedOutTreeDataProvider`.
+
 ## Release Artifacts
 
 - `dist/extension.js` — extension bundle.

@@ -13,6 +13,7 @@ export type StarlimsAutomationOptions = {
   getMaxCodeCharacters: () => number;
   getMaxItems: () => number;
   getWorkspaceRoot: () => string | undefined;
+  refreshCheckoutTree: (includeAllUsers: boolean) => Promise<void>;
 };
 
 export type StarlimsAutomationResult = {
@@ -68,6 +69,22 @@ export class StarlimsAutomationService {
       truncated: bounded.truncated,
       uri: normalizedUri
     };
+  }
+
+  public async refreshCheckoutTree(includeAllUsers: boolean = false): Promise<StarlimsAutomationResult> {
+    try {
+      await this.options.refreshCheckoutTree(includeAllUsers);
+      return {
+        ok: true,
+        includeAllUsers,
+        serverName: this.enterpriseService.getCurrentServerName()
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "Could not refresh the checked-out tree."
+      };
+    }
   }
 
   public async searchByName(
