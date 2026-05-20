@@ -678,8 +678,8 @@ export class TableDesignerPanel {
     };
 
     // bind top-level inputs
-    document.getElementById("prop-tableName").onchange = function() { if(model) model.tableName = this.value.trim(); };
-    document.getElementById("prop-description").onchange = function() { if(model) model.description = this.value.trim(); };
+    document.getElementById("prop-tableName").onchange = function() { if (model) model.tableName = this.value.trim(); };
+    document.getElementById("prop-description").onchange = function() { if (model) model.description = this.value.trim(); };
   </script>
 </body>
 </html>`;

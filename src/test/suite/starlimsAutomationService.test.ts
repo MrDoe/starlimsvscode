@@ -7,6 +7,7 @@ import { StarlimsAutomationService } from '../../services/starlimsAutomationServ
 function createEnterpriseServiceMock(overrides: Partial<EnterpriseService> = {}): EnterpriseService {
   return {
     languages: [],
+    checkInItem: async () => true,
     checkOutItemResult: async () => ({ ok: true, data: true }),
     getCurrentServerName: () => 'QA',
     getEnterpriseItemCodeResult: async () => ({
@@ -28,7 +29,9 @@ function createEnterpriseServiceMock(overrides: Partial<EnterpriseService> = {})
     }),
     getServerWorkspacePath: (workspaceRoot: string) => path.join(workspaceRoot, 'QA'),
     globalSearchResult: async () => ({ ok: true, data: [] }),
+    runScript: async () => ({ success: true, data: 'execution ok' }),
     searchForItemsResult: async () => ({ ok: true, data: [] }),
+    undoCheckOut: async () => true,
     ...overrides
   } as unknown as EnterpriseService;
 }
@@ -127,5 +130,65 @@ suite('StarlimsAutomationService', () => {
     assert.strictEqual(result.ok, true);
     assert.strictEqual(capturedLanguage, 'GER');
     assert.strictEqual(result.language, 'GER');
+  });
+
+  test('executeServerScript rejects data source items', async () => {
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        getEnterpriseItemsResult: async () => ({
+          ok: true,
+          data: [
+            {
+              name: 'dsInventory',
+              type: EnterpriseItemType.DataSource,
+              uri: '/DataSources/dsInventory'
+            }
+          ]
+        })
+      }),
+      {
+        getDefaultFormLanguage: () => 'GER',
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE'
+      }
+    );
+
+    const result = await automationService.executeServerScript('/DataSources/dsInventory', undefined, 'ARRAY', undefined);
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /not a STARLIMS server script/i);
+  });
+
+  test('checkinItem uses configured default form language', async () => {
+    let capturedLanguage: string | undefined;
+
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        checkInItem: async (_uri, _reason, language) => {
+          capturedLanguage = language;
+          return true;
+        },
+        getEnterpriseItemsResult: async () => ({
+          ok: true,
+          data: [
+            {
+              name: 'frmPatient',
+              type: EnterpriseItemType.HTMLFormCode,
+              uri: '/Applications/Lab/Forms/HTML/frmPatient'
+            }
+          ]
+        })
+      }),
+      {
+        getDefaultFormLanguage: () => 'GER',
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE'
+      }
+    );
+
+    const result = await automationService.checkinItem('/Applications/Lab/Forms/HTML/frmPatient', 'Updated form behavior', undefined);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(capturedLanguage, 'GER');
   });
 });

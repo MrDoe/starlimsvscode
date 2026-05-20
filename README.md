@@ -18,7 +18,7 @@ STARLIMS VS Code is an unofficial Visual Studio Code extension for working with 
 - Optionally detect new Git commits in the SLVSCODE repository and check matching checked-out STARLIMS script and data source files in with the Git commit message
 - Manage STARLIMS tickets (BMBH only) from VS Code by filtering queues, selecting an active ticket, undertaking, releasing, solving, and renaming tickets, and creating ticket measures during check-in
 - Use SSL and SLSQL language support, snippets, syntax highlighting, and the bundled SSL theme
-- Use a local MCP endpoint and Copilot-facing workspace files to enable agents to use the STARLIMS MCP for browse, search, code retrieval, and checkout operations when working with STARLIMS assets
+- Use a local MCP endpoint and Copilot-facing workspace files to enable agents to use the STARLIMS MCP for browse, search, code retrieval, checkout/check-in, runtime execution, and table operations when working with STARLIMS assets
 
 ## Requirements
 
@@ -98,8 +98,9 @@ The MCP integration is intentionally limited:
 
 - Binds to loopback only
 - Uses the currently selected STARLIMS server
-- Supports browse, search, code retrieval, table definition retrieval, checkout, check-in, item creation, table creation, and edit operations
-- Destructive actions such as delete, rename, move, and script execution are currently not exposed
+- Supports browse, search, available-language discovery, code retrieval, checkout, check-in, undo checkout, server script execution, data source execution, table definition retrieval, item creation, table creation, and edit operations
+- Extension integration tests can be triggered through MCP, but each run requires an explicit local user confirmation prompt before `npm test` starts
+- High-risk actions such as delete, rename, and move are still not exposed
 
 Related settings:
 
@@ -108,7 +109,7 @@ Related settings:
 - `STARLIMS.mcp.maxItems`: Limits browse and search result sizes
 - `STARLIMS.mcp.maxCodeCharacters`: Limits code returned by read requests
 
-When the local `SLVSCODE` workspace is created, the extension also seeds Copilot-facing helper files so agents can discover the STARLIMS MCP endpoint and prefer STARLIMS-native browse, search, code retrieval, checkout, item creation, and table management operations.
+When the local `SLVSCODE` workspace is created, the extension also seeds Copilot-facing helper files so agents can discover the STARLIMS MCP endpoint and prefer STARLIMS-native browse, search, code retrieval, checkout/check-in, runtime execution, and table management operations. Those instructions also tell agents to default STARLIMS form work to `GER` and to ask the user before running extension integration tests.
 
 ## Default Shortcuts
 

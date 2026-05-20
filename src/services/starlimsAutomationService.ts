@@ -1,6 +1,7 @@
 import { EnterpriseItemType } from "../providers/enterpriseTreeDataProvider";
 import { EnterpriseService } from "./enterpriseService";
 import { EnterpriseItemRecord } from "./starlimsAutomationTypes";
+import { RemoteScriptOutputType } from "./ticketManagementTypes";
 
 type StarlimsLanguageOption = {
   label: string;
@@ -28,6 +29,16 @@ const FORM_ITEM_TYPES = new Set<string>([
   EnterpriseItemType.HTMLFormCode,
   EnterpriseItemType.HTMLFormGuide,
   EnterpriseItemType.HTMLFormResources
+]);
+
+const SERVER_SCRIPT_ITEM_TYPES = new Set<string>([
+  EnterpriseItemType.ServerScript,
+  EnterpriseItemType.AppServerScript
+]);
+
+const DATA_SOURCE_ITEM_TYPES = new Set<string>([
+  EnterpriseItemType.DataSource,
+  EnterpriseItemType.AppDataSource
 ]);
 
 export class StarlimsAutomationService {
@@ -179,6 +190,41 @@ export class StarlimsAutomationService {
       truncated: bounded.truncated,
       uri: normalizedUri
     };
+  }
+
+  public async executeServerScript(
+    uri: string,
+    parameters: unknown[] | undefined,
+    outputType: RemoteScriptOutputType | undefined,
+    entryPoint: string | undefined,
+    maxCharacters?: number
+  ): Promise<StarlimsAutomationResult> {
+    return this.executeRemoteItem(
+      uri,
+      SERVER_SCRIPT_ITEM_TYPES,
+      "server script",
+      parameters,
+      outputType,
+      entryPoint,
+      maxCharacters
+    );
+  }
+
+  public async executeDataSource(
+    uri: string,
+    parameters: unknown[] | undefined,
+    outputType: RemoteScriptOutputType | undefined,
+    maxCharacters?: number
+  ): Promise<StarlimsAutomationResult> {
+    return this.executeRemoteItem(
+      uri,
+      DATA_SOURCE_ITEM_TYPES,
+      "data source",
+      parameters,
+      outputType,
+      undefined,
+      maxCharacters
+    );
   }
 
   public async getTableDefinition(
@@ -402,6 +448,94 @@ export class StarlimsAutomationService {
     };
   }
 
+  public async checkinItem(
+    uri: string,
+    reason: string,
+    language: string | undefined
+  ): Promise<StarlimsAutomationResult> {
+    const normalizedUri = uri.trim();
+    const normalizedReason = reason.trim();
+    if (!normalizedUri) {
+      return {
+        ok: false,
+        error: "The item URI cannot be empty."
+      };
+    }
+
+    if (!normalizedReason) {
+      return {
+        ok: false,
+        error: "The check-in reason cannot be empty."
+      };
+    }
+
+    const itemLookup = await this.enterpriseService.getEnterpriseItemsResult(normalizedUri);
+    const item = this.getExactItemMatch(itemLookup.data ?? [], normalizedUri);
+    const resolvedLanguage = await this.resolveItemLanguage(item, language);
+    if (!resolvedLanguage.ok) {
+      return resolvedLanguage;
+    }
+
+    const result = await this.enterpriseService.checkInItem(normalizedUri, normalizedReason, resolvedLanguage.language);
+    if (!result) {
+      return {
+        ok: false,
+        error: "Could not check in enterprise item.",
+        item: item ? this.mapItem(item) : undefined,
+        language: resolvedLanguage.language,
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: normalizedUri
+      };
+    }
+
+    return {
+      ok: true,
+      item: item ? this.mapItem(item) : undefined,
+      language: resolvedLanguage.language,
+      reason: normalizedReason,
+      serverName: this.enterpriseService.getCurrentServerName(),
+      uri: normalizedUri
+    };
+  }
+
+  public async undoCheckout(uri: string): Promise<StarlimsAutomationResult> {
+    const normalizedUri = uri.trim();
+    if (!normalizedUri) {
+      return {
+        ok: false,
+        error: "The item URI cannot be empty."
+      };
+    }
+
+    const result = await this.enterpriseService.undoCheckOut(normalizedUri);
+    if (!result) {
+      return {
+        ok: false,
+        error: "Could not undo checkout.",
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: normalizedUri
+      };
+    }
+
+    return {
+      ok: true,
+      serverName: this.enterpriseService.getCurrentServerName(),
+      uri: normalizedUri
+    };
+  }
+
+  public async listLanguages(maxItems?: number): Promise<StarlimsAutomationResult> {
+    const bounded = this.limitItems(await this.getAvailableLanguages(), maxItems);
+    return {
+      ok: true,
+      items: bounded.items,
+      limit: bounded.limit,
+      serverName: this.enterpriseService.getCurrentServerName(),
+      totalItems: bounded.totalItems,
+      truncated: bounded.truncated
+    };
+  }
+
   public async checkoutItem(uri: string, language: string | undefined): Promise<StarlimsAutomationResult> {
     const normalizedUri = uri.trim();
     if (!normalizedUri) {
@@ -421,7 +555,7 @@ export class StarlimsAutomationService {
 
     const itemLookup = await this.enterpriseService.getEnterpriseItemsResult(normalizedUri);
     const item = this.getExactItemMatch(itemLookup.data ?? [], normalizedUri);
-    const resolvedLanguage = await this.resolveCheckoutLanguage(item, language);
+    const resolvedLanguage = await this.resolveItemLanguage(item, language);
     if (!resolvedLanguage.ok) {
       return resolvedLanguage;
     }
@@ -461,6 +595,79 @@ export class StarlimsAutomationService {
       language: localCopyResult.data.language,
       localPath: localCopyResult.data.localFilePath,
       serverName: this.enterpriseService.getCurrentServerName(),
+      uri: normalizedUri
+    };
+  }
+
+  private async executeRemoteItem(
+    uri: string,
+    allowedTypes: Set<string>,
+    itemLabel: string,
+    parameters: unknown[] | undefined,
+    outputType: RemoteScriptOutputType | undefined,
+    entryPoint: string | undefined,
+    maxCharacters?: number
+  ): Promise<StarlimsAutomationResult> {
+    const normalizedUri = uri.trim();
+    if (!normalizedUri) {
+      return {
+        ok: false,
+        error: "The item URI cannot be empty."
+      };
+    }
+
+    const normalizedParameters = Array.isArray(parameters) ? parameters : [];
+    const normalizedEntryPoint = this.normalizeOptionalString(entryPoint);
+    const normalizedOutputType = outputType ?? "ARRAY";
+    const itemLookup = await this.enterpriseService.getEnterpriseItemsResult(normalizedUri);
+    const item = this.getExactItemMatch(itemLookup.data ?? [], normalizedUri);
+
+    if (item && !allowedTypes.has(item.type)) {
+      return {
+        ok: false,
+        error: `The requested URI is not a STARLIMS ${itemLabel}.`,
+        item: this.mapItem(item),
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: normalizedUri
+      };
+    }
+
+    const result = await this.enterpriseService.runScript(
+      normalizedUri,
+      normalizedParameters,
+      normalizedOutputType,
+      normalizedEntryPoint
+    );
+    if (!result?.success) {
+      return {
+        ok: false,
+        error: typeof result?.data === "string" && result.data.trim().length > 0
+          ? result.data.trim()
+          : `Could not execute ${itemLabel}.`,
+        entryPoint: normalizedEntryPoint,
+        item: item ? this.mapItem(item) : undefined,
+        outputType: normalizedOutputType,
+        parameters: normalizedParameters,
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: normalizedUri
+      };
+    }
+
+    const outputText = typeof result.data === "string"
+      ? result.data
+      : JSON.stringify(result.data, null, 2);
+    const bounded = this.limitCode(outputText, maxCharacters);
+    return {
+      ok: true,
+      entryPoint: normalizedEntryPoint,
+      item: item ? this.mapItem(item) : undefined,
+      maxCharacters: bounded.maxCharacters,
+      output: bounded.code,
+      outputType: normalizedOutputType,
+      parameters: normalizedParameters,
+      serverName: this.enterpriseService.getCurrentServerName(),
+      totalCharacters: bounded.totalCharacters,
+      truncated: bounded.truncated,
       uri: normalizedUri
     };
   }
@@ -529,7 +736,7 @@ export class StarlimsAutomationService {
     return Math.min(safeConfiguredMax, Math.max(minimum, Math.floor(requestedLimit)));
   }
 
-  private async resolveCheckoutLanguage(
+  private async resolveItemLanguage(
     item: EnterpriseItemRecord | undefined,
     language: string | undefined
   ): Promise<StarlimsAutomationResult & { language?: string }> {
@@ -552,7 +759,7 @@ export class StarlimsAutomationService {
     return {
       ok: false,
       availableLanguages: await this.getAvailableLanguages(),
-      error: "Checking out this form item requires a language. Provide the language explicitly or configure STARLIMS.defaultFormLanguage.",
+      error: "Working with this form item requires a language. Provide the language explicitly or configure STARLIMS.defaultFormLanguage.",
       item: this.mapItem(item),
       requiresLanguage: true,
       serverName: this.enterpriseService.getCurrentServerName(),

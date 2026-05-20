@@ -4,12 +4,15 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import * as z from "zod/v4";
 import { StarlimsAutomationResult, StarlimsAutomationService } from "./starlimsAutomationService";
+import { RemoteScriptOutputType } from "./ticketManagementTypes";
 
 type StarlimsMcpOptions = {
   getEnabled: () => boolean;
   getVersion: () => string;
   logError: (message: string, error?: unknown) => void;
   logInfo: (message: string) => void;
+  requestIntegrationTestPermission: (reason?: string) => Promise<{ granted: boolean; reason: string }>;
+  runIntegrationTests: () => Promise<StarlimsAutomationResult>;
 };
 
 const toolResultSchema = z.object({
@@ -46,6 +49,35 @@ const checkoutItemInputSchema = z.object({
   language: z.string().optional().describe("Optional form language identifier for form checkout. Defaults to GER for form items when omitted.")
 });
 
+const listLanguagesInputSchema = z.object({
+  maxItems: z.number().int().positive().optional().describe("Optional maximum number of languages to return.")
+});
+
+const executeServerScriptInputSchema = z.object({
+  uri: z.string().describe("STARLIMS server script URI."),
+  parameters: z.array(z.unknown()).optional().describe("Optional positional parameters passed to the server script."),
+  outputType: z.enum(["ARRAY", "JSON", "XML"]).optional().describe("Requested output type. Defaults to ARRAY."),
+  entryPoint: z.string().optional().describe("Optional procedure or entry point to invoke within the server script."),
+  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return from the execution output.")
+});
+
+const executeDataSourceInputSchema = z.object({
+  uri: z.string().describe("STARLIMS data source URI."),
+  parameters: z.array(z.unknown()).optional().describe("Optional positional parameters passed to the data source."),
+  outputType: z.enum(["ARRAY", "JSON", "XML"]).optional().describe("Requested output type. Defaults to ARRAY."),
+  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return from the execution output.")
+});
+
+const checkinItemInputSchema = z.object({
+  uri: z.string().describe("STARLIMS item URI."),
+  reason: z.string().describe("Check-in reason."),
+  language: z.string().optional().describe("Optional form language identifier for form check-in. Defaults to GER for form items when omitted.")
+});
+
+const undoCheckoutInputSchema = z.object({
+  uri: z.string().describe("STARLIMS item URI.")
+});
+
 const getTableDefinitionInputSchema = z.object({
   uri: z.string().describe("STARLIMS table URI."),
   maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return from the table XML.")
@@ -76,6 +108,11 @@ const createItemInputSchema = z.object({
   language: z.string().describe("Item language, for example SSL, JS, XML, or SQL."),
   categoryName: z.string().describe("Category or application category name, depending on the item type."),
   appName: z.string().describe("Application name or N/A, depending on the item type.")
+});
+
+const runIntegrationTestsInputSchema = z.object({
+  reason: z.string().optional().describe("Optional explanation shown to the user when asking permission to run integration tests."),
+  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return from the test output.")
 });
 
 export class StarlimsMcpServer {
@@ -199,6 +236,22 @@ export class StarlimsMcpServer {
     );
 
     server.registerTool(
+      "list_languages",
+      {
+        annotations: { readOnlyHint: true },
+        description: "List the STARLIMS languages available for form checkout and code retrieval.",
+        inputSchema: listLanguagesInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ maxItems }) => this.executeTool(
+        "list_languages",
+        { maxItems },
+        () => this.automationService.listLanguages(maxItems),
+        (result) => `Retrieved ${this.toCount(result.totalItems)} language option(s).`
+      )
+    );
+
+    server.registerTool(
       "get_item_code",
       {
         annotations: { readOnlyHint: true },
@@ -226,6 +279,77 @@ export class StarlimsMcpServer {
         { language, uri },
         () => this.automationService.checkoutItem(uri, language),
         (result) => `Checked out ${this.toUriLabel(result.uri)} to ${typeof result.localPath === "string" ? result.localPath : "the local workspace"}.`
+      )
+    );
+
+    server.registerTool(
+      "checkin_item",
+      {
+        description: "Check in a STARLIMS enterprise item after local edits are complete.",
+        inputSchema: checkinItemInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ uri, reason, language }) => this.executeTool(
+        "checkin_item",
+        { language, reason, uri },
+        () => this.automationService.checkinItem(uri, reason, language),
+        (result) => `Checked in ${this.toUriLabel(result.uri)}.`
+      )
+    );
+
+    server.registerTool(
+      "undo_checkout",
+      {
+        description: "Undo checkout of a STARLIMS item and discard the active checkout on the server.",
+        inputSchema: undoCheckoutInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ uri }) => this.executeTool(
+        "undo_checkout",
+        { uri },
+        () => this.automationService.undoCheckout(uri),
+        (result) => `Undid checkout for ${this.toUriLabel(result.uri)}.`
+      )
+    );
+
+    server.registerTool(
+      "execute_server_script",
+      {
+        description: "Execute a STARLIMS server script and return the captured output.",
+        inputSchema: executeServerScriptInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ uri, parameters, outputType, entryPoint, maxCharacters }) => this.executeTool(
+        "execute_server_script",
+        { entryPoint, maxCharacters, outputType, parameters, uri },
+        () => this.automationService.executeServerScript(
+          uri,
+          parameters,
+          outputType as RemoteScriptOutputType | undefined,
+          entryPoint,
+          maxCharacters
+        ),
+        (result) => `Executed ${this.toUriLabel(result.uri)} and captured ${this.toCount(result.totalCharacters)} character(s) of output.`
+      )
+    );
+
+    server.registerTool(
+      "execute_data_source",
+      {
+        description: "Execute a STARLIMS data source and return the captured output.",
+        inputSchema: executeDataSourceInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ uri, parameters, outputType, maxCharacters }) => this.executeTool(
+        "execute_data_source",
+        { maxCharacters, outputType, parameters, uri },
+        () => this.automationService.executeDataSource(
+          uri,
+          parameters,
+          outputType as RemoteScriptOutputType | undefined,
+          maxCharacters
+        ),
+        (result) => `Executed ${this.toUriLabel(result.uri)} and captured ${this.toCount(result.totalCharacters)} character(s) of output.`
       )
     );
 
@@ -335,6 +459,16 @@ export class StarlimsMcpServer {
       )
     );
 
+    server.registerTool(
+      "run_integration_tests",
+      {
+        description: "Run the VS Code extension integration tests (`npm test`). The extension always prompts the local user for permission before starting the test run.",
+        inputSchema: runIntegrationTestsInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ reason, maxCharacters }) => this.runIntegrationTestsTool(reason, maxCharacters)
+    );
+
     return server;
   }
 
@@ -406,6 +540,79 @@ export class StarlimsMcpServer {
       ],
       isError: !result.ok,
       structuredContent: result
+    };
+  }
+
+  private async runIntegrationTestsTool(reason: string | undefined, maxCharacters?: number) {
+    const permission = await this.options.requestIntegrationTestPermission(reason);
+    if (!permission.granted) {
+      return this.toToolResult(
+        {
+          ok: false,
+          error: permission.reason,
+          permissionGranted: false,
+          permissionRequired: true
+        },
+        (result) => result.error ?? "Integration test execution was not permitted."
+      );
+    }
+
+    this.options.logInfo("run_integration_tests request accepted by user.");
+    const result = await this.options.runIntegrationTests();
+    const boundedOutput = this.limitTextOutput(this.getIntegrationTestOutput(result), maxCharacters);
+    const structuredContent: StarlimsAutomationResult = {
+      ...result,
+      maxCharacters: boundedOutput.maxCharacters,
+      output: boundedOutput.text,
+      totalCharacters: boundedOutput.totalCharacters,
+      truncated: boundedOutput.truncated
+    };
+
+    return this.toToolResult(
+      structuredContent,
+      (toolResult) => toolResult.ok
+        ? `Integration tests completed successfully with ${this.toCount(toolResult.totalCharacters)} character(s) of captured output.`
+        : toolResult.error ?? "Integration tests failed."
+    );
+  }
+
+  private getIntegrationTestOutput(result: StarlimsAutomationResult): string {
+    const sections: string[] = [];
+
+    if (typeof result.command === "string" && result.command.length > 0) {
+      sections.push(`Command: ${result.command}`);
+    }
+
+    if (typeof result.cwd === "string" && result.cwd.length > 0) {
+      sections.push(`Working directory: ${result.cwd}`);
+    }
+
+    if (typeof result.stdout === "string" && result.stdout.length > 0) {
+      sections.push(`STDOUT:\n${result.stdout}`);
+    }
+
+    if (typeof result.stderr === "string" && result.stderr.length > 0) {
+      sections.push(`STDERR:\n${result.stderr}`);
+    }
+
+    return sections.join("\n\n").trim();
+  }
+
+  private limitTextOutput(text: string, maxCharacters?: number): {
+    maxCharacters: number;
+    text: string;
+    totalCharacters: number;
+    truncated: boolean;
+  } {
+    const safeMax = typeof maxCharacters === "number" && Number.isFinite(maxCharacters)
+      ? Math.max(100, Math.floor(maxCharacters))
+      : 20000;
+
+    return {
+      maxCharacters: safeMax,
+      text: text.length > safeMax ? text.slice(0, safeMax) : text,
+      totalCharacters: text.length,
+      truncated: text.length > safeMax
     };
   }
 
