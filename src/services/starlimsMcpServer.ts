@@ -49,6 +49,10 @@ const checkoutItemInputSchema = z.object({
   language: z.string().optional().describe("Optional form language identifier for form checkout. Defaults to GER for form items when omitted.")
 });
 
+const refreshCheckoutTreeInputSchema = z.object({
+  includeAllUsers: z.boolean().optional().describe("Set to true to refresh the checked-out tree for all users instead of just the current user.")
+});
+
 const listLanguagesInputSchema = z.object({
   maxItems: z.number().int().positive().optional().describe("Optional maximum number of languages to return.")
 });
@@ -279,6 +283,21 @@ export class StarlimsMcpServer {
         { language, uri },
         () => this.automationService.checkoutItem(uri, language),
         (result) => `Checked out ${this.toUriLabel(result.uri)} to ${typeof result.localPath === "string" ? result.localPath : "the local workspace"}.`
+      )
+    );
+
+    server.registerTool(
+      "refresh_checkout_tree",
+      {
+        description: "Refresh the checked-out tree in VS Code from the STARLIMS server.",
+        inputSchema: refreshCheckoutTreeInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ includeAllUsers }) => this.executeTool(
+        "refresh_checkout_tree",
+        { includeAllUsers },
+        () => this.automationService.refreshCheckoutTree(includeAllUsers === true),
+        (result) => `Refreshed the checked-out tree${result.includeAllUsers === true ? " for all users" : ""}.`
       )
     );
 

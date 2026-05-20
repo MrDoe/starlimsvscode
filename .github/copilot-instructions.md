@@ -140,6 +140,7 @@ Treat `npm test` as environment-dependent unless you can run VS Code extension h
 
 - `src/webview/main.ts` contains a TODO workaround for grid column width due toolkit limitation.
 - `src/extension.ts` contains a documented workaround for Git API limitations when mapping committed files.
+- `src/services/starlimsMcpServer.ts` exposes a `refresh_checkout_tree` MCP tool that should be used after server-side create/checkout flows when the checked-out tree in VS Code needs to be updated immediately.
 
 ## Root-Level Map (Quick Scan)
 

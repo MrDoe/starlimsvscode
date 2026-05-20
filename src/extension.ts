@@ -2309,7 +2309,10 @@ Please provide:
     getDefaultFormLanguage: resolveDefaultFormLanguage,
     getMaxCodeCharacters: () => getMcpConfig().get<number>("mcp.maxCodeCharacters", 20000),
     getMaxItems: () => getMcpConfig().get<number>("mcp.maxItems", 100),
-    getWorkspaceRoot: () => rootPath
+    getWorkspaceRoot: () => rootPath,
+    refreshCheckoutTree: async (includeAllUsers: boolean = false) => {
+      await refreshCheckedOutItems(includeAllUsers);
+    }
   });
   const starlimsMcpServer = new StarlimsMcpServer(automationService, {
     getEnabled: () => getMcpConfig().get<boolean>("mcp.enabled", false),
