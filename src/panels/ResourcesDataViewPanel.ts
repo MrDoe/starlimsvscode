@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as fs from "fs";
 import { getNonce } from "../utilities/getNonce";
 import { getUri } from "../utilities/getUri";
 import { EnterpriseService } from "../services/enterpriseService";
@@ -183,7 +184,7 @@ export class ResourcesDataViewPanel {
             for (const row of data) {
               xmlData +=
                 "\t<ResourcesTable>\n" +
-                `\t\t<Guid>${row[0]}</Guid>\n` +
+                `\t\t<Guid>${row[0] || ""}</Guid>\n` +
                 `\t\t<ResourceId>${this.escapeXml(row[1])}</ResourceId>\n` +
                 `\t\t<ResourceValue>${this.escapeXml(row[2])}</ResourceValue>\n` +
                 "\t</ResourcesTable>\n";
@@ -191,10 +192,9 @@ export class ResourcesDataViewPanel {
             xmlData += "</ResourcesDataset>";
 
             // save the file locally
-            const fs = require("fs");
             fs.writeFile(this.docPath, xmlData, (err: any) => {
               if (err) {
-                console.error(err);
+                vscode.window.showErrorMessage(`Failed to save resource file: ${err.message}`);
                 return;
               }
             });
@@ -205,13 +205,16 @@ export class ResourcesDataViewPanel {
 
           case "changeLanguage":
             // coming from webview controller after changing the language dropdown
-            let lastLanguage = this.language;
+            const lastLanguage = this.language;
             this.language = message.payload;
 
             // check out and re-check in the form under the current language
-            var formUri = this.uri.replace("/Resources", "/XML");
-            this.enterpriseService.checkInItem(formUri, "Edit form resources", lastLanguage).then((data: any) => {
-              this.enterpriseService.checkOutItem(formUri, this.language).then((data: any) => {
+            const formUri = this.uri.replace("/Resources", "/XML");
+            (async () => {
+              try {
+                await this.enterpriseService.checkInItem(formUri, "Edit form resources", lastLanguage);
+                await this.enterpriseService.checkOutItem(formUri, this.language);
+
                 // reload the enterprise tree & checked out tree
                 this.enterpriseTree.refresh();
 
@@ -219,11 +222,12 @@ export class ResourcesDataViewPanel {
                 vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
 
                 // reload the webview with the new language
-                this.enterpriseService.getFormResources(this.uri, this.language).then((data: any) => {
-                  ResourcesDataViewPanel.render(this.extensionUri, data, this.enterpriseService, this.enterpriseTree);
-                });
-              });
-            });
+                const data = await this.enterpriseService.getFormResources(this.uri, this.language);
+                ResourcesDataViewPanel.render(this.extensionUri, data, this.enterpriseService, this.enterpriseTree);
+              } catch (error: any) {
+                vscode.window.showErrorMessage(`Failed to change language: ${error.message}`);
+              }
+            })();
             break;
 
           case "saveTableData":
@@ -241,11 +245,14 @@ export class ResourcesDataViewPanel {
   /*
    * escape xml tag text special symbol
    */
-  private escapeXml(unsafe: string) {
-    let result = unsafe;
+  private escapeXml(unsafe: any) {
+    if (unsafe === undefined || unsafe === null) {
+      return "";
+    }
+    let result = String(unsafe);
+    result = result.replace(/&/g, "&amp;");
     result = result.replace(/</g, "&lt;");
     result = result.replace(/>/g, "&gt;");
-    result = result.replace(/&/g, "&amp;");
     result = result.replace(/'/g, "&apos;");
     result = result.replace(/"/g, "&quot;");
     return result;

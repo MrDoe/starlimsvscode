@@ -16,7 +16,6 @@ export class EnterpriseTreeDataProvider implements vscode.TreeDataProvider<TreeE
   private dataMode: string = "LOAD";
   private treeItems: TreeEnterpriseItem[] = [];
   private resultItems: TreeEnterpriseItem[] = [];
-  static service: any;
 
   /**
    * Class constructor
@@ -83,7 +82,6 @@ export class EnterpriseTreeDataProvider implements vscode.TreeDataProvider<TreeE
    * @returns The children of the given element.
    */
   public async getChildren(item?: TreeEnterpriseItem): Promise<TreeEnterpriseItem[]> {
-    const _this = this;
     const parentItem = item;
 
     // load mode - load the current node's children
@@ -100,7 +98,7 @@ export class EnterpriseTreeDataProvider implements vscode.TreeDataProvider<TreeE
       this.treeItems = [];
 
       // insert dummy item to show "No items found" message
-      if (treeData.length === 0 || treeData === undefined) {
+      if (treeData === undefined || treeData.length === 0) {
         let dummyItem = new TreeEnterpriseItem(
           EnterpriseItemType.EnterpriseCategory,
           "- No items found -",
@@ -113,7 +111,7 @@ export class EnterpriseTreeDataProvider implements vscode.TreeDataProvider<TreeE
       }
 
       // loop through the data and create new tree items
-      treeData.forEach(function (item: any) {
+      treeData.forEach((item: any) => {
         let newItem = new TreeEnterpriseItem(
           item.type,
           item.name,
@@ -127,17 +125,17 @@ export class EnterpriseTreeDataProvider implements vscode.TreeDataProvider<TreeE
         );
 
         newItem.contextValue = item.type;
-        newItem.iconPath = _this.getItemIcon(item);
+        newItem.iconPath = this.getItemIcon(item);
         let language = item.language ? ", Language: " + item.language : "";
         newItem.label = item.checkedOutBy
           ? `${newItem.label} (Checked out by ${item.checkedOutBy}${language})`
           : newItem.label;
         newItem.checkedOutBy = item.checkedOutBy;
-        newItem.resourceUri = _this.getItemResource(item);
+        newItem.resourceUri = this.getItemResource(item);
         newItem.parent = parentItem;
 
         // add the new item to the tree
-        _this.treeItems.push(newItem);
+        this.treeItems.push(newItem);
       });
     }
     // clear mode - clear the tree

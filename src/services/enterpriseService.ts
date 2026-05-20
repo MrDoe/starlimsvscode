@@ -37,6 +37,7 @@ export class EnterpriseService implements IEnterpriseService {
   private refreshSessionInterval: NodeJS.Timeout | undefined;
   private SLVSCODE_FOLDER: string = "SLVSCODE";
   private checkedOutDocuments: Map<string, string> = new Map<string, string>();
+  private lastSyncTimestamps: Map<string, number> = new Map<string, number>();
   private secretStorage: vscode.SecretStorage;
   /**
    * STARLIMS web service request url suffix
@@ -230,6 +231,10 @@ export class EnterpriseService implements IEnterpriseService {
     fs.writeFileSync(localFilePath, item.code, {
       encoding: "utf8"
     });
+
+    // Record the sync timestamp so we can skip future server fetches when the local
+    // file is newer (e.g., after the user has edited a checked-out item).
+    this.lastSyncTimestamps.set(this.normalizeEnterpriseUri(uri), Date.now());
 
     return {
       code: item.code,
@@ -1467,6 +1472,25 @@ export class EnterpriseService implements IEnterpriseService {
     language: string
   ): Promise<EnterpriseOperationResult<LocalCopyResult>> {
     const normalizedUri = this.normalizeEnterpriseUri(uri);
+
+    // Skip the server fetch when the item is checked out and the local file is newer
+    // than the last-known server version — this prevents accidentally overwriting
+    // local edits with a stale server copy.
+    if (this.checkedOutDocuments.has(normalizedUri) && language) {
+      const localFilePath = this.buildLocalFilePath(normalizedUri, workspaceFolder, language);
+      if (fs.existsSync(localFilePath)) {
+        const lastSyncTime = this.lastSyncTimestamps.get(normalizedUri);
+        const localMtime = fs.statSync(localFilePath).mtimeMs;
+        if (lastSyncTime !== undefined && localMtime > lastSyncTime) {
+          const code = fs.readFileSync(localFilePath, { encoding: "utf8" });
+          return {
+            ok: true,
+            data: { code, language, localFilePath }
+          };
+        }
+      }
+    }
+
     const itemResult = await this.getEnterpriseItemCodeResult(normalizedUri, language);
     if (!itemResult.ok || !itemResult.data) {
       return {

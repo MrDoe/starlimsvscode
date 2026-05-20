@@ -59,7 +59,6 @@ const DEFAULT_SLVSCODE_COPILOT_INSTRUCTIONS = [
   "# SLVSCODE - Copilot Instructions",
   "",
   "## What This Workspace Is",
-  "",
   "This workspace contains STARLIMS application code, synchronized scripts, forms, data sources, SQL assets, and other Enterprise Designer content.",
   "",
   "Treat the local files in this workspace as working copies of STARLIMS items, not as the authoritative source when STARLIMS MCP tools can verify the remote item.",
@@ -74,7 +73,8 @@ const DEFAULT_SLVSCODE_COPILOT_INSTRUCTIONS = [
   "- browse the STARLIMS folder tree",
   "- inspect the authoritative code for a STARLIMS item",
   "- check out a STARLIMS item so the local workspace is synced before editing",
-  "- manage table items through checkout, check-in, add, and edit flows when the STARLIMS server supports them",
+  "- execute a STARLIMS server script or data source to verify behavior",
+  "- manage table items through checkout, add, and edit flows when the STARLIMS server supports them",
   "",
   "Use the local workspace first only when:",
   "- the task is explicitly about already-synced local files",
@@ -86,6 +86,7 @@ const DEFAULT_SLVSCODE_COPILOT_INSTRUCTIONS = [
   "- If the user is asking where a STARLIMS item lives, use STARLIMS search or browse tools first.",
   "- If the user is asking what a STARLIMS item currently contains, read it through STARLIMS MCP first.",
   "- If the user wants to edit a STARLIMS item, check it out through STARLIMS MCP before editing the synced local file when possible.",
+  "- Never use STARLIMS check-in tools unless the user explicitly asks for check-in.",
   "- If both local code and remote STARLIMS state matter, verify remote state first and then edit locally.",
   "",
   "## Preferred Workflow",
@@ -95,15 +96,20 @@ const DEFAULT_SLVSCODE_COPILOT_INSTRUCTIONS = [
   "3. Check out the item through STARLIMS MCP when edits are needed.",
   "   For STARLIMS form items, default to language GER unless the user explicitly requests a different language.",
   "4. Edit the synced local file in this workspace.",
-  "5. Use local search as a secondary source for cross-file impact analysis after the item has been identified.",
+  "5. Leave STARLIMS check-in to the user unless they explicitly ask you to perform it.",
+  "6. Use local search as a secondary source for cross-file impact analysis after the item has been identified.",
   "",
   "## Working Style",
   "",
   "Do not guess STARLIMS item names, locations, or code contents when STARLIMS MCP can verify them.",
+  "Never use STARLIMS check-in tools on your own; stop after local edits unless the user explicitly asks for check-in.",
+  "Use the STARLIMS execute tools only when runtime verification is necessary, and describe the expected side effects before executing remote code.",
+  "If you need to run extension integration tests through MCP, ask the user for permission first and wait for approval before starting `npm test`.",
   "",
   "When a STARLIMS-specific path is appropriate, prefer the `STARLIMS` subagent or STARLIMS MCP tools over generic workspace exploration.",
   "",
   "Use Windows-compatible commands and paths in any terminal guidance.",
+  "Never use Linux or Bash commands in guidance, scripts, or examples for this workspace.",
   ""
 ].join("\n");
 const execFile = promisify(execFileCallback);
@@ -247,11 +253,15 @@ function ensureSLVSCODEStarlimsAgent(slvscodePath: string): void {
       "  - starlims/*",
       "---",
       "",
-      "Use the STARLIMS MCP tools as the authoritative source for STARLIMS browse, search, code retrieval, and checkout operations.",
+      "Use the STARLIMS MCP tools as the authoritative source for STARLIMS browse, search, code retrieval, checkout, and execution operations.",
       "Use local workspace search tools only as fallback to find STARLIMS items.",
       "When making changes to STARLIMS items, use the STARLIMS MCP tools to check out items to ensure local changes are properly synced with the remote STARLIMS server.",
+      "Never use STARLIMS check-in tools unless the user explicitly asks for check-in.",
       "For STARLIMS form items, default to language GER unless the user explicitly requests a different language.",
-      "Use the table-specific MCP tools for table checkout, check-in, add, and edit operations when working with STARLIMS table definitions.",
+      "Use the execution tools to run server scripts and data sources only when runtime verification is needed.",
+      "Use the table-specific MCP tools for table checkout, add, and edit operations when working with STARLIMS table definitions.",
+      "Always ask the user before running the extension integration tests through MCP.",
+      "Use Windows-compatible commands only, and never use Linux or Bash command syntax.",
       ""
     ].join("\n"),
     { encoding: "utf8" }
@@ -927,16 +937,18 @@ Please analyze this ticket and provide a solution. When you need to:
   2. Read it through STARLIMS MCP to confirm current state
   3. Check it out using STARLIMS MCP
   4. Edit the local synced file
-  5. Check it back in
+  5. Stop after the local edit unless the user explicitly asks you to perform check-in
 
 ### 4. **STARLIMS MCP Tool Usage**
 - The STARLIMS MCP server is available and provides:
   - Search/browse STARLIMS items
   - Read authoritative item code
   - Check out items to workspace
-  - Verify item state before editing
+  - Execute server scripts and data sources for runtime verification when needed
+  - Run extension integration tests, but only after asking the user for permission
   
 **Remember**: Always prefer STARLIMS MCP tools over local workspace search when working with STARLIMS items to ensure you have the correct, checked-out version.
+**Do not** use STARLIMS check-in tools unless the user explicitly requests check-in, and never use Linux or Bash commands when suggesting terminal steps.
 
 ---
 
@@ -2291,6 +2303,65 @@ Please provide:
     },
     logInfo: (message: string) => {
       outputChannel.appendLine(`[MCP] ${message}`);
+    },
+    requestIntegrationTestPermission: async (reason?: string) => {
+      const prompt = reason && reason.trim().length > 0
+        ? `Copilot wants to run the STARLIMS VS Code integration tests (npm test).\n\nReason: ${reason.trim()}\n\nAllow this test run?`
+        : "Copilot wants to run the STARLIMS VS Code integration tests (npm test).\n\nAllow this test run?";
+      const selection = await vscode.window.showWarningMessage(
+        prompt,
+        { modal: true },
+        "Run Tests"
+      );
+
+      return {
+        granted: selection === "Run Tests",
+        reason: selection === "Run Tests"
+          ? "The user approved the integration test run."
+          : "The user did not approve running the integration tests."
+      };
+    },
+    runIntegrationTests: async () => {
+      const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+      const command = `${npmCommand} test`;
+      const cwd = context.extensionPath;
+
+      try {
+        const result = await execFile(npmCommand, ["test"], {
+          cwd,
+          maxBuffer: 10 * 1024 * 1024,
+          windowsHide: true
+        });
+
+        return {
+          ok: true,
+          command,
+          cwd,
+          exitCode: 0,
+          stderr: result.stderr.trim(),
+          stdout: result.stdout.trim()
+        };
+      } catch (error) {
+        const exitCode = error && typeof error === "object" && "code" in error && typeof (error as { code?: unknown }).code === "number"
+          ? (error as { code: number }).code
+          : 1;
+        const stdout = error && typeof error === "object" && "stdout" in error && typeof (error as { stdout?: unknown }).stdout === "string"
+          ? (error as { stdout: string }).stdout.trim()
+          : "";
+        const stderr = error && typeof error === "object" && "stderr" in error && typeof (error as { stderr?: unknown }).stderr === "string"
+          ? (error as { stderr: string }).stderr.trim()
+          : (error instanceof Error ? error.message : String(error));
+
+        return {
+          ok: false,
+          command,
+          cwd,
+          error: stderr || `Integration tests failed with exit code ${exitCode}.`,
+          exitCode,
+          stderr,
+          stdout
+        };
+      }
     }
   });
   expressServer = new ExpressServer({
@@ -2674,7 +2745,10 @@ Please provide:
             // Show save dialog
             const fileUri = await vscode.window.showSaveDialog({
               defaultUri: vscode.Uri.file(path.join(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd(), exportedPackage.fileName)),
-              filters: { "SDP Package": ["sdp"] },
+              filters: {
+                // eslint-disable-next-line @typescript-eslint/naming-convention
+                "SDP Package": ["sdp"]
+              },
               saveLabel: "Export"
             });
 
