@@ -69,7 +69,7 @@ Common optional settings:
 - `STARLIMS.selectedServer`: The currently active named server
 - `STARLIMS.browser`: Browser used for form debugging (`chrome` or `msedge`)
 - `STARLIMS.urlSuffix`: Service suffix for environments that require `lims2`
-- `STARLIMS.defaultFormLanguage`: Default language used when checking out form items
+- `STARLIMS.defaultFormLanguage`: Default language used when checking out form items, `GER` by default
 
 Git automation settings:
 

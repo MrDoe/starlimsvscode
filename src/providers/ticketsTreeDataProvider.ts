@@ -14,10 +14,11 @@ type TicketsTreeDataProviderOptions = {
 };
 
 export class TicketTreeItem extends vscode.TreeItem {
-  public readonly children?: TicketTreeItem[];
+  public children?: TicketTreeItem[];
   public readonly itemKind: "group" | "ticket" | "placeholder";
   public readonly statusGroupName?: TicketStatusGroupName;
   public readonly ticket?: TicketOverview;
+  public parent?: TicketTreeItem;
 
   constructor(
     label: string,
@@ -27,6 +28,8 @@ export class TicketTreeItem extends vscode.TreeItem {
       itemKind?: "group" | "ticket" | "placeholder";
       statusGroupName?: TicketStatusGroupName;
       ticket?: TicketOverview;
+      parent?: TicketTreeItem;
+      id?: string;
     }
   ) {
     super(label, collapsibleState);
@@ -34,6 +37,8 @@ export class TicketTreeItem extends vscode.TreeItem {
     this.itemKind = options?.itemKind || "ticket";
     this.statusGroupName = options?.statusGroupName;
     this.ticket = options?.ticket;
+    this.parent = options?.parent;
+    this.id = options?.id;
   }
 }
 
@@ -42,6 +47,9 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
   readonly onDidChangeTreeData: vscode.Event<TicketTreeItem | null> = this.onDidChangeTreeDataEmitter.event;
   private readonly descriptionCache = new Map<number, string | undefined>();
   private readonly pendingDescriptionLoads = new Map<number, Promise<string | undefined>>();
+  private rootItems: TicketTreeItem[] = [];
+  private pendingRootItemsLoad: Promise<TicketTreeItem[]> | undefined;
+  private hasLoadedRootItems = false;
   private titleFilter = "";
 
   constructor(private readonly options: TicketsTreeDataProviderOptions) { }
@@ -49,11 +57,18 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
   public refresh(): void {
     this.descriptionCache.clear();
     this.pendingDescriptionLoads.clear();
+    this.rootItems = [];
+    this.pendingRootItemsLoad = undefined;
+    this.hasLoadedRootItems = false;
     this.onDidChangeTreeDataEmitter.fire(null);
   }
 
   public getTreeItem(item: TicketTreeItem): vscode.TreeItem {
     return item;
+  }
+
+  public getParent(item: TicketTreeItem): TicketTreeItem | undefined {
+    return item.parent;
   }
 
   public getTitleFilterText(): string {
@@ -94,15 +109,53 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
       return item.children ?? [];
     }
 
-    try {
-      const tickets = await this.options.loadTickets();
-      const activeTicket = this.options.getActiveTicket();
-      const currentUser = this.options.getCurrentUser();
-      return this.createStatusGroupItems(tickets, activeTicket, currentUser);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not load tickets.";
-      return [this.createPlaceholderItem(message)];
+    return this.getRootItems();
+  }
+
+  public async findStatusGroupItem(statusGroupName: TicketStatusGroupName): Promise<TicketTreeItem | undefined> {
+    const rootItems = await this.getRootItems();
+    return rootItems.find((item) => item.statusGroupName === statusGroupName);
+  }
+
+  public async findTicketItem(ticketId: number): Promise<TicketTreeItem | undefined> {
+    const rootItems = await this.getRootItems();
+    for (const groupItem of rootItems) {
+      const matchingTicketItem = groupItem.children?.find((child) => child.ticket?.id === ticketId);
+      if (matchingTicketItem) {
+        return matchingTicketItem;
+      }
     }
+
+    return undefined;
+  }
+
+  private async getRootItems(): Promise<TicketTreeItem[]> {
+    if (this.hasLoadedRootItems) {
+      return this.rootItems;
+    }
+
+    if (this.pendingRootItemsLoad) {
+      return this.pendingRootItemsLoad;
+    }
+
+    this.pendingRootItemsLoad = (async () => {
+      try {
+        const tickets = await this.options.loadTickets();
+        const activeTicket = this.options.getActiveTicket();
+        const currentUser = this.options.getCurrentUser();
+        this.rootItems = this.createStatusGroupItems(tickets, activeTicket, currentUser);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not load tickets.";
+        this.rootItems = [this.createPlaceholderItem(message)];
+      } finally {
+        this.hasLoadedRootItems = true;
+        this.pendingRootItemsLoad = undefined;
+      }
+
+      return this.rootItems;
+    })();
+
+    return this.pendingRootItemsLoad;
   }
 
   private createStatusGroupItems(tickets: TicketOverview[], activeTicket: TicketReference | undefined, currentUser: string): TicketTreeItem[] {
@@ -123,9 +176,14 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
           {
             children,
             itemKind: "group",
-            statusGroupName
+            statusGroupName,
+            id: `ticketStatusGroup:${statusGroupName}`
           }
         );
+
+        for (const child of children) {
+          child.parent = item;
+        }
 
         item.contextValue = "ticketStatusGroup";
         item.description = String(groupedTickets.length);
@@ -151,7 +209,8 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
     const label = `#${ticket.id} ${ticket.title}`;
     const item = new TicketTreeItem(label, vscode.TreeItemCollapsibleState.None, {
       itemKind: "ticket",
-      ticket
+      ticket,
+      id: `ticket:${ticket.id}`
     });
     const descriptionParts: string[] = [];
 

@@ -203,11 +203,28 @@ export class EnterpriseService implements IEnterpriseService {
     return fallbackMessage;
   }
 
-  private async writeLocalCopy(uri: string, workspaceFolder: string, item: EnterpriseItemCodeRecord): Promise<LocalCopyResult> {
-    const localFilePath = path.join(
-      workspaceFolder,
-      `${this.normalizeEnterpriseUri(uri)}.${item.language.toLowerCase().replace("sql", "slsql")}`
+  private normalizeLocalFileExtension(extension: string): string {
+    return extension.toLowerCase().replace("sql", "slsql");
+  }
+
+  private buildLocalFilePath(uri: string, workspaceFolder: string, extension: string): string {
+    const normalizedUri = this.normalizeEnterpriseUri(uri);
+    const normalizedExtension = this.normalizeLocalFileExtension(extension);
+    const equivalentExtensions = normalizedExtension === "slsql"
+      ? ["slsql", "sql"]
+      : [normalizedExtension];
+    const hasMatchingExtension = equivalentExtensions.some((candidateExtension) =>
+      normalizedUri.toLowerCase().endsWith(`.${candidateExtension}`)
     );
+    const relativePath = hasMatchingExtension
+      ? normalizedUri
+      : `${normalizedUri}.${normalizedExtension}`;
+
+    return path.join(workspaceFolder, relativePath);
+  }
+
+  private async writeLocalCopy(uri: string, workspaceFolder: string, item: EnterpriseItemCodeRecord): Promise<LocalCopyResult> {
+    const localFilePath = this.buildLocalFilePath(uri, workspaceFolder, item.language);
     const localFolder = path.dirname(localFilePath);
     fs.mkdirSync(localFolder, { recursive: true });
     fs.writeFileSync(localFilePath, item.code, {
@@ -1479,9 +1496,7 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns the local file path
    */
   public getLocalFilePath(uri: string, workspaceFolder: string, extension: string): string {
-    uri = this.normalizeEnterpriseUri(uri);
-    const localFilePath = path.join(workspaceFolder, `${uri}.${extension.toLowerCase().replace("sql", "slsql")}`);
-    return localFilePath;
+    return this.buildLocalFilePath(uri, workspaceFolder, extension);
   }
 
   /**
