@@ -431,7 +431,12 @@ export class EnterpriseTreeDataProvider implements vscode.TreeDataProvider<TreeE
 
     // loop over search results
     for (let item of searchResult) {
-      let uriParts = item.uri.substring(1, item.uri.length).split("/");
+      const itemUri = item.uri || (item as { URI?: string }).URI;
+      if (!itemUri) {
+        continue;
+      }
+
+      let uriParts = itemUri.substring(1, itemUri.length).split("/");
 
       // node is part from application
       if (uriParts[0] === "Applications") {

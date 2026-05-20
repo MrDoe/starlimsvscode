@@ -47,6 +47,7 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
   readonly onDidChangeTreeData: vscode.Event<TicketTreeItem | null> = this.onDidChangeTreeDataEmitter.event;
   private readonly descriptionCache = new Map<number, string | undefined>();
   private readonly pendingDescriptionLoads = new Map<number, Promise<string | undefined>>();
+  private cachedTickets: TicketOverview[] = [];
   private rootItems: TicketTreeItem[] = [];
   private pendingRootItemsLoad: Promise<TicketTreeItem[]> | undefined;
   private hasLoadedRootItems = false;
@@ -57,6 +58,7 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
   public refresh(): void {
     this.descriptionCache.clear();
     this.pendingDescriptionLoads.clear();
+    this.cachedTickets = [];
     this.rootItems = [];
     this.pendingRootItemsLoad = undefined;
     this.hasLoadedRootItems = false;
@@ -82,6 +84,14 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
     }
 
     this.titleFilter = normalizedFilter;
+    if (this.hasLoadedRootItems) {
+      this.rootItems = this.createStatusGroupItems(
+        this.cachedTickets,
+        this.options.getActiveTicket(),
+        this.options.getCurrentUser()
+      );
+    }
+
     this.onDidChangeTreeDataEmitter.fire(null);
   }
 
@@ -141,6 +151,7 @@ export class TicketsTreeDataProvider implements vscode.TreeDataProvider<TicketTr
     this.pendingRootItemsLoad = (async () => {
       try {
         const tickets = await this.options.loadTickets();
+        this.cachedTickets = tickets;
         const activeTicket = this.options.getActiveTicket();
         const currentUser = this.options.getCurrentUser();
         this.rootItems = this.createStatusGroupItems(tickets, activeTicket, currentUser);

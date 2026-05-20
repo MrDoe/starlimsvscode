@@ -208,11 +208,15 @@ sSQL := "select * from (";
 			  and f.LAYERID = ?nLayerID?";
 :ENDIF;
 
+:IF Empty(sItemType);
+	sSQL += " union ";
+:ENDIF;
+
 :IF sItemType == "SS" .OR. Empty(sItemType);
 	sSQL += "select
 	s.DISPLAYTEXT as name, 
 	'APPSS' as type,
-	'/Applications/' + c.DISPLAYTEXT + '/' + a.DISPLAYTEXT + '/ServerScripts/' + s.DISPLAYTEXT as URI,
+	'/Applications/' + c.DISPLAYTEXT + '/' + a.DISPLAYTEXT + '/ServerScripts/' + s.DISPLAYTEXT as uri,
 	s.CHECKEDOUTBY as checkedOutBy,
 	s.SCRIPTLANGUAGE as language,
 	'N' as isFolder,
@@ -279,8 +283,7 @@ sSQL := "select * from (";
 		sSQL += " and a.DISPLAYTEXT like '%" + limsstring(sAppCatName) + "%'";
 	:ENDIF;
 
-	sSQL += " and s.LAYERID = ?nLayerID?
-			  and s.LAYERID = ?nLayerID?";
+	sSQL += " and s.LAYERID = ?nLayerID?";
 :ENDIF;
 
 :IF Empty(sItemType) .OR. sItemType == "DS";

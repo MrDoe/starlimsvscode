@@ -82,7 +82,7 @@ union
 select
 s.DISPLAYTEXT as name, 
 'APPSS' as type,
-'/Applications/' + c.DISPLAYTEXT + '/' + a.DISPLAYTEXT + '/ServerScripts/' + s.DISPLAYTEXT as URI,
+'/Applications/' + c.DISPLAYTEXT + '/' + a.DISPLAYTEXT + '/ServerScripts/' + s.DISPLAYTEXT as uri,
 s.CHECKEDOUTBY as checkedOutBy,
 s.SCRIPTLANGUAGE as language,
 'N' as isFolder,
