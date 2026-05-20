@@ -437,6 +437,78 @@ export class StarlimsAutomationService {
       };
     }
 
+    const createdItemUri = this.buildCreatedItemUri(
+      normalizedItemType,
+      normalizedCategoryName,
+      normalizedAppName,
+      normalizedItemName
+    );
+
+    const checkoutUri = createdItemUri;
+    if (!checkoutUri) {
+      return {
+        ok: false,
+        error: "Item was created, but its URI could not be resolved for checkout.",
+        appName: normalizedAppName,
+        categoryName: normalizedCategoryName,
+        itemName: normalizedItemName,
+        itemType: normalizedItemType,
+        language: normalizedLanguage,
+        serverName: this.enterpriseService.getCurrentServerName()
+      };
+    }
+
+    const checkoutResult = await this.enterpriseService.checkOutItemResult(checkoutUri, normalizedLanguage);
+    if (!checkoutResult.ok) {
+      return {
+        ok: false,
+        error: checkoutResult.error ?? "Item was created, but checkout failed.",
+        appName: normalizedAppName,
+        categoryName: normalizedCategoryName,
+        itemName: normalizedItemName,
+        itemType: normalizedItemType,
+        language: normalizedLanguage,
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: checkoutUri
+      };
+    }
+
+    const workspaceRoot = this.options.getWorkspaceRoot();
+    if (!workspaceRoot) {
+      return {
+        ok: false,
+        checkedOut: true,
+        error: "Item was created and checked out on the server, but the workspace root is not configured for the local copy.",
+        appName: normalizedAppName,
+        categoryName: normalizedCategoryName,
+        itemName: normalizedItemName,
+        itemType: normalizedItemType,
+        language: normalizedLanguage,
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: checkoutUri
+      };
+    }
+
+    const localCopyResult = await this.enterpriseService.getLocalCopyResult(
+      checkoutUri,
+      this.enterpriseService.getServerWorkspacePath(workspaceRoot),
+      normalizedLanguage
+    );
+    if (!localCopyResult.ok || !localCopyResult.data) {
+      return {
+        ok: false,
+        checkedOut: true,
+        error: `Item was created and checked out on the server, but local sync failed: ${localCopyResult.error ?? "Unknown local sync error."}`,
+        appName: normalizedAppName,
+        categoryName: normalizedCategoryName,
+        itemName: normalizedItemName,
+        itemType: normalizedItemType,
+        language: normalizedLanguage,
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: checkoutUri
+      };
+    }
+
     return {
       ok: true,
       appName: normalizedAppName,
@@ -444,7 +516,9 @@ export class StarlimsAutomationService {
       itemName: normalizedItemName,
       itemType: normalizedItemType,
       language: normalizedLanguage,
-      serverName: this.enterpriseService.getCurrentServerName()
+      localPath: localCopyResult.data.localFilePath,
+      serverName: this.enterpriseService.getCurrentServerName(),
+      uri: checkoutUri
     };
   }
 
@@ -674,6 +748,46 @@ export class StarlimsAutomationService {
 
   private getExactItemMatch(items: EnterpriseItemRecord[], uri: string): EnterpriseItemRecord | undefined {
     return items.find((item) => item.uri === uri) ?? items[0];
+  }
+
+  private buildCreatedItemUri(
+    itemType: string,
+    categoryName: string,
+    appName: string,
+    itemName: string
+  ): string | undefined {
+    const basePath = `/Applications/${categoryName}/${appName}`;
+
+    switch (itemType.toUpperCase()) {
+      case EnterpriseItemType.HTMLFormXML:
+        return `${basePath}/HTMLForms/XML/${itemName}`;
+      case EnterpriseItemType.HTMLFormCode:
+        return `${basePath}/HTMLForms/CodeBehind/${itemName}`;
+      case EnterpriseItemType.HTMLFormGuide:
+        return `${basePath}/HTMLForms/Guide/${itemName}`;
+      case EnterpriseItemType.HTMLFormResources:
+        return `${basePath}/HTMLForms/Resources/${itemName}`;
+      case EnterpriseItemType.XFDFormXML:
+        return `${basePath}/XFDForms/XML/${itemName}`;
+      case EnterpriseItemType.XFDFormCode:
+        return `${basePath}/XFDForms/CodeBehind/${itemName}`;
+      case EnterpriseItemType.XFDFormResources:
+        return `${basePath}/XFDForms/Resources/${itemName}`;
+      case EnterpriseItemType.AppServerScript:
+        return `${basePath}/ServerScripts/${itemName}`;
+      case EnterpriseItemType.AppClientScript:
+        return `${basePath}/ClientScripts/${itemName}`;
+      case EnterpriseItemType.AppDataSource:
+        return `${basePath}/DataSources/${itemName}`;
+      case EnterpriseItemType.ServerScript:
+        return `/ServerScripts/${itemName}`;
+      case EnterpriseItemType.ClientScript:
+        return `/ClientScripts/${itemName}`;
+      case EnterpriseItemType.DataSource:
+        return `/DataSources/${itemName}`;
+      default:
+        return undefined;
+    }
   }
 
   private mapItem(item: EnterpriseItemRecord): Record<string, unknown> {

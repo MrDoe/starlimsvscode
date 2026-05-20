@@ -5,7 +5,7 @@
 The STARLIMS VS Code extension follows a client-server architecture where VS Code acts as the client and STARLIMS server provides the backend services.
 
 ```
-┌─────────────────┐    HTTP/API    ┌─────────────────┐
+┌─────────────────┐    HTTP/API     ┌─────────────────┐
 │   VS Code       │ ──────────────► │  STARLIMS       │
 │   Extension     │                 │  Server         │
 │                 │ ◄────────────── │                 │
