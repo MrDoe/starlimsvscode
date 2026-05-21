@@ -133,6 +133,14 @@ type CommitMessageOptions = {
   systemPrompt: string;
 };
 
+type OpenCodeLaunchOptions = {
+  command: string;
+  commandArgs: string[];
+  planModel: string;
+  buildModel: string;
+  workingDirectory: string;
+};
+
 /**
  * Ensures that the SLVSCODE folder is opened as a workspace folder
  * @param slvscodePath Path to the SLVSCODE folder
@@ -566,6 +574,104 @@ export async function activate(context: vscode.ExtensionContext) {
     return enterpriseService.getCurrentServerName() || serverConfig?.name || selectedServerNameFromConfig || "Default";
   }
 
+  function getDefaultOpenCodeWorkingDirectory(): string | undefined {
+    const slvscodeWorkspaceFolder = vscode.workspace.workspaceFolders?.find((folder) =>
+      folder.name === SLVSCODE_FOLDER || path.basename(folder.uri.fsPath).toLocaleLowerCase() === SLVSCODE_FOLDER.toLocaleLowerCase()
+    );
+
+    if (slvscodeWorkspaceFolder) {
+      return slvscodeWorkspaceFolder.uri.fsPath;
+    }
+
+    if (rootPath) {
+      const candidatePath = path.join(rootPath, SLVSCODE_FOLDER);
+      if (fs.existsSync(candidatePath)) {
+        return candidatePath;
+      }
+    }
+
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  }
+
+  function resolveOpenCodeLaunchOptions(): OpenCodeLaunchOptions | undefined {
+    const currentConfig = vscode.workspace.getConfiguration("STARLIMS");
+    const command = (currentConfig.get<string>("opencode.command", "opencode") || "").trim();
+    const commandArgs = currentConfig.get<string[]>("opencode.commandArgs", []) || [];
+    const planModel = (currentConfig.get<string>("opencode.planModel", "glm-5.1") || "").trim();
+    const buildModel = (currentConfig.get<string>("opencode.buildModel", "kimi-2.6") || "").trim();
+    const configuredWorkingDirectory = (currentConfig.get<string>("opencode.workingDirectory", "") || "").trim();
+    const defaultWorkingDirectory = getDefaultOpenCodeWorkingDirectory();
+    const workingDirectory = configuredWorkingDirectory
+      ? path.isAbsolute(configuredWorkingDirectory)
+        ? configuredWorkingDirectory
+        : path.resolve(defaultWorkingDirectory || rootPath || process.cwd(), configuredWorkingDirectory)
+      : defaultWorkingDirectory;
+
+    if (!command) {
+      vscode.window.showErrorMessage("Set STARLIMS.opencode.command before using Solve with OpenCode.");
+      return undefined;
+    }
+
+    if (path.isAbsolute(command) && !fs.existsSync(command)) {
+      vscode.window.showErrorMessage(`The configured OpenCode command does not exist: ${command}`);
+      return undefined;
+    }
+
+    if (!planModel) {
+      vscode.window.showErrorMessage("Set STARLIMS.opencode.planModel before using Solve with OpenCode.");
+      return undefined;
+    }
+
+    if (!workingDirectory || !fs.existsSync(workingDirectory)) {
+      vscode.window.showErrorMessage("Configure a valid STARLIMS.opencode.workingDirectory or open the SLVSCODE workspace before using Solve with OpenCode.");
+      return undefined;
+    }
+
+    return {
+      command,
+      commandArgs,
+      planModel,
+      buildModel,
+      workingDirectory
+    };
+  }
+
+  function toPowerShellSingleQuotedLiteral(value: string): string {
+    return `'${value.replace(/'/g, "''")}'`;
+  }
+
+  function toPowerShellArrayLiteral(values: string[]): string {
+    if (values.length === 0) {
+      return "@()";
+    }
+
+    return `@(${values.map((value) => toPowerShellSingleQuotedLiteral(value)).join(", ")})`;
+  }
+
+  function buildOpenCodeTerminalCommand(promptFilePath: string, options: OpenCodeLaunchOptions): string {
+    return [
+      `$starlimsPrompt = Get-Content -Raw -Path ${toPowerShellSingleQuotedLiteral(promptFilePath)}`,
+      `Set-Location ${toPowerShellSingleQuotedLiteral(options.workingDirectory)}`,
+      `$opencodeArgs = ${toPowerShellArrayLiteral(options.commandArgs)}`,
+      "$opencodeArgs += '--agent'",
+      "$opencodeArgs += 'plan'",
+      "$opencodeArgs += '--model'",
+      `$opencodeArgs += ${toPowerShellSingleQuotedLiteral(options.planModel)}`,
+      "$opencodeArgs += '--prompt'",
+      "$opencodeArgs += $starlimsPrompt",
+      `& ${toPowerShellSingleQuotedLiteral(options.command)} @opencodeArgs`
+    ].join("; ");
+  }
+
+  async function writeTicketOpenCodePromptFile(ticket: TicketReference, prompt: string): Promise<string> {
+    const promptsDirectory = path.join(context.globalStorageUri.fsPath, "opencode-ticket-prompts");
+    await fs.promises.mkdir(promptsDirectory, { recursive: true });
+
+    const promptFilePath = path.join(promptsDirectory, `ticket-${ticket.id}.md`);
+    await fs.promises.writeFile(promptFilePath, prompt, { encoding: "utf8" });
+    return promptFilePath;
+  }
+
   function getActiveTicketStorageKey(serverName: string = getCurrentStarlimsServerName()): string {
     return `${ACTIVE_TICKET_STATE_PREFIX}.${serverName}`;
   }
@@ -892,7 +998,55 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  function buildTicketCopilotPrompt(ticket: TicketReference, ticketInfo: TicketFullInfo): string {
+  async function solveTicketWithOpenCode(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
+    const selectedTreeItem = ticketsTreeView?.selection?.[0];
+    const selectedTicket = item instanceof TicketTreeItem
+      ? item.ticket
+      : item || selectedTreeItem?.ticket || (activeTicket ? { ...activeTicket } : undefined);
+
+    if (!selectedTicket) {
+      vscode.window.showInformationMessage("Select a ticket first.");
+      return;
+    }
+
+    const ticketToSolve = normalizeTicketReference(selectedTicket);
+    const launchOptions = resolveOpenCodeLaunchOptions();
+    if (!launchOptions) {
+      return;
+    }
+
+    try {
+      const ticketInfo = await enterpriseService.getTicketFullInfo(ticketToSolve.id);
+
+      if (!ticketInfo) {
+        vscode.window.showErrorMessage(`Could not retrieve full information for ticket #${ticketToSolve.id}.`);
+        return;
+      }
+
+      const prompt = buildTicketOpenCodePrompt(ticketToSolve, ticketInfo, launchOptions);
+      const promptFilePath = await writeTicketOpenCodePromptFile(ticketToSolve, prompt);
+      const terminal = vscode.window.createTerminal({
+        name: `OpenCode Ticket #${ticketToSolve.id}`,
+        cwd: launchOptions.workingDirectory
+      });
+
+      terminal.show(true);
+      terminal.sendText(buildOpenCodeTerminalCommand(promptFilePath, launchOptions), true);
+
+      const buildModelMessage = launchOptions.buildModel
+        ? ` Switch to ${launchOptions.buildModel} for implementation after you approve the plan.`
+        : "";
+
+      outputChannel.appendLine(`[TicketManagement] Opened OpenCode terminal for ticket #${ticketToSolve.id} using ${launchOptions.planModel}`);
+      vscode.window.showInformationMessage(`Opened OpenCode for ticket #${ticketToSolve.id} in plan mode with ${launchOptions.planModel}.${buildModelMessage}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      outputChannel.appendLine(`[TicketManagement] Error opening OpenCode: ${errorMessage}`);
+      vscode.window.showErrorMessage(`Failed to open OpenCode: ${errorMessage}`);
+    }
+  }
+
+  function buildTicketSolutionPrompt(ticket: TicketReference, ticketInfo: TicketFullInfo): string {
     return `# 🎯 STARLIMS Ticket Solution Request
 
 ## 📋 Ticket Details
@@ -963,6 +1117,29 @@ Please provide:
 3. Code changes needed (if applicable)
 4. Testing recommendations
 5. Any STARLIMS items that need to be modified`;
+  }
+
+  function buildTicketCopilotPrompt(ticket: TicketReference, ticketInfo: TicketFullInfo): string {
+    return buildTicketSolutionPrompt(ticket, ticketInfo);
+  }
+
+  function buildTicketOpenCodePrompt(
+    ticket: TicketReference,
+    ticketInfo: TicketFullInfo,
+    launchOptions: OpenCodeLaunchOptions
+  ): string {
+    const buildModelLine = launchOptions.buildModel
+      ? `After the plan is approved, switch to ${launchOptions.buildModel} for implementation.`
+      : "After the plan is approved, switch to your preferred build model for implementation.";
+
+    return [
+      `Start this session in plan mode with ${launchOptions.planModel}.`,
+      "Focus on understanding the ticket, identifying the relevant STARLIMS items, and producing a concrete implementation plan before editing files.",
+      buildModelLine,
+      "Stay in the current OpenCode terminal session for the full plan-to-build workflow.",
+      "",
+      buildTicketSolutionPrompt(ticket, ticketInfo)
+    ].join("\n\n");
   }
 
   function sanitizeTicketDocumentSegment(value: string | undefined, fallback: string): string {
@@ -2605,6 +2782,13 @@ Please provide:
     "STARLIMS.SolveTicketWithCopilot",
     async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
       await solveTicketWithCopilot(item);
+    }
+  );
+
+  vscode.commands.registerCommand(
+    "STARLIMS.SolveTicketWithOpenCode",
+    async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
+      await solveTicketWithOpenCode(item);
     }
   );
 

@@ -3,7 +3,7 @@
     "displayName":  "STARLIMS VS Code Extension",
     "description":  "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license":  "SEE LICENSE IN LICENSE.md",
-    "version":  "1.5.40",
+    "version":  "1.5.41",
     "icon":  "resources/extension/starlimsvscode.png",
     "publisher":  "cdoellinger",
     "author":  {
@@ -352,6 +352,11 @@
                                              "icon":  "$(copilot)"
                                          },
                                          {
+                                             "command":  "STARLIMS.SolveTicketWithOpenCode",
+                                             "title":  "Solve ticket with OpenCode",
+                                             "icon":  "$(terminal)"
+                                         },
+                                         {
                                              "command":  "STARLIMS.SolveTicket",
                                              "title":  "Ticket solved",
                                              "icon":  "$(check)"
@@ -488,6 +493,11 @@
                                                          },
                                                          {
                                                              "command":  "STARLIMS.ViewTicketStackTrace",
+                                                             "when":  "view == STARLIMSTicketsTree",
+                                                             "group":  "navigation"
+                                                         },
+                                                         {
+                                                             "command":  "STARLIMS.SolveTicketWithOpenCode",
                                                              "when":  "view == STARLIMSTicketsTree",
                                                              "group":  "navigation"
                                                          },
@@ -634,6 +644,11 @@
                                                                 },
                                                                 {
                                                                     "command":  "STARLIMS.SolveTicketWithCopilot",
+                                                                    "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == ticket || viewItem == activeTicket || viewItem == ticketInProgressByCurrentUser)",
+                                                                    "group":  "navigation"
+                                                                },
+                                                                {
+                                                                    "command":  "STARLIMS.SolveTicketWithOpenCode",
                                                                     "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == ticket || viewItem == activeTicket || viewItem == ticketInProgressByCurrentUser)",
                                                                     "group":  "navigation"
                                                                 },
@@ -876,6 +891,36 @@
                                                                                                                "default":  "http://localhost:4096",
                                                                                                                "description":  "Base URL of the OpenCode server that the proxy forwards requests to. The documented default is http://localhost:4096."
                                                                                                            },
+                                                                     "STARLIMS.opencode.command":  {
+                                                                                                       "type":  "string",
+                                                                                                       "default":  "opencode",
+                                                                                                       "description":  "Command or absolute executable path used by the Solve with OpenCode ticket action. Use npx.cmd together with STARLIMS.opencode.commandArgs if you launch OpenCode through npx on Windows."
+                                                                                                   },
+                                                                     "STARLIMS.opencode.commandArgs":  {
+                                                                                                           "type":  "array",
+                                                                                                           "default":  [
+
+                                                                                                                       ],
+                                                                                                           "items":  {
+                                                                                                                         "type":  "string"
+                                                                                                                     },
+                                                                                                           "description":  "Additional arguments passed before the ticket-specific OpenCode flags, for example [\"opencode\"] when STARLIMS.opencode.command is set to npx.cmd."
+                                                                                                       },
+                                                                     "STARLIMS.opencode.planModel":  {
+                                                                                                         "type":  "string",
+                                                                                                         "default":  "glm-5.1",
+                                                                                                         "description":  "Initial OpenCode model used by the Solve with OpenCode ticket action when it launches plan mode."
+                                                                                                     },
+                                                                     "STARLIMS.opencode.buildModel":  {
+                                                                                                          "type":  "string",
+                                                                                                          "default":  "kimi-2.6",
+                                                                                                          "description":  "Preferred follow-up model shown to the user after the OpenCode plan phase. This extension does not switch to it automatically."
+                                                                                                      },
+                                                                     "STARLIMS.opencode.workingDirectory":  {
+                                                                                                                "type":  "string",
+                                                                                                                "default":  "",
+                                                                                                                "description":  "Optional working directory for Solve with OpenCode. Leave empty to prefer the SLVSCODE workspace root. Relative paths resolve from that same root."
+                                                                                                            },
                                                                      "STARLIMS.servers":  {
                                                                                               "type":  "array",
                                                                                               "default":  [

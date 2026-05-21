@@ -17,6 +17,7 @@ STARLIMS VS Code is an unofficial Visual Studio Code extension for working with 
 - Initialize a Git repository for the local SLVSCODE mirror, configure a remote, and optionally auto-commit and auto-push local STARLIMS changes during check-in
 - Optionally detect new Git commits in the SLVSCODE repository and check matching checked-out STARLIMS script and data source files in with the Git commit message
 - Manage STARLIMS tickets (BMBH only) from VS Code by filtering queues, selecting an active ticket, undertaking, releasing, solving, and renaming tickets, and creating ticket measures during check-in
+- Launch a selected STARLIMS ticket directly into an OpenCode terminal plan session with the ticket context preloaded
 - Use SSL and SLSQL language support, snippets, syntax highlighting, and the bundled SSL theme
 - Use a local MCP endpoint and Copilot-facing workspace files to enable agents to use the STARLIMS MCP for browse, search, code retrieval, checkout/check-in, runtime execution, and table operations when working with STARLIMS assets
 
@@ -71,6 +72,14 @@ Common optional settings:
 - `STARLIMS.urlSuffix`: Service suffix for environments that require `lims2`
 - `STARLIMS.defaultFormLanguage`: Default language used when checking out form items, `GER` by default
 
+OpenCode ticket launcher settings:
+
+- `STARLIMS.opencode.command`: Command or absolute executable path used by `Solve ticket with OpenCode`
+- `STARLIMS.opencode.commandArgs`: Optional leading arguments for the launcher command, such as `opencode` when using `npx.cmd`
+- `STARLIMS.opencode.planModel`: Initial model used when the ticket action opens OpenCode in plan mode
+- `STARLIMS.opencode.buildModel`: Preferred implementation model shown after the plan phase; the extension does not switch models automatically
+- `STARLIMS.opencode.workingDirectory`: Optional working directory override for the OpenCode terminal session
+
 Git automation settings:
 
 - `STARLIMS.git.enabled`: Enables Git integration for STARLIMS check-in flows
@@ -87,6 +96,8 @@ Additional Git message settings are available to control detail level, prefixes,
 The Tickets view groups STARLIMS tickets by status and supports title filtering, active ticket selection, ticket undertaking and release, marking tickets as solved, and renaming tickets.
 
 When an active ticket is selected, STARLIMS check-in commands can reuse ticket-aware reasons and automatically create ticket measures. Ticket measure text can use the same fast local generator or Copilot-assisted generation that is used for Git and check-in messages.
+
+The ticket context menu also includes `Solve ticket with OpenCode`. This opens an OpenCode terminal session in plan mode, seeds it with the selected ticket details, and reminds the user to switch to the configured build model manually once the plan is approved. For reliable Windows terminal launching, the extension writes the ticket prompt to a temporary file under the extension storage folder and feeds that content into the OpenCode CLI.
 
 ## MCP Integration
 
