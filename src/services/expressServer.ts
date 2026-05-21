@@ -2,6 +2,7 @@ import type { Server } from 'http';
 import express, { Express, Request, Response } from 'express';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
 import dotenv from 'dotenv';
+import fetch from 'node-fetch';
 import * as vscode from 'vscode';
 import { StarlimsMcpServer } from './starlimsMcpServer';
 
@@ -15,6 +16,10 @@ export type ExpressServerOptions = {
     mcpHost?: string;
     mcpPort?: number;
     mcpServer?: StarlimsMcpServer;
+    opencodeProxyEnabled?: boolean;
+    opencodeProxyHost?: string;
+    opencodeProxyPort?: number;
+    opencodeProxyTargetUrl?: string;
     onOpenCodeBehind: (formId: string, functionName: string) => void | Thenable<unknown> | Promise<unknown>;
 };
 
@@ -28,6 +33,12 @@ export class ExpressServer
     private mcpHttpServer: Server | undefined;
     private mcpPort: number;
     private readonly mcpServer: StarlimsMcpServer | undefined;
+    private opencodeApp: Express | undefined;
+    private opencodeHttpServer: Server | undefined;
+    private readonly opencodeProxyEnabled: boolean;
+    private readonly opencodeProxyHost: string;
+    private readonly opencodeProxyPort: number;
+    private readonly opencodeProxyTargetUrl: string;
     private readonly onOpenCodeBehind: (formId: string, functionName: string) => void | Thenable<unknown> | Promise<unknown>;
     private port: number;
 
@@ -41,6 +52,11 @@ export class ExpressServer
         this.onOpenCodeBehind = options.onOpenCodeBehind;
         this.mcpPort = options.mcpPort ?? 3002;
         this.port = 0;
+        this.opencodeProxyEnabled = options.opencodeProxyEnabled ?? false;
+        this.opencodeProxyHost = options.opencodeProxyHost ?? '127.0.0.1';
+        this.opencodeProxyPort = options.opencodeProxyPort ?? 3000;
+        this.opencodeProxyTargetUrl = options.opencodeProxyTargetUrl ?? 'http://localhost:4096/run';
+        this.opencodeApp = this.opencodeProxyEnabled ? express() : undefined;
         this.registerRoutes();
     }
 
@@ -61,6 +77,17 @@ export class ExpressServer
             }
         }
 
+        if (!this.opencodeHttpServer && this.opencodeApp) {
+            try {
+                this.opencodeHttpServer = await this.listen(this.opencodeApp, this.opencodeProxyPort, this.opencodeProxyHost);
+                vscode.window.showInformationMessage(
+                    `OpenCode proxy running on http://${this.opencodeProxyHost}:${this.opencodeProxyPort} → ${this.opencodeProxyTargetUrl}`
+                );
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to start OpenCode proxy: ${error}`);
+            }
+        }
+
         return this.getPort();
     }
 
@@ -77,8 +104,12 @@ export class ExpressServer
         const mcpServer = this.mcpHttpServer;
         this.mcpHttpServer = undefined;
 
+        const opencodeServer = this.opencodeHttpServer;
+        this.opencodeHttpServer = undefined;
+
         await this.closeServer(server);
         await this.closeServer(mcpServer);
+        await this.closeServer(opencodeServer);
     }
 
     public dispose(): void
@@ -109,6 +140,12 @@ export class ExpressServer
             }
           });
 
+        this.registerMcpRoutes();
+        this.registerOpencodeProxyRoutes();
+    }
+
+    private registerMcpRoutes(): void
+    {
         if (!this.mcpApp) {
             return;
         }
@@ -138,6 +175,66 @@ export class ExpressServer
             }
 
             await this.mcpServer.handleRequest(req, res);
+        });
+    }
+
+    private registerOpencodeProxyRoutes(): void
+    {
+        if (!this.opencodeApp) {
+            return;
+        }
+
+        this.opencodeApp.use(express.json());
+
+        this.opencodeApp.get('/', (req: Request, res: Response) => {
+            res.send('Starlims VS Code OpenCode Proxy');
+        });
+
+        this.opencodeApp.get('/health', (req: Request, res: Response) => {
+            res.json({
+                ok: true,
+                service: 'starlims-vscode-opencode-proxy',
+                target: this.opencodeProxyTargetUrl
+            });
+        });
+
+        this.opencodeApp.post('/v1/chat/completions', async (req: Request, res: Response) => {
+            try {
+                const messages = req.body.messages || [];
+
+                // Build a simple prompt from the chat messages
+                const prompt = messages.map((m: { role: string; content: string }) => `${m.role}: ${m.content}`).join('\n');
+
+                const ocRes = await fetch(this.opencodeProxyTargetUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        prompt: prompt
+                    })
+                });
+
+                const data = await ocRes.json();
+
+                res.json({
+                    id: 'opencode-response',
+                    object: 'chat.completion',
+                    choices: [
+                        {
+                            index: 0,
+                            message: {
+                                role: 'assistant',
+                                content: data.output || JSON.stringify(data)
+                            },
+                            finish_reason: 'stop'
+                        }
+                    ]
+                });
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                res.status(500).json({ error: message });
+            }
         });
     }
 
