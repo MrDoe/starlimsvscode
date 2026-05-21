@@ -3,9 +3,9 @@
     "displayName":  "STARLIMS VS Code Extension",
     "description":  "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license":  "SEE LICENSE IN LICENSE.md",
-    "version":  "1.5.35",
+    "version":  "1.5.40",
     "icon":  "resources/extension/starlimsvscode.png",
-    "publisher":  "Christoph Döllinger",
+    "publisher":  "cdoellinger",
     "author":  {
                    "name":  "Christoph Döllinger, Marius Popovici, Jan Bouecke"
                },
@@ -873,8 +873,8 @@
                                                                                                       },
                                                                      "STARLIMS.opencode.proxy.targetUrl":  {
                                                                                                                "type":  "string",
-                                                                                                               "default":  "http://localhost:4096/run",
-                                                                                                               "description":  "URL of the opencode /run endpoint that the proxy forwards requests to."
+                                                                                                               "default":  "http://localhost:4096",
+                                                                                                               "description":  "Base URL of the OpenCode server that the proxy forwards requests to. The documented default is http://localhost:4096."
                                                                                                            },
                                                                      "STARLIMS.servers":  {
                                                                                               "type":  "array",
@@ -1113,6 +1113,7 @@
                          "@xmldom/xmldom":  "^0.9.9",
                          "jsdom":  "^29.0.1",
                          "node-fetch":  "^2.7.0",
+                         "opencode-llm-proxy":  "^1.6.1",
                          "react":  "^18.2.0",
                          "zod":  "^4.3.6"
                      },
