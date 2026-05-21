@@ -2392,7 +2392,7 @@ Please provide:
     opencodeProxyEnabled: getMcpConfig().get<boolean>("opencode.proxy.enabled", false),
     opencodeProxyHost: getMcpConfig().get<string>("opencode.proxy.host", "127.0.0.1"),
     opencodeProxyPort: getMcpConfig().get<number>("opencode.proxy.port", 3000),
-    opencodeProxyTargetUrl: getMcpConfig().get<string>("opencode.proxy.targetUrl", "http://localhost:4096/run"),
+    opencodeProxyTargetUrl: getMcpConfig().get<string>("opencode.proxy.targetUrl", "http://localhost:4096"),
     onOpenCodeBehind: async (formId: string, functionName: string) => {
       await vscode.commands.executeCommand("STARLIMS.OpenCodeBehind", formId, functionName);
     }
