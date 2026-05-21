@@ -24,6 +24,7 @@ const TICKETS_SERVERSCRIPT_URI = `/ServerScripts/SCM_API/GetTickets`;
 const TICKET_DATA_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scGetTicketData`;
 const SCM_API_FORM_CALLBACK_PORT_SCRIPT_URI = "/ServerScripts/SCM_API/FormCallbackPort";
 const SCM_API_TICKET_MANAGEMENT_SCRIPT_URI = "/ServerScripts/SCM_API/TicketManagement";
+const LOCAL_SYNC_TIMESTAMP_STATE_KEY_PREFIX = "starlims.localSyncTimestamp";
 
 /**
  * STARLIMS Enterprise Designer service. Provides main services for the VS Code extensions,
@@ -39,6 +40,7 @@ export class EnterpriseService implements IEnterpriseService {
   private checkedOutDocuments: Map<string, string> = new Map<string, string>();
   private lastSyncTimestamps: Map<string, number> = new Map<string, number>();
   private secretStorage: vscode.SecretStorage;
+  private readonly workspaceState?: vscode.Memento;
   /**
    * STARLIMS web service request url suffix
    */
@@ -50,9 +52,14 @@ export class EnterpriseService implements IEnterpriseService {
    * Constructor
    * @param config Workspace config object for the STARLIMS VS Code extension.
    */
-  constructor(config: vscode.WorkspaceConfiguration, secretStorage: vscode.SecretStorage) {
+  constructor(
+    config: vscode.WorkspaceConfiguration,
+    secretStorage: vscode.SecretStorage,
+    workspaceState?: vscode.Memento
+  ) {
     this.config = config;
     this.secretStorage = secretStorage;
+    this.workspaceState = workspaceState;
     this.baseUrl = cleanUrl(config.url);
     this.currentUser = (config.user as string) || "";
     if (config.urlSuffix) {
@@ -224,6 +231,35 @@ export class EnterpriseService implements IEnterpriseService {
     return path.join(workspaceFolder, relativePath);
   }
 
+  private getSyncTimestampStorageKey(uri: string): string {
+    const normalizedUri = this.normalizeEnterpriseUri(uri);
+    const serverKey = this.currentServerName || "default";
+    const hash = crypto.createHash("sha1").update(`${serverKey}\0${normalizedUri}`).digest("hex");
+    return `${LOCAL_SYNC_TIMESTAMP_STATE_KEY_PREFIX}.${hash}`;
+  }
+
+  private getStoredLastSyncTimestamp(uri: string): number | undefined {
+    const normalizedUri = this.normalizeEnterpriseUri(uri);
+    const cachedTimestamp = this.lastSyncTimestamps.get(normalizedUri);
+    if (cachedTimestamp !== undefined) {
+      return cachedTimestamp;
+    }
+
+    const storedTimestamp = this.workspaceState?.get<number>(this.getSyncTimestampStorageKey(normalizedUri));
+    if (typeof storedTimestamp === "number" && Number.isFinite(storedTimestamp)) {
+      this.lastSyncTimestamps.set(normalizedUri, storedTimestamp);
+      return storedTimestamp;
+    }
+
+    return undefined;
+  }
+
+  private recordLastSyncTimestamp(uri: string, timestamp: number): void {
+    const normalizedUri = this.normalizeEnterpriseUri(uri);
+    this.lastSyncTimestamps.set(normalizedUri, timestamp);
+    void this.workspaceState?.update(this.getSyncTimestampStorageKey(normalizedUri), timestamp);
+  }
+
   private async writeLocalCopy(uri: string, workspaceFolder: string, item: EnterpriseItemCodeRecord): Promise<LocalCopyResult> {
     const localFilePath = this.buildLocalFilePath(uri, workspaceFolder, item.language);
     const localFolder = path.dirname(localFilePath);
@@ -234,7 +270,7 @@ export class EnterpriseService implements IEnterpriseService {
 
     // Record the sync timestamp so we can skip future server fetches when the local
     // file is newer (e.g., after the user has edited a checked-out item).
-    this.lastSyncTimestamps.set(this.normalizeEnterpriseUri(uri), Date.now());
+    this.recordLastSyncTimestamp(uri, Date.now());
 
     return {
       code: item.code,
@@ -1473,15 +1509,23 @@ export class EnterpriseService implements IEnterpriseService {
   ): Promise<EnterpriseOperationResult<LocalCopyResult>> {
     const normalizedUri = this.normalizeEnterpriseUri(uri);
 
-    // Skip the server fetch when the item is checked out and the local file is newer
-    // than the last-known server version — this prevents accidentally overwriting
-    // local edits with a stale server copy.
-    if (this.checkedOutDocuments.has(normalizedUri) && language) {
+    // Skip the server fetch when the local file is newer than the last-known synced
+    // server copy. Persisting this timestamp prevents a restart from losing the
+    // overwrite protection for checked-out items.
+    if (language) {
       const localFilePath = this.buildLocalFilePath(normalizedUri, workspaceFolder, language);
       if (fs.existsSync(localFilePath)) {
-        const lastSyncTime = this.lastSyncTimestamps.get(normalizedUri);
+        const lastSyncTime = this.getStoredLastSyncTimestamp(normalizedUri);
         const localMtime = fs.statSync(localFilePath).mtimeMs;
         if (lastSyncTime !== undefined && localMtime > lastSyncTime) {
+          const code = fs.readFileSync(localFilePath, { encoding: "utf8" });
+          return {
+            ok: true,
+            data: { code, language, localFilePath }
+          };
+        }
+
+        if (lastSyncTime === undefined && this.checkedOutDocuments.has(normalizedUri)) {
           const code = fs.readFileSync(localFilePath, { encoding: "utf8" });
           return {
             ok: true,
@@ -1547,6 +1591,7 @@ export class EnterpriseService implements IEnterpriseService {
       const response = await fetch(url, options);
       const { success, data }: { success: boolean; data: any } = await response.json();
       if (success) {
+        this.recordLastSyncTimestamp(uri, Date.now());
         vscode.window.showInformationMessage("Code saved successfully.");
       } else {
         vscode.window.showErrorMessage(data);

@@ -2436,7 +2436,7 @@ Please provide:
   }
 
   // create enterprise service
-  enterpriseService = new EnterpriseService(config, secretStorage);
+  enterpriseService = new EnterpriseService(config, secretStorage, context.workspaceState);
 
   // Initialize server name for path structure
   const selectedServerName = config.get("selectedServer") as string;

@@ -43,7 +43,17 @@ suite('Extension Test Suite', () => {
 			get: async (key: string) => 'password'
 		} as any;
 
-		const service = new EnterpriseService(fakeConfig, fakeSecrets);
+		function createFakeMemento() {
+			const store = new Map<string, unknown>();
+			return {
+				get: <T>(key: string, defaultValue?: T) => (store.has(key) ? (store.get(key) as T) : defaultValue),
+				update: async (key: string, value: unknown) => {
+					store.set(key, value);
+				}
+			};
+		}
+
+		const service = new EnterpriseService(fakeConfig, fakeSecrets, createFakeMemento() as any);
 
 		test('server config updates correctly', () => {
 			service.updateServerConfig({ url: 'https://changed/STARLIMS/', urlSuffix: 'lims' }, 'MyServer');
@@ -52,7 +62,7 @@ suite('Extension Test Suite', () => {
 		});
 
 		test('workspace path for unknown server does not append name', () => {
-			const service2 = new EnterpriseService(fakeConfig, fakeSecrets);
+			const service2 = new EnterpriseService(fakeConfig, fakeSecrets, createFakeMemento() as any);
 			assert.strictEqual(service2.getServerWorkspacePath('C:/root/SLVSCODE'), 'C:/root/SLVSCODE');
 		});
 
@@ -87,6 +97,59 @@ suite('Extension Test Suite', () => {
 			assert.strictEqual(service.fileExists(testFile), true);
 			assert.strictEqual(service.fileExists(path.join(tempDir, 'missing.txt')), false);
 			fs.unlinkSync(testFile);
+		});
+
+		test('getLocalCopyResult keeps a checked-out local file when no sync timestamp exists yet', async () => {
+			const tempDir = path.join(__dirname, '../../..', 'out', 'test-temp', 'checked-out-local');
+			fs.mkdirSync(tempDir, { recursive: true });
+
+			const localService = new EnterpriseService(fakeConfig, fakeSecrets, createFakeMemento() as any);
+			const uri = '/Applications/TestApp/ServerScripts/mock';
+			const localFilePath = localService.getLocalFilePath(uri, tempDir, 'SSL');
+			fs.mkdirSync(path.dirname(localFilePath), { recursive: true });
+			fs.writeFileSync(localFilePath, ':RETURN "local";', 'utf8');
+			await localService.setCheckedOut(uri, 'alice');
+
+			(localService as any).getEnterpriseItemCodeResult = async () => {
+				throw new Error('Remote fetch should not run when preserving the local checked-out copy.');
+			};
+
+			const result = await localService.getLocalCopyResult(uri, tempDir, 'SSL');
+			assert.strictEqual(result.ok, true);
+			assert.strictEqual(result.data?.code, ':RETURN "local";');
+		});
+
+		test('getLocalCopyResult keeps newer local edits after restart using persisted sync metadata', async () => {
+			const tempDir = path.join(__dirname, '../../..', 'out', 'test-temp', 'persisted-sync');
+			fs.mkdirSync(tempDir, { recursive: true });
+
+			const fakeMemento = createFakeMemento() as any;
+			const uri = '/Applications/TestApp/ServerScripts/persisted';
+			const firstService = new EnterpriseService(fakeConfig, fakeSecrets, fakeMemento);
+			(firstService as any).getEnterpriseItemCodeResult = async () => ({
+				ok: true,
+				data: {
+					code: ':RETURN "remote";',
+					language: 'SSL'
+				}
+			});
+
+			const firstResult = await firstService.getLocalCopyResult(uri, tempDir, 'SSL');
+			assert.strictEqual(firstResult.ok, true);
+
+			const localFilePath = firstService.getLocalFilePath(uri, tempDir, 'SSL');
+			fs.writeFileSync(localFilePath, ':RETURN "edited locally";', 'utf8');
+			const newerDate = new Date(Date.now() + 2000);
+			fs.utimesSync(localFilePath, newerDate, newerDate);
+
+			const restartedService = new EnterpriseService(fakeConfig, fakeSecrets, fakeMemento);
+			(restartedService as any).getEnterpriseItemCodeResult = async () => {
+				throw new Error('Remote fetch should not run when the local file is newer than the persisted sync timestamp.');
+			};
+
+			const restartedResult = await restartedService.getLocalCopyResult(uri, tempDir, 'SSL');
+			assert.strictEqual(restartedResult.ok, true);
+			assert.strictEqual(restartedResult.data?.code, ':RETURN "edited locally";');
 		});
 	});
 });
