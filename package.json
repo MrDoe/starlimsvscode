@@ -3,7 +3,7 @@
     "displayName":  "STARLIMS VS Code Extension",
     "description":  "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license":  "SEE LICENSE IN LICENSE.md",
-    "version":  "1.5.32",
+    "version":  "1.5.35",
     "icon":  "resources/extension/starlimsvscode.png",
     "publisher":  "Christoph Döllinger",
     "author":  {
@@ -854,6 +854,28 @@
                                                                                                             "minimum":  100,
                                                                                                             "description":  "Maximum number of code characters returned by a single STARLIMS MCP read request."
                                                                                                         },
+                                                                     "STARLIMS.opencode.proxy.enabled":  {
+                                                                                                             "type":  "boolean",
+                                                                                                             "default":  false,
+                                                                                                             "description":  "Enable an OpenAI-compatible proxy that forwards chat completion requests to an opencode instance."
+                                                                                                         },
+                                                                     "STARLIMS.opencode.proxy.host":  {
+                                                                                                          "type":  "string",
+                                                                                                          "default":  "127.0.0.1",
+                                                                                                          "description":  "Host address the opencode proxy binds to. Use 127.0.0.1 for local-only access."
+                                                                                                      },
+                                                                     "STARLIMS.opencode.proxy.port":  {
+                                                                                                          "type":  "number",
+                                                                                                          "default":  3000,
+                                                                                                          "minimum":  1,
+                                                                                                          "maximum":  65535,
+                                                                                                          "description":  "TCP port used by the opencode proxy endpoint."
+                                                                                                      },
+                                                                     "STARLIMS.opencode.proxy.targetUrl":  {
+                                                                                                               "type":  "string",
+                                                                                                               "default":  "http://localhost:4096/run",
+                                                                                                               "description":  "URL of the opencode /run endpoint that the proxy forwards requests to."
+                                                                                                           },
                                                                      "STARLIMS.servers":  {
                                                                                               "type":  "array",
                                                                                               "default":  [
