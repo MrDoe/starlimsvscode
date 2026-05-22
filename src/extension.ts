@@ -40,6 +40,9 @@ const TICKET_TITLE_FILTER_CONTEXT_KEY = "starlims.ticketTitleFilterActive";
 const TICKET_STACKTRACE_SCHEME = "starlims-ticket-stacktrace";
 const MAX_TICKET_REFERENCE_TITLE_LENGTH = 80;
 const MAX_TICKET_MEASURE_TITLE_LENGTH = 120;
+const OPENCODE_STARTUP_LAST_LAUNCH_KEY = "starlims.opencode.autoOpenStartup.lastLaunchAt";
+const OPENCODE_STARTUP_SUPPRESSION_WINDOW_MS = 60_000;
+const OPENCODE_STARTUP_TERMINAL_NAME = "OpenCode";
 const DEFAULT_COPILOT_COMMIT_MESSAGE_SYSTEM_PROMPT = [
   "You write STARLIMS check-in and git commit messages.",
   "Return plain text only.",
@@ -634,6 +637,83 @@ export async function activate(context: vscode.ExtensionContext) {
       buildModel,
       workingDirectory
     };
+  }
+
+  type OpenCodeStartupOptions = {
+    command: string;
+    commandArgs: string[];
+    workingDirectory: string;
+  };
+
+  function resolveOpenCodeStartupOptions(): OpenCodeStartupOptions | undefined {
+    const currentConfig = vscode.workspace.getConfiguration("STARLIMS");
+    const command = (currentConfig.get<string>("opencode.command", "opencode") || "").trim();
+    const commandArgs = currentConfig.get<string[]>("opencode.commandArgs", []) || [];
+    const configuredWorkingDirectory = (currentConfig.get<string>("opencode.workingDirectory", "") || "").trim();
+    const defaultWorkingDirectory = getDefaultOpenCodeWorkingDirectory();
+    const workingDirectory = configuredWorkingDirectory
+      ? path.isAbsolute(configuredWorkingDirectory)
+        ? configuredWorkingDirectory
+        : path.resolve(defaultWorkingDirectory || rootPath || process.cwd(), configuredWorkingDirectory)
+      : defaultWorkingDirectory;
+
+    if (!command) {
+      vscode.window.showErrorMessage("Set STARLIMS.opencode.command before enabling Automatically open OpenCode at startup.");
+      return undefined;
+    }
+
+    if (path.isAbsolute(command) && !fs.existsSync(command)) {
+      vscode.window.showErrorMessage(`The configured OpenCode command does not exist: ${command}`);
+      return undefined;
+    }
+
+    if (!workingDirectory || !fs.existsSync(workingDirectory)) {
+      vscode.window.showErrorMessage("Configure a valid STARLIMS.opencode.workingDirectory or open the SLVSCODE workspace before enabling Automatically open OpenCode at startup.");
+      return undefined;
+    }
+
+    return {
+      command,
+      commandArgs,
+      workingDirectory
+    };
+  }
+
+  async function openOpenCodeAtStartup(): Promise<void> {
+    const startupEnabled = vscode.workspace.getConfiguration("STARLIMS").get<boolean>("opencode.openOnStartup", false);
+    if (!startupEnabled) {
+      return;
+    }
+
+    const lastLaunchAt = context.globalState.get<number>(OPENCODE_STARTUP_LAST_LAUNCH_KEY, 0);
+    const now = Date.now();
+    if (lastLaunchAt > 0 && now - lastLaunchAt < OPENCODE_STARTUP_SUPPRESSION_WINDOW_MS) {
+      return;
+    }
+
+    const launchOptions = resolveOpenCodeStartupOptions();
+    if (!launchOptions) {
+      return;
+    }
+
+    try {
+      const terminal = vscode.window.createTerminal({
+        name: OPENCODE_STARTUP_TERMINAL_NAME,
+        cwd: launchOptions.workingDirectory,
+        shellPath: launchOptions.command,
+        shellArgs: launchOptions.commandArgs
+      });
+
+      terminal.show(true);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await context.globalState.update(OPENCODE_STARTUP_LAST_LAUNCH_KEY, now);
+      await vscode.commands.executeCommand("workbench.action.terminal.moveIntoNewWindow");
+      outputChannel.appendLine("[OpenCode] Automatically opened OpenCode in a new window at startup.");
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      outputChannel.appendLine(`[OpenCode] Error opening OpenCode at startup: ${errorMessage}`);
+      vscode.window.showErrorMessage(`Failed to open OpenCode at startup: ${errorMessage}`);
+    }
   }
 
   function toPowerShellSingleQuotedLiteral(value: string): string {
@@ -4751,6 +4831,8 @@ Please provide:
   vscode.window.showInformationMessage(
     `Connected to STARLIMS on ${config.url}.`
   );
+
+  void openOpenCodeAtStartup();
 
   // Git integration: automatically check in to STARLIMS when committing via Git
   void setupGitIntegration(context, rootPath!, enterpriseService, enterpriseTreeProvider, checkedOutTreeDataProvider);

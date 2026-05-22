@@ -42,6 +42,12 @@ const DATA_SOURCE_ITEM_TYPES = new Set<string>([
   EnterpriseItemType.AppDataSource
 ]);
 
+const FOLDER_ITEM_TYPES = new Set<string>([
+  EnterpriseItemType.ServerScriptCategory,
+  EnterpriseItemType.DataSourceCategory,
+  EnterpriseItemType.ClientScriptCategory
+]);
+
 export class StarlimsAutomationService {
   constructor(
     private readonly enterpriseService: EnterpriseService,
@@ -454,6 +460,18 @@ export class StarlimsAutomationService {
       };
     }
 
+    if (FOLDER_ITEM_TYPES.has(normalizedItemType.toUpperCase())) {
+      return {
+        ok: true,
+        appName: normalizedAppName,
+        categoryName: normalizedCategoryName,
+        itemName: normalizedItemName,
+        itemType: normalizedItemType,
+        language: normalizedLanguage,
+        serverName: this.enterpriseService.getCurrentServerName()
+      };
+    }
+
     const createdItemUri = this.buildCreatedItemUri(
       normalizedItemType,
       normalizedCategoryName,
@@ -798,9 +816,15 @@ export class StarlimsAutomationService {
         return `${basePath}/DataSources/${itemName}`;
       case EnterpriseItemType.ServerScript:
         return `/ServerScripts/${itemName}`;
+      case EnterpriseItemType.ServerScriptCategory:
+        return `/ServerScripts/${itemName}`;
       case EnterpriseItemType.ClientScript:
         return `/ClientScripts/${itemName}`;
+      case EnterpriseItemType.ClientScriptCategory:
+        return `/ClientScripts/${itemName}`;
       case EnterpriseItemType.DataSource:
+        return `/DataSources/${itemName}`;
+      case EnterpriseItemType.DataSourceCategory:
         return `/DataSources/${itemName}`;
       default:
         return undefined;

@@ -49,6 +49,17 @@
 				"focus": false,
 				"panel": "shared"
 			}
+		},
+		{
+			"label": "Start opencode",
+			"type": "shell",
+			"command": "opencode",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new",
+				"focus": true
+			},
+			"problemMatcher": []
 		}
 	]
 }
