@@ -1,0 +1,64 @@
+{
+  "$schema": "https://unpkg.com/oh-my-opencode-slim@latest/oh-my-opencode-slim.schema.json",
+
+  "preset": "dev",
+
+  "presets": {
+    "dev": {
+      "orchestrator": {
+        "model": "deepseek/deepseek-v4-flash",
+        "skills": ["*"],
+        "mcps": ["*"]
+      },
+      "oracle": {
+        "model": "deepseek/deepseek-v4-flash",
+        "variant": "high"
+      },
+      "librarian": {
+        "model": "deepseek/deepseek-v4-flash",
+        "variant": "low",
+        "mcps": ["websearch", "grep_app"]
+      },
+      "explorer": {
+        "model": "deepseek/deepseek-v4-flash",
+        "variant": "low"
+      },
+      "designer": {
+        "model": "deepseek/deepseek-v4-flash",
+        "variant": "medium"
+      },
+      "fixer": {
+        "model": "deepseek/deepseek-v4-flash",
+        "variant": "low"
+      }
+    },
+    "cost": {
+      "orchestrator": {
+        "model": "deepseek/deepseek-v4-flash",
+        "skills": ["*"],
+        "mcps": ["*"]
+      },
+      "oracle": {
+        "model": "deepseek/deepseek-v4-flash",
+        "variant": "low"
+      },
+      "librarian": {
+        "model": "deepseek/deepseek-v4-flash",
+        "variant": "low",
+        "mcps": ["websearch", "grep_app"]
+      },
+      "explorer": {
+        "model": "deepseek/deepseek-v4-flash",
+        "variant": "low"
+      },
+      "designer": {
+        "model": "deepseek/deepseek-v4-flash",
+        "variant": "low"
+      },
+      "fixer": {
+        "model": "deepseek/deepseek-v4-flash",
+        "variant": "low"
+      }
+    }
+  }
+}

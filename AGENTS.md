@@ -89,10 +89,66 @@ As of the last validated run, `npm run lint` passes with warnings only. Known ba
   - **Run Extension** (`F5`): uses `preLaunchTask: ${defaultBuildTask}` (the `npm: watch` task).
   - **Extension Tests**: uses `preLaunchTask: tasks: watch-tests` (runs both `npm: watch` and `npm: watch-tests`).
 
-## MCP Refresh Flow
+## MCP Server
 
-- The MCP server now exposes `refresh_checkout_tree` for refreshing the checked-out items tree in the GUI after server-side create/check-out operations.
-- The extension-side refresh path is `refreshCheckedOutItems(includeAllUsers)`, which calls `enterpriseService.getCheckedOutItems(...)` and updates `CheckedOutTreeDataProvider`.
+- MCP endpoint: `http://127.0.0.1:3002/mcp` (Streamable HTTP transport).
+- Initialize with `Accept: application/json, text/event-stream` header.
+- Uses JSON-RPC 2.0 protocol over HTTP POST.
+
+### MCP Tools
+
+| Tool | Read-only | Description |
+|------|-----------|-------------|
+| `browse_tree` | ✅ | Browse items under a folder URI or from the root tree. |
+| `search_by_name` | ✅ | Search items by name or partial name. |
+| `global_code_search` | ✅ | Search for text across code items. |
+| `list_languages` | ✅ | List available form languages. |
+| `get_item_code` | ✅ | Read code for an item. |
+| `checkout_item` | ❌ | Check out an item and sync local copy. |
+| `refresh_checkout_tree` | ❌ | Refresh the checked-out tree in VS Code. |
+| `checkin_item` | ❌ | Check in an item after local edits. |
+| `undo_checkout` | ❌ | Undo checkout and discard server checkout. |
+| `execute_server_script` | ❌ | Execute a server script and return output. |
+| `execute_data_source` | ❌ | Execute a data source and return output. |
+| `create_item` | ❌ | Create any item via `SCM_API.Add`. |
+| `get_table_definition` | ✅ | Read full XML table definition. |
+| `checkout_table` | ❌ | Check out a table and sync local XML. |
+| `checkin_table` | ❌ | Check in a table. |
+| `create_table` / `add_table` | ❌ | Create a new table. |
+| `edit_table` | ❌ | Save a modified table XML definition. |
+| `run_integration_tests` | ❌ | Run `npm test` (prompts user for permission). |
+
+### Creating Folder Types via `create_item`
+
+**Folder types** (`SSCAT`, `DSCAT`, `CSCAT`) skip checkout and local copy — they are created server-side only. Parameters `language`, `categoryName`, and `appName` are sent but ignored by the backend for folders.
+
+```powershell
+# Example: create a ServerScript category
+$headers = @{ "Accept" = "application/json, text/event-stream"; "Content-Type" = "application/json" }
+$body = '{ "jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}} }'
+Invoke-RestMethod -Uri "http://127.0.0.1:3002/mcp" -Method Post -Headers $headers -Body $body
+
+$body = @{ jsonrpc="2.0"; id=2; method="tools/call"; params=@{ name="create_item"; arguments=@{ itemName="MyCategory"; itemType="SSCAT"; language="N/A"; categoryName="N/A"; appName="N/A" } } } | ConvertTo-Json -Depth 10
+Invoke-WebRequest -Uri "http://127.0.0.1:3002/mcp" -Method Post -Headers $headers -Body $body | Select-Object -ExpandProperty Content
+```
+
+### Refresh Checkout Tree
+
+The `refresh_checkout_tree` tool refreshes the checked-out items tree in the VS Code GUI after server-side create/check-out operations. The extension-side refresh path is `refreshCheckedOutItems(includeAllUsers)`, which calls `enterpriseService.getCheckedOutItems(...)` and updates `CheckedOutTreeDataProvider`.
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `src/services/starlimsMcpServer.ts` | MCP tool definitions and HTTP handler. |
+| `src/services/starlimsAutomationService.ts` | Validation, limits, bridges MCP to EnterpriseService. Contains `FOLDER_ITEM_TYPES` (`SSCAT`, `DSCAT`, `CSCAT`) and `buildCreatedItemUri`. |
+| `src/services/enterpriseService.ts` | HTTP client for all SCM_API REST endpoints. |
+| `src/services/expressServer.ts` | Express server hosting the MCP endpoint at `/mcp`. |
+| `src/backend/SCM_API/Server Scripts/SCM_API/Add.srvscr` | Backend `SCM_API.Add` — handles `SSCAT`/`SSCATEGORY`, `DSCAT`/`DSCATEGORY`, `CSCAT`/`CSCATEGORY` via dedicated providers. |
+
+### Reload Required
+
+After code changes, the extension host must be reloaded (`Ctrl+Shift+P` → `Developer: Reload Window` or restart F5) for new compiled code to take effect.
 
 ## Release Artifacts
 
