@@ -856,7 +856,8 @@ export class EnterpriseService implements IEnterpriseService {
   }
 
   async moveItem(uri: string, destination: string) {
-    const url = `${this.baseUrl}/SCM_API.Move.${this.urlSuffix}?URI=${uri}&Destination=${destination}`;
+    const query = new URLSearchParams({ URI: uri, Destination: destination }).toString();
+    const url = `${this.baseUrl}/SCM_API.Move.${this.urlSuffix}?${query}`;
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
       method: "GET",
@@ -891,7 +892,8 @@ export class EnterpriseService implements IEnterpriseService {
    * @param newName the new name
    */
   async renameItem(uri: string, newName: string) {
-    const url = `${this.baseUrl}/SCM_API.Rename.${this.urlSuffix}?URI=${uri}&NewName=${newName}`;
+    const query = new URLSearchParams({ URI: uri, NewName: newName }).toString();
+    const url = `${this.baseUrl}/SCM_API.Rename.${this.urlSuffix}?${query}`;
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
       method: "GET",
@@ -2472,4 +2474,3 @@ export class EnterpriseService implements IEnterpriseService {
     }
   }
 }
-

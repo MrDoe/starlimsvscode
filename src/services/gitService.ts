@@ -23,7 +23,7 @@ export class GitService {
         return new Promise((resolve, reject) => {
             const gitProcess = spawn(this.gitPath, args, {
                 cwd: this.workspacePath,
-                shell: true
+                shell: false
             });
 
             let stdout = "";
