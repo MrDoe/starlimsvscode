@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import { EnterpriseItemType } from "../providers/enterpriseTreeDataProvider";
 import { EnterpriseService } from "./enterpriseService";
 import { EnterpriseItemRecord } from "./starlimsAutomationTypes";
@@ -420,6 +421,112 @@ export class StarlimsAutomationService {
 
     return {
       ok: true,
+      serverName: this.enterpriseService.getCurrentServerName(),
+      uri: normalizedUri
+    };
+  }
+
+  public async saveItem(localPath: string, language: string | undefined): Promise<StarlimsAutomationResult> {
+    const normalizedLocalPath = localPath.trim();
+    if (!normalizedLocalPath) {
+      return {
+        ok: false,
+        error: "The local path cannot be empty."
+      };
+    }
+
+    if (!fs.existsSync(normalizedLocalPath)) {
+      return {
+        ok: false,
+        error: `The local path does not exist: ${normalizedLocalPath}`
+      };
+    }
+
+    let code: string;
+    try {
+      code = await fs.promises.readFile(normalizedLocalPath, { encoding: "utf8" });
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "Could not read the local file.",
+        localPath: normalizedLocalPath
+      };
+    }
+
+    const normalizedUri = this.enterpriseService.getUriFromLocalPath(normalizedLocalPath).trim();
+    if (!normalizedUri) {
+      return {
+        ok: false,
+        error: "Could not resolve a STARLIMS item URI from the local path.",
+        localPath: normalizedLocalPath
+      };
+    }
+
+    const itemLookup = await this.enterpriseService.getEnterpriseItemsResult(normalizedUri);
+    const item = this.getExactItemMatch(itemLookup.data ?? [], normalizedUri);
+    if (!item) {
+      return {
+        ok: false,
+        error: "Could not resolve STARLIMS item metadata for the local path.",
+        localPath: normalizedLocalPath,
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: normalizedUri
+      };
+    }
+
+    if (item.type === EnterpriseItemType.Table) {
+      const saveResult = await this.enterpriseService.saveTableDefinitionResult(normalizedUri, code);
+      if (!saveResult.ok) {
+        return {
+          ok: false,
+          error: saveResult.error ?? "Could not save table definition.",
+          item: this.mapItem(item),
+          localPath: normalizedLocalPath,
+          serverName: this.enterpriseService.getCurrentServerName(),
+          uri: normalizedUri
+        };
+      }
+
+      return {
+        ok: true,
+        item: this.mapItem(item),
+        localPath: normalizedLocalPath,
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: normalizedUri
+      };
+    }
+
+    const resolvedLanguage = await this.resolveItemLanguage(item, language);
+    if (!resolvedLanguage.ok) {
+      return {
+        ...resolvedLanguage,
+        localPath: normalizedLocalPath,
+        uri: normalizedUri
+      };
+    }
+
+    const saveResult = await this.enterpriseService.saveEnterpriseItemCodeResult(
+      normalizedUri,
+      code,
+      resolvedLanguage.language ?? ""
+    );
+    if (!saveResult.ok) {
+      return {
+        ok: false,
+        error: saveResult.error ?? "Could not save enterprise item.",
+        item: this.mapItem(item),
+        language: resolvedLanguage.language,
+        localPath: normalizedLocalPath,
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: normalizedUri
+      };
+    }
+
+    return {
+      ok: true,
+      item: this.mapItem(item),
+      language: resolvedLanguage.language,
+      localPath: normalizedLocalPath,
       serverName: this.enterpriseService.getCurrentServerName(),
       uri: normalizedUri
     };

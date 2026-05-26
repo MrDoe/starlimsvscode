@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import * as fs from 'fs';
 import * as path from 'path';
 import { EnterpriseItemType } from '../../providers/enterpriseTreeDataProvider';
 import { EnterpriseService } from '../../services/enterpriseService';
@@ -18,6 +19,7 @@ function createEnterpriseServiceMock(overrides: Partial<EnterpriseService> = {})
       }
     }),
     getEnterpriseItemsResult: async () => ({ ok: true, data: [] }),
+    getUriFromLocalPath: (localPath: string) => localPath.replace(/\\/g, '/').replace(/^.*\/SLVSCODE/, '').replace(/\.[^.]+$/, ''),
     getLanguagesResult: async () => ({ ok: true, data: [] }),
     getLocalCopyResult: async () => ({
       ok: true,
@@ -30,6 +32,8 @@ function createEnterpriseServiceMock(overrides: Partial<EnterpriseService> = {})
     getServerWorkspacePath: (workspaceRoot: string) => path.join(workspaceRoot, 'QA'),
     globalSearchResult: async () => ({ ok: true, data: [] }),
     runScript: async () => ({ success: true, data: 'execution ok' }),
+    saveEnterpriseItemCodeResult: async () => ({ ok: true, data: '' }),
+    saveTableDefinitionResult: async () => ({ ok: true, data: '' }),
     searchForItemsResult: async () => ({ ok: true, data: [] }),
     undoCheckOut: async () => true,
     ...overrides
@@ -195,5 +199,85 @@ suite('StarlimsAutomationService', () => {
     const result = await automationService.checkinItem('/Applications/Lab/Forms/HTML/frmPatient', 'Updated form behavior', undefined);
     assert.strictEqual(result.ok, true);
     assert.strictEqual(capturedLanguage, 'GER');
+  });
+
+  test('saveItem persists a local checked-out code file through the enterprise service', async () => {
+    const tempDir = path.join(__dirname, '../../..', 'out', 'test-temp', 'save-item');
+    fs.mkdirSync(tempDir, { recursive: true });
+    const localPath = path.join(tempDir, 'SLVSCODE', 'Applications', 'Lab', 'ServerScripts', 'scSaveMe.ssl');
+    fs.mkdirSync(path.dirname(localPath), { recursive: true });
+    fs.writeFileSync(localPath, ':RETURN "saved";', 'utf8');
+
+    let savedUri: string | undefined;
+    let savedCode: string | undefined;
+    let savedLanguage: string | undefined;
+
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        getEnterpriseItemsResult: async () => ({
+          ok: true,
+          data: [
+            {
+              name: 'scSaveMe',
+              type: EnterpriseItemType.AppServerScript,
+              uri: '/Applications/Lab/ServerScripts/scSaveMe'
+            }
+          ]
+        }),
+        saveEnterpriseItemCodeResult: async (uri, code, language) => {
+          savedUri = uri;
+          savedCode = code;
+          savedLanguage = language;
+          return { ok: true, data: '' };
+        }
+      }),
+      {
+        getDefaultFormLanguage: () => 'GER',
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.saveItem(localPath, undefined);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(savedUri, '/Applications/Lab/ServerScripts/scSaveMe');
+    assert.strictEqual(savedCode, ':RETURN "saved";');
+    assert.strictEqual(savedLanguage, '');
+  });
+
+  test('saveItem requires a language for form items without defaults', async () => {
+    const tempDir = path.join(__dirname, '../../..', 'out', 'test-temp', 'save-form-language');
+    fs.mkdirSync(tempDir, { recursive: true });
+    const localPath = path.join(tempDir, 'SLVSCODE', 'Applications', 'Lab', 'HTMLForms', 'CodeBehind', 'frmPatient.js');
+    fs.mkdirSync(path.dirname(localPath), { recursive: true });
+    fs.writeFileSync(localPath, 'function test() { return true; }', 'utf8');
+
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        getEnterpriseItemsResult: async () => ({
+          ok: true,
+          data: [
+            {
+              name: 'frmPatient',
+              type: EnterpriseItemType.HTMLFormCode,
+              uri: '/Applications/Lab/HTMLForms/CodeBehind/frmPatient'
+            }
+          ]
+        })
+      }),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.saveItem(localPath, undefined);
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.requiresLanguage, true);
   });
 });
