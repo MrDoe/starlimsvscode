@@ -1572,7 +1572,11 @@ export class EnterpriseService implements IEnterpriseService {
    * @param uri The URI of the remote STARLIMS script / code item.
    * @param code The code to save.
    */
-  public async saveEnterpriseItemCode(uri: string, code: string, language: string) {
+  public async saveEnterpriseItemCodeResult(
+    uri: string,
+    code: string,
+    language: string
+  ): Promise<EnterpriseOperationResult<string>> {
     // uncomment all occurences of '#include'
     code = code.replace(/^\/\/#include/gm, "#include");
     const url = `${this.baseUrl}/SCM_API.SaveCode.${this.urlSuffix}`;
@@ -1586,22 +1590,49 @@ export class EnterpriseService implements IEnterpriseService {
         UserLang: language
       })
     };
-    // execute transaction
+
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJsonInternal(response, true);
+      if (!result) {
+        return {
+          ok: false,
+          error: "Failed to execute HTTP call to remote service."
+        };
+      }
+
+      const { success, data }: { success: boolean; data: any } = result;
       if (success) {
         this.recordLastSyncTimestamp(uri, Date.now());
-        vscode.window.showInformationMessage("Code saved successfully.");
-      } else {
-        vscode.window.showErrorMessage(data);
+        return {
+          ok: true,
+          data: data instanceof Object ? JSON.stringify(data) : String(data ?? "")
+        };
       }
-      return data instanceof Object ? JSON.stringify(data) : data;
+
+      return {
+        ok: false,
+        error: this.getOperationErrorMessage(data, "Could not save code.")
+      };
     } catch (e: any) {
       vscode.window.showErrorMessage("Failed to execute HTTP call to remote service.");
       console.error(e);
-      return;
+      return {
+        ok: false,
+        error: "Failed to execute HTTP call to remote service."
+      };
     }
+  }
+
+  public async saveEnterpriseItemCode(uri: string, code: string, language: string) {
+    const result = await this.saveEnterpriseItemCodeResult(uri, code, language);
+    if (result.ok) {
+      vscode.window.showInformationMessage("Code saved successfully.");
+      return result.data;
+    }
+
+    vscode.window.showErrorMessage(result.error ?? "Could not save code.");
+    return result.error;
   }
 
   /**
@@ -1609,7 +1640,7 @@ export class EnterpriseService implements IEnterpriseService {
    * @param uri The URI of the remote STARLIMS table item.
    * @param tableXml The XML definition to save.
    */
-  public async saveTableDefinition(uri: string, tableXml: string) {
+  public async saveTableDefinitionResult(uri: string, tableXml: string): Promise<EnterpriseOperationResult<string>> {
     const url = `${this.baseUrl}/SCM_API.TableSave.${this.urlSuffix}`;
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
@@ -1625,21 +1656,43 @@ export class EnterpriseService implements IEnterpriseService {
       const response = await fetch(url, options);
       const result = await this.safeParseJsonInternal(response, true);
       if (!result) {
-        return;
+        return {
+          ok: false,
+          error: "Failed to execute HTTP call to remote service."
+        };
       }
 
       const { success, data }: { success: boolean; data: any } = result;
       if (success) {
-        vscode.window.showInformationMessage("Table saved successfully.");
-      } else {
-        vscode.window.showErrorMessage(this.getOperationErrorMessage(data, "Could not save table definition."));
+        return {
+          ok: true,
+          data: data instanceof Object ? JSON.stringify(data) : String(data ?? "")
+        };
       }
-      return data instanceof Object ? JSON.stringify(data) : data;
+
+      return {
+        ok: false,
+        error: this.getOperationErrorMessage(data, "Could not save table definition.")
+      };
     } catch (e: any) {
       vscode.window.showErrorMessage("Failed to execute HTTP call to remote service.");
       console.error(e);
-      return;
+      return {
+        ok: false,
+        error: "Failed to execute HTTP call to remote service."
+      };
     }
+  }
+
+  public async saveTableDefinition(uri: string, tableXml: string) {
+    const result = await this.saveTableDefinitionResult(uri, tableXml);
+    if (result.ok) {
+      vscode.window.showInformationMessage("Table saved successfully.");
+      return result.data;
+    }
+
+    vscode.window.showErrorMessage(result.error ?? "Could not save table definition.");
+    return result.error;
   }
 
   /**

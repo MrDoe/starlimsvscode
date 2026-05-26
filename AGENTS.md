@@ -105,6 +105,7 @@ As of the last validated run, `npm run lint` passes with warnings only. Known ba
 | `list_languages` | ✅ | List available form languages. |
 | `get_item_code` | ✅ | Read code for an item. |
 | `checkout_item` | ❌ | Check out an item and sync local copy. |
+| `save_item` | ❌ | Save an edited local STARLIMS working copy back to the remote item. |
 | `refresh_checkout_tree` | ❌ | Refresh the checked-out tree in VS Code. |
 | `checkin_item` | ❌ | Check in an item after local edits. |
 | `undo_checkout` | ❌ | Undo checkout and discard server checkout. |
@@ -135,6 +136,10 @@ Invoke-WebRequest -Uri "http://127.0.0.1:3002/mcp" -Method Post -Headers $header
 ### Refresh Checkout Tree
 
 The `refresh_checkout_tree` tool refreshes the checked-out items tree in the VS Code GUI after server-side create/check-out operations. The extension-side refresh path is `refreshCheckedOutItems(includeAllUsers)`, which calls `enterpriseService.getCheckedOutItems(...)` and updates `CheckedOutTreeDataProvider`.
+
+### Save Edited Documents
+
+After editing a checked-out STARLIMS document in the local workspace, call `save_item` with the local file path to persist the local working copy back to the STARLIMS server before any optional check-in step.
 
 ### Key Files
 

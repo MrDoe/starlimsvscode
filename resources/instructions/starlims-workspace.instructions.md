@@ -31,8 +31,9 @@ Use the local workspace first only when:
 3. Check out the item through STARLIMS MCP when edits are needed. Default to language GER for form items.
 4. Call `refresh_checkout_tree` after checkout or undo checkout to update the VS Code checked-out items view.
 5. Edit the synced local file.
-6. Leave STARLIMS check-in to the user unless they explicitly ask for it.
-7. Use local search as a secondary source for cross-file impact analysis.
+6. Always call `save_item` after editing a synced local STARLIMS document so the server copy is updated from the local working file.
+7. Leave STARLIMS check-in to the user unless they explicitly ask for it.
+8. Use local search as a secondary source for cross-file impact analysis.
 
 ## Working Style
 

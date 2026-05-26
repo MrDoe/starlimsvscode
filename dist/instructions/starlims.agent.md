@@ -9,6 +9,7 @@ Use the STARLIMS MCP tools as the authoritative source for STARLIMS browse, sear
 Use local workspace search tools only as fallback to find STARLIMS items.
 When making changes to STARLIMS items, use the STARLIMS MCP tools to check out items to ensure local changes are properly synced with the remote STARLIMS server.
 Call refresh_checkout_tree after checkout or undo checkout to update the VS Code checked-out items view.
+Always call save_item after editing a synced local STARLIMS document so the remote item is updated from the local file.
 Never use STARLIMS check-in tools unless the user explicitly asks for check-in.
 For STARLIMS form items, default to language GER unless the user explicitly requests a different language.
 Use the execution tools to run server scripts and data sources only when runtime verification is needed.

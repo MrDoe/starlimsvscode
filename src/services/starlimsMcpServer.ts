@@ -49,6 +49,11 @@ const checkoutItemInputSchema = z.object({
   language: z.string().optional().describe("Optional form language identifier for form checkout. Defaults to GER for form items when omitted.")
 });
 
+const saveItemInputSchema = z.object({
+  localPath: z.string().describe("Absolute path to the edited local STARLIMS working copy."),
+  language: z.string().optional().describe("Optional form language identifier override when saving form items. Defaults to GER for form items when omitted.")
+});
+
 const refreshCheckoutTreeInputSchema = z.object({
   includeAllUsers: z.boolean().optional().describe("Set to true to refresh the checked-out tree for all users instead of just the current user.")
 });
@@ -283,6 +288,21 @@ export class StarlimsMcpServer {
         { language, uri },
         () => this.automationService.checkoutItem(uri, language),
         (result) => `Checked out ${this.toUriLabel(result.uri)} to ${typeof result.localPath === "string" ? result.localPath : "the local workspace"}.`
+      )
+    );
+
+    server.registerTool(
+      "save_item",
+      {
+        description: "Save an edited local STARLIMS working copy back to the remote STARLIMS item.",
+        inputSchema: saveItemInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ localPath, language }) => this.executeTool(
+        "save_item",
+        { language, localPath },
+        () => this.automationService.saveItem(localPath, language),
+        (result) => `Saved ${this.toUriLabel(result.uri)} from ${typeof result.localPath === "string" ? result.localPath : "the local workspace"}.`
       )
     );
 
