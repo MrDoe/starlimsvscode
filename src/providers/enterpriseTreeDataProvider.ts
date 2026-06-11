@@ -341,6 +341,7 @@ export class EnterpriseTreeDataProvider implements vscode.TreeDataProvider<TreeE
             case "Server Logs":
               return new vscode.ThemeIcon("output");
           }
+          break;
         case EnterpriseItemType.Application:
           return this.getCustomIcon("app.svg");
         case EnterpriseItemType.AppCategory:

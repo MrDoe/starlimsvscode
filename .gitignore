@@ -16,3 +16,4 @@ dist/*.sdp
 *.js.map
 .env
 CLAUDE.md
+.opencode
