@@ -20,7 +20,7 @@ export function cleanUrl(url: string) {
  * @param progressMessage the message to display in the VS Code progress indicator
  */
 export function executeWithProgress(fn: Function, progressMessage: string) {
-  vscode.window.withProgress(
+  return vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Window,
       cancellable: false,

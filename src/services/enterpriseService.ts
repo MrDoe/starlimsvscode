@@ -1186,7 +1186,12 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        vscode.window.showErrorMessage("Could not retrieve table command.");
+        return null;
+      }
+      const { success, data }: { success: boolean; data: any } = result;
       if (success) {
         return data;
       } else {
@@ -1224,7 +1229,12 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJsonInternal(response, true);
+      if (!result) {
+        vscode.window.showErrorMessage("Failed to execute HTTP call to remote service.");
+        return;
+      }
+      const { success, data }: { success: boolean; data: any } = result;
       if (success) {
         vscode.window.showInformationMessage("Item added successfully.");
       } else {
@@ -1462,7 +1472,12 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success }: { success: boolean } = await response.json();
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        vscode.window.showErrorMessage("Could not check in enterprise item.");
+        return false;
+      }
+      const { success }: { success: boolean } = result;
       if (success) {
         this.checkedOutDocuments.delete(uri);
         vscode.window.showInformationMessage("Enterprise item checked in successfully.");
@@ -1726,7 +1741,12 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        vscode.window.showErrorMessage("Could not clear log file.");
+        return false;
+      }
+      const { success, data }: { success: boolean; data: any } = result;
       if (success) {
         vscode.window.showInformationMessage("Log file cleared successfully.");
 
@@ -1856,6 +1876,27 @@ export class EnterpriseService implements IEnterpriseService {
   public async searchForItemByGUID(guid: string, itemType: string): Promise<any> {
     // get item from GUID first
     const url = `${this.baseUrl}/SCM_API.GetItemByGUID.${this.urlSuffix}?GUID=${guid}&ItemType=${itemType}`;
+    const headers = new Headers(await this.getAPIHeaders());
+    const options: any = {
+      method: "GET",
+      headers
+    };
+
+    try {
+      const response = await fetch(url, options);
+      const { success, data }: { success: boolean; data: any } = await response.json();
+      if (success) {
+        return data;
+      } else {
+        vscode.window.showErrorMessage("Could not retrieve item.");
+        console.error(data);
+        return null;
+      }
+    } catch (e: any) {
+      vscode.window.showErrorMessage("Could not retrieve item.");
+      console.error(e);
+      return null;
+    }
   }
 
   private normalizeSearchItemType(itemType: string): string {
@@ -1947,7 +1988,12 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        vscode.window.showErrorMessage("Could not delete item.");
+        return false;
+      }
+      const { success, data }: { success: boolean; data: any } = result;
       if (success) {
         vscode.window.showInformationMessage("Item deleted successfully.");
         return true;
@@ -2031,7 +2077,12 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        vscode.window.showErrorMessage("Could not retrieve STARLIMS session info.");
+        return null;
+      }
+      const { success, data }: { success: boolean; data: any } = result;
       if (success) {
         return data;
       } else {
@@ -2085,7 +2136,12 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        vscode.window.showErrorMessage("Could not get GUID.");
+        return null;
+      }
+      const { success, data }: { success: boolean; data: any } = result;
       if (success) {
         return data;
       } else {
@@ -2131,7 +2187,12 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        vscode.window.showErrorMessage("Could not retrieve checked out items.");
+        return [];
+      }
+      const { success, data }: { success: boolean; data: any } = result;
       if (success) {
         return data;
       } else {
@@ -2160,7 +2221,12 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        vscode.window.showErrorMessage("Could not check in all items.");
+        return false;
+      }
+      const { success, data }: { success: boolean; data: any } = result;
       if (success) {
         this.checkedOutDocuments.clear();
         vscode.window.showInformationMessage("All items checked in successfully.");
@@ -2192,7 +2258,12 @@ export class EnterpriseService implements IEnterpriseService {
 
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        vscode.window.showErrorMessage("Could not undo check out of item.");
+        return false;
+      }
+      const { success, data }: { success: boolean; data: any } = result;
       if (success) {
         this.checkedOutDocuments.delete(uri);
         vscode.window.showInformationMessage("Check out of item undone successfully.");
@@ -2361,9 +2432,17 @@ export class EnterpriseService implements IEnterpriseService {
     };
     try {
       const response = await fetch(url, options);
-      const { success, data }: { success: boolean; data: any } = await response.json();
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        vscode.window.showErrorMessage("Could not retrieve item.");
+        return null;
+      }
+      const { success, data }: { success: boolean; data: any } = result;
       if (success) {
-        return data.items[0];
+        if (data?.items && Array.isArray(data.items) && data.items.length > 0) {
+          return data.items[0];
+        }
+        return null;
       } else {
         vscode.window.showErrorMessage("Could not retrieve item.");
         console.error(data);
