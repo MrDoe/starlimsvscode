@@ -149,6 +149,8 @@ export class EnterpriseService implements IEnterpriseService {
    */
   private async safeParseJsonInternal(response: any, showErrors: boolean): Promise<any> {
     const contentType = response.headers?.get?.('content-type') || '';
+    const statusCode = response.status;
+    const responseUrl = response.url || 'unknown';
 
     // Read the body once to avoid stream re-read errors after parse failures.
     const text = await response.text();
@@ -164,9 +166,9 @@ export class EnterpriseService implements IEnterpriseService {
       const htmlTitle = this.getHtmlTitle(text);
       const errorMessage = htmlTitle || response.statusText;
       if (showErrors) {
-        vscode.window.showErrorMessage(`Server error (${response.status}): ${errorMessage}`);
+        vscode.window.showErrorMessage(`Server error (${statusCode}): ${errorMessage}`);
       }
-      console.error('Server returned non-JSON response:', compactPreview);
+      console.error(`[EnterpriseService] HTTP ${statusCode} non-JSON response from ${responseUrl}:`, compactPreview);
       return null;
     }
 
@@ -179,14 +181,14 @@ export class EnterpriseService implements IEnterpriseService {
       if (showErrors) {
         vscode.window.showErrorMessage(`Server error: ${htmlTitle}`);
       }
-      console.error('Server returned HTML response:', compactPreview);
+      console.error(`[EnterpriseService] HTML response from ${responseUrl}:`, compactPreview);
       return null;
     }
 
     if (showErrors) {
-      vscode.window.showErrorMessage(`Server returned non-JSON response: ${contentType || 'unknown content type'}`);
+      vscode.window.showErrorMessage(`Server returned non-JSON response (${statusCode}): ${contentType || 'unknown content type'}`);
     }
-    console.error('Response content type:', contentType, 'Body:', compactPreview);
+    console.error(`[EnterpriseService] Unexpected response from ${responseUrl}:`, contentType, compactPreview);
     return null;
   }
 
@@ -1316,6 +1318,7 @@ export class EnterpriseService implements IEnterpriseService {
       const response = await fetch(url, options);
       const result = await this.safeParseJsonInternal(response, false);
       if (!result) {
+        console.warn(`[EnterpriseService] getEnterpriseItemsResult failed: ${url}`);
         return { ok: false, error: "Could not retrieve enterprise items." };
       }
 
@@ -1324,12 +1327,13 @@ export class EnterpriseService implements IEnterpriseService {
         return { ok: true, data: Array.isArray(data?.items) ? data.items : [] };
       }
 
+      console.warn(`[EnterpriseService] getEnterpriseItemsResult: server returned success=false for ${url}`);
       return {
         ok: false,
         error: this.getOperationErrorMessage(data, "Could not retrieve enterprise items.")
       };
     } catch (e: any) {
-      console.error(e);
+      console.error(`[EnterpriseService] getEnterpriseItemsResult exception for ${url}:`, e);
       return { ok: false, error: "Could not retrieve enterprise items." };
     }
   }
@@ -2189,6 +2193,7 @@ export class EnterpriseService implements IEnterpriseService {
       const response = await fetch(url, options);
       const result = await this.safeParseJsonInternal(response, false);
       if (!result) {
+        console.warn(`[EnterpriseService] getCheckedOutItems failed: ${url}`);
         vscode.window.showErrorMessage("Could not retrieve checked out items.");
         return [];
       }
@@ -2196,12 +2201,13 @@ export class EnterpriseService implements IEnterpriseService {
       if (success) {
         return data;
       } else {
+        console.warn(`[EnterpriseService] getCheckedOutItems: server returned success=false for ${url}`);
         vscode.window.showErrorMessage("Could not retrieve checked out items.");
         console.log(data);
         return [];
       }
     } catch (e: any) {
-      console.error(e);
+      console.error(`[EnterpriseService] getCheckedOutItems exception for ${url}:`, e);
       vscode.window.showErrorMessage("Could not retrieve checked out items.");
       return [];
     }

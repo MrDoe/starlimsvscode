@@ -33,6 +33,7 @@ Compact guidance for OpenCode sessions. Omit if obvious; include if an agent wou
 | Build VSIX on Unix | `npm run build` |
 
 **Platform trap:** `npm run build` uses `rm`, `cp`, `true` and fails on Windows. On Windows always use `npm run build-windows`.
+- `build-windows` still invokes `src/backend/create-packages.sh`; on some Windows setups this requires shell association / Git tooling.
 
 **Clean build recipe (PowerShell):**
 ```powershell
@@ -162,6 +163,16 @@ After code changes, the extension host must be reloaded (`Ctrl+Shift+P` → `Dev
 - `dist/style.css` — webview styles.
 - `dist/SCM_API.sdp` — STARLIMS backend package.
 - `.vsix` — produced by `build` / `build-windows`.
+
+## Repository Layout
+
+| Directory | Role |
+|-----------|------|
+| `api/` | STARLIMS API type definitions / wrappers. |
+| `resources/` | Extension icons, images, and static assets. |
+| `syntaxes/` | TextMate grammars for SSL (`.ssl`, `.srvscr`) and SLSQL (`.slsql`). |
+| `themes/` | VS Code color themes. |
+| `snippets/` | Code snippets for STARLIMS languages. |
 
 ## References
 
