@@ -101,7 +101,7 @@
     "baseUrl": "http://localhost:11434/api",
     "model": "qwen2.5:3b",
     "timeoutMs": 60000,
-    "systemPrompt": "Describe code precise and concise in 2 sentences. Maximum 20 words. Focus on functionality and purpose."
+    "systemPrompt": "Describe chunk precise and concise in 2 sentences. Maximum 20 words. Focus on functionality and purpose."
   },
   "logging": {
     "level": "none",
