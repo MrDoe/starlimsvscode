@@ -18,7 +18,7 @@ STARLIMS VS Code is an unofficial Visual Studio Code extension for working with 
 - Optionally detect new Git commits in the SLVSCODE repository and check matching checked-out STARLIMS script and data source files in with the Git commit message
 - Manage STARLIMS tickets (BMBH only) from VS Code by filtering queues, selecting an active ticket, undertaking, releasing, solving, and renaming tickets, and creating ticket measures during check-in
 - Launch a selected STARLIMS ticket directly into an OpenCode terminal plan session with the ticket context preloaded
-- Use SSL and SLSQL language support, snippets, syntax highlighting, and the bundled SSL theme
+- SSL and SLSQL language support with syntax highlighting, code completion, hover documentation, go-to-definition, find references, document symbols, and folding ranges
 - Use a local MCP endpoint and Copilot-facing workspace files to enable agents to use the STARLIMS MCP for browse, search, code retrieval, checkout/check-in, runtime execution, and table operations when working with STARLIMS assets
 
 ## Requirements

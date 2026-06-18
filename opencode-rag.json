@@ -90,7 +90,7 @@
     },
     "autoInject": {
       "enabled": true,
-      "minScore": 0.75,
+      "minScore": 0.85,
       "maxChunks": 10,
       "maxTokens": 2000
     }
