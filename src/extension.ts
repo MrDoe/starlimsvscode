@@ -874,7 +874,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   async function refreshCheckedOutItems(includeAllUsers: boolean = false): Promise<void> {
     const checkedOutItemsXml = await enterpriseService.getCheckedOutItems(includeAllUsers);
-    checkedOutTreeDataProvider.updateData(checkedOutItemsXml);
+    await checkedOutTreeDataProvider.updateData(checkedOutItemsXml);
 
     if (activeTicket) {
       checkedOutTreeDataProvider.setActiveTicket(activeTicket.id, activeTicket.title);

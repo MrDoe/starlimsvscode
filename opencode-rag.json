@@ -1,0 +1,110 @@
+{
+  "embedding": {
+    "provider": "ollama",
+    "baseUrl": "http://localhost:11434/api",
+    "model": "qwen3-embedding:0.6b",
+    "timeoutMs": 60000,
+    "documentPrefix": "",
+    "queryPrefix": ""
+  },
+  "indexing": {
+    "includeExtensions": [
+      ".ts",
+      ".tsx",
+      ".js",
+      ".jsx",
+      ".mjs",
+      ".cjs",
+      ".py",
+      ".java",
+      ".go",
+      ".md",
+      ".mdx",
+      ".c",
+      ".h",
+      ".cpp",
+      ".cc",
+      ".cxx",
+      ".hpp",
+      ".hxx",
+      ".cs",
+      ".aspx",
+      ".razor",
+      ".cshtml",
+      ".json",
+      ".html",
+      ".htm",
+      ".css",
+      ".xml",
+      ".csproj",
+      ".sln",
+      ".rs",
+      ".rb",
+      ".kt",
+      ".kts",
+      ".swift",
+      ".tex",
+      ".pdf",
+      ".docx",
+      ".doc",
+      ".xls",
+      ".xlsx",
+      ".ssl",
+      ".sql"
+    ],
+    "excludeDirs": [
+      "node_modules",
+      ".git",
+      ".opencode",
+      "dist",
+      "build",
+      "__pycache__",
+      ".venv",
+      ".claude",
+      ".github",
+      ".agents",
+      ".vscode-test"
+    ],
+    "chunkOverlap": 0,
+    "minFileSizeBytes": 0
+  },
+  "vectorStore": {
+    "path": "./.opencode/rag_db"
+  },
+  "retrieval": {
+    "topK": 10,
+    "minScore": 0.1,
+    "hybridSearch": {
+      "enabled": true,
+      "keywordWeight": 0.4
+    }
+  },
+  "openCode": {
+    "enabled": true,
+    "maxContextChunks": 20,
+    "readOverride": true,
+    "autoIndex": {
+      "enabled": false,
+      "debounceMs": 2000,
+      "intervalMs": 300000
+    },
+    "autoInject": {
+      "enabled": true,
+      "minScore": 0.75,
+      "maxChunks": 10,
+      "maxTokens": 2000
+    }
+  },
+  "description": {
+    "enabled": true,
+    "provider": "ollama",
+    "baseUrl": "http://localhost:11434/api",
+    "model": "qwen2.5:3b",
+    "timeoutMs": 60000,
+    "systemPrompt": "Describe code precise and concise in 2 sentences. Maximum 20 words. Focus on functionality and purpose."
+  },
+  "logging": {
+    "level": "none",
+    "logFilePath": "./.opencode/opencode-rag.log"
+  }
+}

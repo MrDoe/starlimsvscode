@@ -2,7 +2,6 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import * as vscode from "vscode";
 import { EnterpriseItemType, TreeEnterpriseItem } from "./enterpriseTreeDataProvider";
-import { DOMParser } from "@xmldom/xmldom";
 import { EnterpriseService } from "../services/enterpriseService";
 import path from "path";
 
@@ -23,14 +22,14 @@ export class CheckedOutTreeDataProvider implements vscode.TreeDataProvider<TreeE
    * @returns CheckedOutTreeDataProvider
    */
   constructor(xmlDS: string, private service: EnterpriseService) {
-    this.treeItems = this.getDataObject(xmlDS);
+    this.getDataObject(xmlDS).then((items) => { this.treeItems = items; });
   }
 
   /**
    * Replace the current checked-out tree data and refresh the view.
    */
-  updateData(xmlDS: string): void {
-    this.treeItems = this.getDataObject(xmlDS);
+  async updateData(xmlDS: string): Promise<void> {
+    this.treeItems = await this.getDataObject(xmlDS);
     this._onDidChangeTreeData.fire(null);
   }
 
@@ -267,7 +266,7 @@ export class CheckedOutTreeDataProvider implements vscode.TreeDataProvider<TreeE
    * @param checkedOutItems XML dataset as string
    * @returns data object for tree view.
    */
-  getDataObject(checkedOutItems: any): any {
+  async getDataObject(checkedOutItems: any): Promise<any> {
     if (typeof checkedOutItems !== "string") {
       if (checkedOutItems && typeof checkedOutItems.data === "string") {
         checkedOutItems = checkedOutItems.data;
@@ -276,6 +275,7 @@ export class CheckedOutTreeDataProvider implements vscode.TreeDataProvider<TreeE
       }
     }
 
+    const { DOMParser } = await import("@xmldom/xmldom");
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(checkedOutItems, "text/xml");
     let pendingCheckins = xmlDoc.getElementsByTagName("PendingCheckins");
