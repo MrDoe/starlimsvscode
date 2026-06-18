@@ -24,6 +24,7 @@ import { TicketFullInfo, TicketMeasureDraft, TicketOverview, TicketReference, Ti
 import { TicketStackTraceContentProvider } from "./providers/ticketStackTraceContentProvider";
 import * as crypto from 'crypto';
 import { promisify } from "util";
+import { startLanguageClient, stopLanguageClient } from "./lsp/client";
 
 const { version } = require('../package.json');
 const SLVSCODE_FOLDER = "SLVSCODE";
@@ -300,6 +301,10 @@ function ensureSLVSCODECopilotInstructions(slvscodePath: string): void {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+
+  // Start SSL Language Server
+  const languageClient = startLanguageClient(context);
+  context.subscriptions.push({ dispose: () => { void stopLanguageClient(); } });
 
   setTimeout(() => {
     void (async () => {
@@ -5108,5 +5113,7 @@ async function setupGitIntegration(
 }
 
 // this method is called when your extension is deactivated
-export function deactivate() { }
+export function deactivate() {
+  return stopLanguageClient();
+}
 

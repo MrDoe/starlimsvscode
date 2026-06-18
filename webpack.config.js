@@ -9,27 +9,38 @@ const copyPlugin = require("copy-webpack-plugin");
 /** @typedef {import('webpack').Configuration} WebpackConfig **/
 
 /** @type WebpackConfig */
-const baseConfig = {
-  mode: "none", // this leaves the source code as close as possible to the original (when packaging we set this to 'production')
+const extensionConfig = {
+  mode: "none",
+  target: "node",
   externals: {
-    vscode: "commonjs vscode" // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
-    // modules added here also need to be added in the .vscodeignore file
+    vscode: "commonjs vscode",
+    "vscode-languageserver": "commonjs vscode-languageserver",
+    "vscode-languageserver/node": "commonjs vscode-languageserver/node",
+    "vscode-languageserver-textdocument": "commonjs vscode-languageserver-textdocument",
+    "vscode-languageclient": "commonjs vscode-languageclient",
+    "vscode-languageclient/node": "commonjs vscode-languageclient/node",
   },
   resolve: {
     extensions: [".ts", ".js", ".css"]
   },
   devtool: "nosources-source-map",
   infrastructureLogging: {
-    level: "log" // enables logging required for problem matchers
+    level: "log"
   },
+  ignoreWarnings: [
+    {
+      module: /node_modules[\\/]express[\\/]lib[\\/]view\.js/,
+      message: /Critical dependency: the request of a dependency is an expression/
+    }
+  ],
+  entry: "./src/extension.ts",
   module: {
     rules: [
       {
         test: /\.ts$/,
         exclude: /node_modules/,
-        use: [{ loader: "ts-loader" }]
+        use: [{ loader: "ts-loader", options: { transpileOnly: true } }]
       },
-      // Allow importing CSS modules:
       {
         test: /\.css$/,
         use: [
@@ -45,35 +56,50 @@ const baseConfig = {
       },
       {}
     ]
-  }
-};
-
-/** @type WebpackConfig */
-const extensionConfig = {
-  ...baseConfig,
-  target: "node", // vscode extensions run in a Node.js-context 📖 -> https://webpack.js.org/configuration/node/
-  entry: "./src/extension.ts", // the entry point of this extension, 📖 -> https://webpack.js.org/configuration/entry-context/
-  ignoreWarnings: [
-    {
-      module: /node_modules[\\/]express[\\/]lib[\\/]view\.js/,
-      message: /Critical dependency: the request of a dependency is an expression/
-    }
-  ],
+  },
   output: {
-    // the bundle is stored in the 'dist' folder (check package.json), 📖 -> https://webpack.js.org/configuration/output/
     path: path.resolve(__dirname, "dist"),
     filename: "extension.js",
     libraryTarget: "commonjs2"
   }
 };
 
-// Config for webview source code (to be run in a web-based context)
 /** @type WebpackConfig */
 const webviewConfig = {
-  ...baseConfig,
+  mode: "none",
   target: ["web", "es2020"],
+  externals: {
+    vscode: "commonjs vscode"
+  },
+  resolve: {
+    extensions: [".ts", ".js", ".css"]
+  },
+  devtool: "nosources-source-map",
   entry: "./src/webview/main.ts",
   experiments: { outputModule: true },
+  module: {
+    rules: [
+      {
+        test: /\.ts$/,
+        exclude: /node_modules/,
+        use: [{ loader: "ts-loader", options: { transpileOnly: true } }]
+      },
+      {
+        test: /\.css$/,
+        use: [
+          "style-loader",
+          {
+            loader: "css-loader",
+            options: {
+              importLoaders: 1,
+              modules: true
+            }
+          }
+        ]
+      },
+      {}
+    ]
+  },
   output: {
     path: path.resolve(__dirname, "dist"),
     filename: "webview.js",
@@ -99,4 +125,46 @@ const webviewConfig = {
     })
   ]
 };
-module.exports = [extensionConfig, webviewConfig];
+
+/** @type WebpackConfig */
+const serverConfig = {
+  mode: "none",
+  target: "node",
+  externals: {
+    vscode: "commonjs vscode",
+    "vscode-languageserver": "commonjs vscode-languageserver",
+    "vscode-languageserver/node": "commonjs vscode-languageserver/node",
+    "vscode-languageserver-textdocument": "commonjs vscode-languageserver-textdocument",
+  },
+  resolve: {
+    extensions: [".ts", ".js", ".css"]
+  },
+  devtool: "nosources-source-map",
+  infrastructureLogging: {
+    level: "log"
+  },
+  entry: "./src/lsp/server/server.ts",
+  module: {
+    rules: [
+      {
+        test: /\.ts$/,
+        exclude: /node_modules/,
+        use: [{
+          loader: "ts-loader",
+          options: {
+            configFile: path.resolve(__dirname, "tsconfig.server.json"),
+            transpileOnly: true
+          }
+        }]
+      },
+      {}
+    ]
+  },
+  output: {
+    path: path.resolve(__dirname, "dist"),
+    filename: "ssl-language-server.js",
+    libraryTarget: "commonjs2"
+  }
+};
+
+module.exports = [extensionConfig, webviewConfig, serverConfig];
