@@ -10,6 +10,7 @@ dotenv.config();
 
 const FORM_CALLBACK_PORT_RANGE_START = 3003;
 const FORM_CALLBACK_PORT_RANGE_END = 3099;
+const MCP_WATCHDOG_INTERVAL_MS = 30_000;
 
 export type ExpressServerOptions = {
     host?: string;
@@ -39,6 +40,7 @@ export class ExpressServer {
     private readonly opencodeProxyPort: number;
     private readonly opencodeProxyTargetUrl: string;
     private readonly onOpenCodeBehind: (formId: string, functionName: string) => void | Thenable<unknown> | Promise<unknown>;
+    private mcpWatchdogTimer: ReturnType<typeof setInterval> | undefined;
     private port: number;
 
     private static readonly opencodeProxySessionTitle = 'STARLIMS Copilot Proxy';
@@ -65,16 +67,8 @@ export class ExpressServer {
             this.httpServer = await this.startFormCallbackServer();
         }
 
-        if (!this.mcpHttpServer && this.mcpApp) {
-            try {
-                this.mcpHttpServer = await this.listen(this.mcpApp, this.mcpPort, this.mcpHost);
-                vscode.window.showInformationMessage(
-                    `Starlims VS Code MCP server running on http://${this.mcpHost}:${this.mcpPort}/mcp`
-                );
-            } catch (error) {
-                vscode.window.showErrorMessage(`Failed to start STARLIMS MCP server: ${error}`);
-            }
-        }
+        await this.startMcpServer();
+        this.startMcpWatchdog();
 
         if (!this.opencodeHttpServer && this.opencodeApp) {
             try {
@@ -95,6 +89,8 @@ export class ExpressServer {
     }
 
     public async stop(): Promise<void> {
+        this.stopMcpWatchdog();
+
         const server = this.httpServer;
         this.httpServer = undefined;
 
@@ -110,6 +106,7 @@ export class ExpressServer {
     }
 
     public dispose(): void {
+        this.stopMcpWatchdog();
         void this.stop();
     }
 
@@ -415,6 +412,53 @@ export class ExpressServer {
         }
 
         return JSON.stringify(data);
+    }
+
+    private async startMcpServer(): Promise<void> {
+        if (this.mcpHttpServer || !this.mcpApp) {
+            return;
+        }
+
+        try {
+            this.mcpHttpServer = await this.listen(this.mcpApp, this.mcpPort, this.mcpHost);
+            vscode.window.showInformationMessage(
+                `Starlims VS Code MCP server running on http://${this.mcpHost}:${this.mcpPort}/mcp`
+            );
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to start STARLIMS MCP server: ${error}`);
+        }
+    }
+
+    private startMcpWatchdog(): void {
+        this.stopMcpWatchdog();
+        this.mcpWatchdogTimer = setInterval(async () => {
+            if (!this.mcpApp) {
+                return;
+            }
+
+            if (this.mcpHttpServer) {
+                try {
+                    const res = await fetch(`http://${this.mcpHost}:${this.mcpPort}/health`);
+                    if (res.ok) {
+                        return;
+                    }
+                } catch {
+                    // Server is unreachable — fall through to restart.
+                }
+
+                await this.closeServer(this.mcpHttpServer).catch(() => { /* best-effort */ });
+                this.mcpHttpServer = undefined;
+            }
+
+            await this.startMcpServer();
+        }, MCP_WATCHDOG_INTERVAL_MS);
+    }
+
+    private stopMcpWatchdog(): void {
+        if (this.mcpWatchdogTimer) {
+            clearInterval(this.mcpWatchdogTimer);
+            this.mcpWatchdogTimer = undefined;
+        }
     }
 
     private async startFormCallbackServer(): Promise<Server | undefined> {
