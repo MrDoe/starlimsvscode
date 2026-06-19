@@ -14,11 +14,6 @@ const extensionConfig = {
   target: "node",
   externals: {
     vscode: "commonjs vscode",
-    "vscode-languageserver": "commonjs vscode-languageserver",
-    "vscode-languageserver/node": "commonjs vscode-languageserver/node",
-    "vscode-languageserver-textdocument": "commonjs vscode-languageserver-textdocument",
-    "vscode-languageclient": "commonjs vscode-languageclient",
-    "vscode-languageclient/node": "commonjs vscode-languageclient/node",
   },
   resolve: {
     extensions: [".ts", ".js", ".css"]
@@ -132,9 +127,6 @@ const serverConfig = {
   target: "node",
   externals: {
     vscode: "commonjs vscode",
-    "vscode-languageserver": "commonjs vscode-languageserver",
-    "vscode-languageserver/node": "commonjs vscode-languageserver/node",
-    "vscode-languageserver-textdocument": "commonjs vscode-languageserver-textdocument",
   },
   resolve: {
     extensions: [".ts", ".js", ".css"]
