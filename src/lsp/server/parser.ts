@@ -95,7 +95,9 @@ export class SSLParser {
     }
 
     const members: ASTNode[] = [];
-    while (!this.isAtEnd() && !this.check(TokenType.Class)) {
+    while (!this.isAtEnd()) {
+      this.skipComments();
+      if (this.check(TokenType.Class)) break;
       if (this.check(TokenType.Procedure)) {
         members.push(this.parseProcedureDecl());
       } else if (this.check(TokenType.Access) || this.check(TokenType.Assign)) {
@@ -158,7 +160,9 @@ export class SSLParser {
     }
 
     const body: ASTNode[] = [];
-    while (!this.isAtEnd() && !this.check(TokenType.EndProc)) {
+    while (!this.isAtEnd()) {
+      this.skipComments();
+      if (this.check(TokenType.EndProc)) break;
       const stmt = this.parseStatement();
       if (stmt) {
         body.push(stmt);
@@ -305,7 +309,9 @@ export class SSLParser {
     this.expectSemicolon();
 
     const thenBody: ASTNode[] = [];
-    while (!this.isAtEnd() && !this.check(TokenType.EndIf) && !this.check(TokenType.Else)) {
+    while (!this.isAtEnd()) {
+      this.skipComments();
+      if (this.check(TokenType.EndIf) || this.check(TokenType.Else)) break;
       const stmt = this.parseStatement();
       if (stmt) thenBody.push(stmt);
     }
@@ -315,7 +321,9 @@ export class SSLParser {
       this.advance();
       this.expectSemicolon();
       elseBody = [];
-      while (!this.isAtEnd() && !this.check(TokenType.EndIf)) {
+      while (!this.isAtEnd()) {
+        this.skipComments();
+        if (this.check(TokenType.EndIf)) break;
         const stmt = this.parseStatement();
         if (stmt) elseBody.push(stmt);
       }
@@ -353,7 +361,9 @@ export class SSLParser {
     this.expectSemicolon();
 
     const body: ASTNode[] = [];
-    while (!this.isAtEnd() && !this.check(TokenType.Next)) {
+    while (!this.isAtEnd()) {
+      this.skipComments();
+      if (this.check(TokenType.Next)) break;
       const stmt = this.parseStatement();
       if (stmt) body.push(stmt);
     }
@@ -382,7 +392,9 @@ export class SSLParser {
     this.expectSemicolon();
 
     const body: ASTNode[] = [];
-    while (!this.isAtEnd() && !this.check(TokenType.EndWhile)) {
+    while (!this.isAtEnd()) {
+      this.skipComments();
+      if (this.check(TokenType.EndWhile)) break;
       const stmt = this.parseStatement();
       if (stmt) body.push(stmt);
     }
@@ -410,7 +422,9 @@ export class SSLParser {
     const branches: CaseBranchNode[] = [];
     let otherwise: OtherwiseBranchNode | undefined;
 
-    while (!this.isAtEnd() && !this.check(TokenType.EndCase)) {
+    while (!this.isAtEnd()) {
+      this.skipComments();
+      if (this.check(TokenType.EndCase)) break;
       if (this.check(TokenType.Case)) {
         branches.push(this.parseCaseBranch());
       } else if (this.check(TokenType.Otherwise)) {
@@ -444,7 +458,9 @@ export class SSLParser {
 
     const body: ASTNode[] = [];
     let hasExitCase = false;
-    while (!this.isAtEnd() && !this.check(TokenType.Case) && !this.check(TokenType.Otherwise) && !this.check(TokenType.EndCase)) {
+    while (!this.isAtEnd()) {
+      this.skipComments();
+      if (this.check(TokenType.Case) || this.check(TokenType.Otherwise) || this.check(TokenType.EndCase)) break;
       if (this.check(TokenType.ExitCase)) {
         this.advance();
         this.expectSemicolon();
@@ -472,7 +488,9 @@ export class SSLParser {
     this.expectSemicolon();
 
     const body: ASTNode[] = [];
-    while (!this.isAtEnd() && !this.check(TokenType.EndCase)) {
+    while (!this.isAtEnd()) {
+      this.skipComments();
+      if (this.check(TokenType.EndCase)) break;
       const stmt = this.parseStatement();
       if (stmt) body.push(stmt);
     }
@@ -492,7 +510,9 @@ export class SSLParser {
     this.expectSemicolon();
 
     const body: ASTNode[] = [];
-    while (!this.isAtEnd() && !this.check(TokenType.Catch) && !this.check(TokenType.Finally) && !this.check(TokenType.EndTry)) {
+    while (!this.isAtEnd()) {
+      this.skipComments();
+      if (this.check(TokenType.Catch) || this.check(TokenType.Finally) || this.check(TokenType.EndTry)) break;
       const stmt = this.parseStatement();
       if (stmt) body.push(stmt);
     }
@@ -502,7 +522,9 @@ export class SSLParser {
       this.advance();
       this.expectSemicolon();
       catchBody = [];
-      while (!this.isAtEnd() && !this.check(TokenType.Finally) && !this.check(TokenType.EndTry)) {
+      while (!this.isAtEnd()) {
+        this.skipComments();
+        if (this.check(TokenType.Finally) || this.check(TokenType.EndTry)) break;
         const stmt = this.parseStatement();
         if (stmt) catchBody.push(stmt);
       }
@@ -513,7 +535,9 @@ export class SSLParser {
       this.advance();
       this.expectSemicolon();
       finallyBody = [];
-      while (!this.isAtEnd() && !this.check(TokenType.EndTry)) {
+      while (!this.isAtEnd()) {
+        this.skipComments();
+        if (this.check(TokenType.EndTry)) break;
         const stmt = this.parseStatement();
         if (stmt) finallyBody.push(stmt);
       }
