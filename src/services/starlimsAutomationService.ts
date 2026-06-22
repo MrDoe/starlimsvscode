@@ -216,6 +216,45 @@ export class StarlimsAutomationService {
     };
   }
 
+
+  public async readLog(user?: string, numLastLines?: number): Promise<StarlimsAutomationResult> {
+    const logUser = (user || this.enterpriseService.getCurrentUser() || "").trim();
+    if (!logUser) {
+      return {
+        ok: false,
+        error: "No user specified and no current user configured."
+      };
+    }
+
+    const effectiveNumLines = typeof numLastLines === "number" && Number.isFinite(numLastLines)
+      ? Math.max(1, Math.floor(numLastLines))
+      : 20;
+
+    const logUri = "/ServerLogs/" + logUser + ".log";
+    const result = await this.enterpriseService.getEnterpriseItemCodeResult(logUri, undefined);
+    if (!result.ok || !result.data) {
+      return {
+        ok: false,
+        error: result.error ?? "Could not retrieve log file.",
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: logUri,
+        user: logUser
+      };
+    }
+
+    const lines = result.data.code.split("\\n");
+    const tail = lines.slice(-effectiveNumLines);
+
+    return {
+      ok: true,
+      code: tail.join("\\n"),
+      numLastLines: effectiveNumLines,
+      serverName: this.enterpriseService.getCurrentServerName(),
+      totalLines: lines.length,
+      uri: logUri,
+      user: logUser
+    };
+  }
   public async executeServerScript(
     uri: string,
     parameters: unknown[] | undefined,
