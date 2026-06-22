@@ -124,6 +124,11 @@ const runIntegrationTestsInputSchema = z.object({
   maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return from the test output.")
 });
 
+const readLogInputSchema = z.object({
+  user: z.string().optional().describe("STARLIMS user name whose log to read. Defaults to the current user configured in starlimsvscode."),
+  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return from the log.")
+});
+
 export class StarlimsMcpServer {
   constructor(
     private readonly automationService: StarlimsAutomationService,
@@ -273,6 +278,22 @@ export class StarlimsMcpServer {
         { language, maxCharacters, uri },
         () => this.automationService.getItemCode(uri, language, maxCharacters),
         (result) => `Retrieved ${this.toCount(result.totalCharacters)} character(s) from ${this.toUriLabel(result.uri)}.`
+      )
+    );
+
+    server.registerTool(
+      "read_log",
+      {
+        annotations: { readOnlyHint: true },
+        description: "Read the STARLIMS server log file for a specified user (default: current user).",
+        inputSchema: readLogInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ user, maxCharacters }) => this.executeTool(
+        "read_log",
+        { maxCharacters, user },
+        () => this.automationService.readLog(user, maxCharacters),
+        (result) => `Retrieved ${this.toCount(result.totalCharacters)} character(s) from log for user '${result.user}'.`
       )
     );
 
