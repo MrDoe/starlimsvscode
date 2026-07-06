@@ -4365,16 +4365,16 @@ Please provide:
 
       // get the script name from editor cursor position
       const position = editor.selection.active;
-      let scriptName = editor.document.getText(editor.document.getWordRangeAtPosition(position, /[\w\.]+/));
-      let aScriptNameComponents = scriptName.split(".");
+      let fullScriptPath = editor.document.getText(editor.document.getWordRangeAtPosition(position, /[\w\.]+/));
+      let aScriptNameComponents = fullScriptPath.split(".");
 
       // remove first and main_ component (script type in log file)
       if (aScriptNameComponents[0] === "ServerScript") {
         aScriptNameComponents.shift();
         if (aScriptNameComponents[2] === "main_") {
           aScriptNameComponents.pop();
-          scriptName = aScriptNameComponents.join(".");
         }
+        fullScriptPath = aScriptNameComponents.join(".");
       }
 
       let found = false;
@@ -4384,18 +4384,19 @@ Please provide:
       }
       else if (aScriptNameComponents.length === 1) {
         // this is probably a procedure in the current script
-        found = findProcedureInEditor(scriptName, editor);
+        found = await findProcedureInEditor(fullScriptPath);
         if (!found) {
-          // it could be in an :INCLUDEd library
-          const libraryNames = findIncludedScripts(editor);
+          // it could be in an :INCLUDE library
+          const libraryNames = await findIncludedScripts(editor);
           for (const library of libraryNames) {
-            found = await findScriptOnServer(library, scriptName);
+            found = await findScriptOnServer(library, fullScriptPath);
             if (found) { break; }
           }
         }
       } else {
         // this is a server script or external script procedure, search on server to find the main script
         const procedureName = aScriptNameComponents.length > 2 ? aScriptNameComponents[2] : undefined;
+        const scriptName = aScriptNameComponents.slice(0, 2).join(".");
         found = await findScriptOnServer(scriptName, procedureName);
       }
 
@@ -4407,11 +4408,8 @@ Please provide:
         let itemFound = await enterpriseTreeProvider.search(scriptName, "SS", true, false, true);
         if (itemFound) {
           await vscode.commands.executeCommand("STARLIMS.GetLocal", itemFound);
-          // get new editor
-          editor = vscode.window.activeTextEditor;
-          if (editor && procedureName) {
-            // find procedure in the newly opened editor
-            return findProcedureInEditor(procedureName, editor);
+          if (procedureName) {
+            return findProcedureInEditor(procedureName);
           }
           return true;
         } {
@@ -4419,21 +4417,22 @@ Please provide:
         }
       }
 
-      function findProcedureInEditor(procedureName: string, editor: vscode.TextEditor): boolean {
-        const procName = `:PROCEDURE ${[procedureName]};`;
-        // search the opened document for the procedure name and set cursor to the line of occurrence
-        const procPosition = editor.document.getText().indexOf(procName);
-        if (procPosition > 0) {
-          const position = editor.document.positionAt(procPosition);
-          editor.selection = new vscode.Selection(position, position);
-          editor.revealRange(new vscode.Range(position, position));
-          return true;
-        } else {
-          return false;
+      function findProcedureInEditor(procedureName: string): boolean {
+        const procName = `:PROCEDURE ${procedureName};`.toLowerCase();
+        for (const ed of vscode.window.visibleTextEditors) {
+          const docText = ed.document.getText().toLowerCase();
+          const procPosition = docText.indexOf(procName);
+          if (procPosition >= 0) {
+            const position = ed.document.positionAt(procPosition);
+            ed.selection = new vscode.Selection(position, position);
+            ed.revealRange(new vscode.Range(position, position));
+            return true;
+          }
         }
+        return false;
       }
 
-      function findIncludedScripts(editor: vscode.TextEditor) {
+      async function findIncludedScripts(editor: vscode.TextEditor) {
         // find all included scripts in the current document
         let regex = /:INCLUDE\s+"([^"]*)";/g;
         let matches;
@@ -4463,8 +4462,8 @@ Please provide:
           aScriptNameComponents.shift();
           if (aScriptNameComponents[2] === "main_") {
             aScriptNameComponents.pop();
-            scriptName = aScriptNameComponents.join(".");
           }
+          scriptName = aScriptNameComponents.join(".");
         }
 
         // use search to find the script

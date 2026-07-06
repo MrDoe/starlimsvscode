@@ -18,7 +18,7 @@ const extensionConfig = {
   resolve: {
     extensions: [".ts", ".js", ".css"]
   },
-  devtool: "nosources-source-map",
+  devtool: "source-map",
   infrastructureLogging: {
     level: "log"
   },
@@ -69,7 +69,7 @@ const webviewConfig = {
   resolve: {
     extensions: [".ts", ".js", ".css"]
   },
-  devtool: "nosources-source-map",
+  devtool: "source-map",
   entry: "./src/webview/main.ts",
   experiments: { outputModule: true },
   module: {
@@ -131,7 +131,7 @@ const serverConfig = {
   resolve: {
     extensions: [".ts", ".js", ".css"]
   },
-  devtool: "nosources-source-map",
+  devtool: "source-map",
   infrastructureLogging: {
     level: "log"
   },
