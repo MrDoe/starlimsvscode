@@ -379,8 +379,8 @@ export class ExpressServer {
             await fetch(this.buildOpenCodeApiUrl(baseUrl, `/session/${sessionId}`), {
                 method: 'DELETE'
             });
-        } catch {
-            // Ignore cleanup failures; the proxy request has already completed.
+        } catch (error) {
+            console.warn(`Failed to clean up OpenCode session ${sessionId}:`, error);
         }
     }
 
