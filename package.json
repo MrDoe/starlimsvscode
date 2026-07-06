@@ -3,7 +3,7 @@
     "displayName":  "STARLIMS VS Code Extension",
     "description":  "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license":  "SEE LICENSE IN LICENSE.md",
-    "version":  "1.6.2",
+    "version":  "1.6.7",
     "icon":  "resources/extension/starlimsvscode.png",
     "publisher":  "cdoellinger",
     "author":  {
@@ -371,7 +371,7 @@
                                             {
                                                 "command":  "STARLIMS.GoToItem",
                                                 "key":  "f11",
-                                                "when":  "editorTextFocus \u0026\u0026 (resourceDirname =~ /SLVSCODE/ \u0026\u0026 editorLangId != \u0027log\u0027 \u0026\u0026 editorLangId != \u0027SLSQL\u0027) || (focusedView == \u0027workbench.panel.output\u0027 \u0026\u0026 resourceExtname == \u0027.vscode-starlims-#2-STARLIMS Log\u0027)"
+                                                "when":  "(editorTextFocus \u0026\u0026 resourceDirname =~ /SLVSCODE/ \u0026\u0026 editorLangId != \u0027SLSQL\u0027) || (focusedView == \u0027workbench.panel.output\u0027 \u0026\u0026 editorLangId == \u0027log\u0027)"
                                             },
                                             {
                                                 "command":  "STARLIMS.RunScript",
@@ -406,12 +406,12 @@
                                             {
                                                 "command":  "STARLIMS.RefreshLogChannel",
                                                 "key":  "f5",
-                                                "when":  "focusedView == \u0027workbench.panel.output\u0027 \u0026\u0026 resourceExtname == \u0027.vscode-starlims-#2-STARLIMS Log\u0027"
+                                                "when":  "focusedView == \u0027workbench.panel.output\u0027 \u0026\u0026 editorLangId == \u0027log\u0027"
                                             },
                                             {
                                                 "command":  "STARLIMS.ClearLogChannel",
                                                 "key":  "ctrl+f5",
-                                                "when":  "focusedView == \u0027workbench.panel.output\u0027 \u0026\u0026 resourceExtname == \u0027.vscode-starlims-#2-STARLIMS Log\u0027"
+                                                "when":  "focusedView == \u0027workbench.panel.output\u0027 \u0026\u0026 editorLangId == \u0027log\u0027"
                                             },
                                             {
                                                 "command":  "STARLIMS.GlobalCodeSearch",
@@ -745,13 +745,18 @@
                                                              },
                                                              {
                                                                  "submenu":  "STARLIMS.GoTo",
-                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 editorLangId != \u0027log\u0027 \u0026\u0026 editorLangId != \u0027SLSQL\u0027",
+                                                                 "when":  "resourceDirname =~ /SLVSCODE/ \u0026\u0026 editorLangId != \u0027SLSQL\u0027",
                                                                  "group":  "navigation"
                                                              },
                                                              {
                                                                  "submenu":  "STARLIMS.ServerLog",
-                                                                 "when":  "focusedView == \u0027workbench.panel.output\u0027 \u0026\u0026 resourceExtname == \u0027.vscode-starlims-#2-STARLIMS Log\u0027",
+                                                                 "when":  "focusedView == \u0027workbench.panel.output\u0027 \u0026\u0026 editorLangId == \u0027log\u0027",
                                                                  "group":  "ServerLog"
+                                                             },
+                                                             {
+                                                                 "submenu":  "STARLIMS.GoTo",
+                                                                 "when":  "focusedView == \u0027workbench.panel.output\u0027 \u0026\u0026 editorLangId == \u0027log\u0027",
+                                                                 "group":  "navigation"
                                                              }
                                                          ],
                                       "STARLIMS.GoTo":  [
