@@ -4417,17 +4417,15 @@ Please provide:
         }
       }
 
-      function findProcedureInEditor(procedureName: string): boolean {
-        const procName = `:PROCEDURE ${procedureName};`.toLowerCase();
-        for (const ed of vscode.window.visibleTextEditors) {
-          const docText = ed.document.getText().toLowerCase();
-          const procPosition = docText.indexOf(procName);
-          if (procPosition >= 0) {
-            const position = ed.document.positionAt(procPosition);
-            ed.selection = new vscode.Selection(position, position);
-            ed.revealRange(new vscode.Range(position, position));
-            return true;
-          }
+      async function findProcedureInEditor(procedureName: string): Promise<boolean> {
+        const ed = vscode.window.activeTextEditor;
+        if (!ed) return false;
+        const procRegex = new RegExp(`:PROCEDURE\\s+${procedureName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*;`, 'i');
+        const match = ed.document.getText().match(procRegex);
+        if (match?.index !== undefined) {
+          const position = ed.document.positionAt(match.index);
+          await vscode.window.showTextDocument(ed.document, { selection: new vscode.Range(position, position) });
+          return true;
         }
         return false;
       }

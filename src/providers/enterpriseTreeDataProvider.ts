@@ -224,7 +224,56 @@ export class EnterpriseTreeDataProvider implements vscode.TreeDataProvider<TreeE
    */
   async getTreeItemByUri(uri: string): Promise<TreeEnterpriseItem | undefined> {
     const enterpriseItems: TreeEnterpriseItem[] = this.treeItems;
-    return enterpriseItems.find((item) => item.uri === uri);
+    const result = enterpriseItems.find((item) => item.uri === uri);
+    if (result) return result;
+
+    const rawResult = this.resultItems.find((item: any) => item.uri === uri);
+    if (rawResult) {
+      return this.createTreeItemFromRecord(rawResult);
+    }
+
+    return undefined;
+  }
+
+  private createTreeItemFromRecord(record: any): TreeEnterpriseItem {
+    const itemType = this.mapStringToEnterpriseItemType(record.type || "");
+    const label = record.name || record.uri?.split("/").pop() || "";
+    return new TreeEnterpriseItem(
+      itemType,
+      label,
+      record.scriptLanguage || record.language || "",
+      record.uri,
+      vscode.TreeItemCollapsibleState.None,
+      undefined,
+      record.filePath,
+      record.guid,
+      record.language || ""
+    );
+  }
+
+  private mapStringToEnterpriseItemType(type: string): EnterpriseItemType {
+    const upper = type.toUpperCase();
+    switch (upper) {
+      case "SS": return EnterpriseItemType.ServerScript;
+      case "APPSS": return EnterpriseItemType.AppServerScript;
+      case "DS": return EnterpriseItemType.DataSource;
+      case "APPDS": return EnterpriseItemType.AppDataSource;
+      case "CS": return EnterpriseItemType.ClientScript;
+      case "APPCS": return EnterpriseItemType.AppClientScript;
+      case "HTMLFORMXML": return EnterpriseItemType.HTMLFormXML;
+      case "XFDFORMXML": return EnterpriseItemType.XFDFormXML;
+      case "HTMLFORMCODE": return EnterpriseItemType.HTMLFormCode;
+      case "XFDFORMCODE": return EnterpriseItemType.XFDFormCode;
+      case "HTMLFORMGUIDE": return EnterpriseItemType.HTMLFormGuide;
+      case "HTMLFORMRESOURCES": return EnterpriseItemType.HTMLFormResources;
+      case "XFDFORMRESOURCES": return EnterpriseItemType.XFDFormResources;
+      case "PHONEFORM": return EnterpriseItemType.PhoneForm;
+      case "TABLETFORM": return EnterpriseItemType.TabletForm;
+      case "TABLE": return EnterpriseItemType.Table;
+      case "FORMCODEBEHIND": return EnterpriseItemType.HTMLFormCode;
+      case "FORMXML": return EnterpriseItemType.HTMLFormXML;
+      default: return EnterpriseItemType.ServerScript;
+    }
   }
 
   /**
