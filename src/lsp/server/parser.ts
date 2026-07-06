@@ -1109,6 +1109,16 @@ export class SSLParser {
       while (this.check(TokenType.Comma)) {
         this.advance();
         if (this.check(TokenType.RightBrace)) break;
+        if (this.check(TokenType.Comma)) {
+          elements.push({
+            type: 'NilLiteral',
+            startLine: this.previous().line,
+            startCol: this.previous().column + this.previous().length,
+            endLine: this.previous().line,
+            endCol: this.previous().column + this.previous().length,
+          } as NilLiteralNode);
+          continue;
+        }
         elements.push(this.parseExpression());
       }
     }
