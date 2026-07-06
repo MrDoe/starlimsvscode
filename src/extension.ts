@@ -4528,7 +4528,7 @@ Please provide:
         },
         {
           command: "STARLIMS.GoToDataSource",
-          keywords: ["lims.GetData", "DataSource"]
+          keywords: ["lims.GetData", "DataSource" ,"GetDS"]
         },
         {
           command: "STARLIMS.GoToForm",
