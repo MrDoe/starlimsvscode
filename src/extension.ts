@@ -25,6 +25,8 @@ import { TicketStackTraceContentProvider } from "./providers/ticketStackTraceCon
 import * as crypto from 'crypto';
 import { promisify } from "util";
 import { startLanguageClient, stopLanguageClient } from "./lsp/client";
+import { startJsLanguageClient, stopJsLanguageClient, getJsLanguageClient } from "./lsp/js/client";
+import { registerJsIncludeResolver } from "./services/starlimsJsBridge";
 
 const { version } = require('../package.json');
 const SLVSCODE_FOLDER = "SLVSCODE";
@@ -303,6 +305,39 @@ export async function activate(context: vscode.ExtensionContext) {
   // Start SSL Language Server
   const languageClient = startLanguageClient(context);
   context.subscriptions.push({ dispose: () => { void stopLanguageClient(); } });
+
+  // Start JS Language Server if a SLVSCODE workspace is open
+  const jsLspConfig = vscode.workspace.getConfiguration("starlimsJsLsp");
+  const jsLspEnabled = jsLspConfig.get<boolean>("enabled", true);
+  const slvscodeFolder = vscode.workspace.workspaceFolders?.find(
+    folder => folder.name.toUpperCase() === SLVSCODE_FOLDER
+  );
+  let jsLanguageClient: any;
+  if (slvscodeFolder && jsLspEnabled) {
+    jsLanguageClient = startJsLanguageClient(context, slvscodeFolder.uri.fsPath);
+    context.subscriptions.push({ dispose: () => { void stopJsLanguageClient(); } });
+    context.workspaceState.update("starlimsJsLsp.started", true);
+
+    // ESLint's no-unused-vars is redundant with tsserver suggestion diagnostics.
+    // Disable it at the workspace level so ESLint does not false-positive on
+    // top-level functions called from included files or form XML.
+    try {
+      const eslintConfig = vscode.workspace.getConfiguration('eslint', slvscodeFolder.uri);
+      const existingCustomizations = eslintConfig.inspect<any[]>('rules.customizations');
+      const hasOverride = existingCustomizations?.workspaceValue?.some(
+        (c: any) => c.rule === 'no-unused-vars' && c.severity === 'off',
+      );
+      if (!hasOverride) {
+        const base = existingCustomizations?.workspaceValue || existingCustomizations?.globalValue || [];
+        void eslintConfig.update('rules.customizations',
+          [...base, { rule: 'no-unused-vars', severity: 'off' }],
+          vscode.ConfigurationTarget.Workspace,
+        );
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
 
   setTimeout(() => {
     void (async () => {
@@ -2521,6 +2556,11 @@ Please provide:
   // create enterprise service
   enterpriseService = new EnterpriseService(config, secretStorage, context.workspaceState);
 
+  // Register JS LSP include resolver bridge (if JS LSP is active)
+  if (jsLanguageClient) {
+    registerJsIncludeResolver(jsLanguageClient, enterpriseService, rootPath);
+  }
+
   // Initialize server name for path structure
   const selectedServerName = config.get("selectedServer") as string;
   if (selectedServerName) {
@@ -3055,7 +3095,7 @@ Please provide:
 
             if (fileUri) {
               try {
-                fs.writeFileSync(fileUri.fsPath, exportedPackage.content);
+                fs.writeFileSync(fileUri.fsPath, String(exportedPackage.content));
                 vscode.window.showInformationMessage(`Package exported successfully to: ${path.basename(fileUri.fsPath)}`);
               } catch (error: any) {
                 vscode.window.showErrorMessage(`Failed to save file: ${error.message}`);
@@ -5124,6 +5164,7 @@ async function setupGitIntegration(
 
 // this method is called when your extension is deactivated
 export function deactivate() {
+  void stopJsLanguageClient();
   return stopLanguageClient();
 }
 

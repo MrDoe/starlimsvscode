@@ -7,8 +7,9 @@
     "sourceMap": true,
     "rootDir": "src",
     "esModuleInterop": true,
-    "strict": true
+    "strict": true,
+    "skipLibCheck": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", ".vscode-test", "src/webview", "hello-webview-repro"]
+  "exclude": ["node_modules", ".vscode-test", "src/webview", "src/lsp/server", "src/lsp/js", "hello-webview-repro"]
 }

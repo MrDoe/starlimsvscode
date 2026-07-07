@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "module": "commonjs",
+    "target": "ES2020",
+    "lib": ["ES2020"],
+    "sourceMap": true,
+    "rootDir": "src",
+    "esModuleInterop": true,
+    "strict": true,
+    "declaration": false,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "vscode-languageserver/node": ["./node_modules/vscode-languageserver/lib/node/main.d.ts"],
+      "vscode-languageserver": ["./node_modules/vscode-languageserver/lib/common/api.d.ts"],
+      "vscode-languageclient/node": ["./node_modules/vscode-languageclient/lib/node/main.d.ts"],
+      "vscode-languageclient": ["./node_modules/vscode-languageclient/lib/common/api.d.ts"],
+      "vscode-languageserver-textdocument": ["./node_modules/vscode-languageserver-textdocument/lib/umd/main.d.ts"],
+      "vscode-jsonrpc/node": ["./node_modules/vscode-jsonrpc/lib/node/main.d.ts"],
+      "vscode-jsonrpc": ["./node_modules/vscode-jsonrpc/lib/common/api.d.ts"]
+    }
+  },
+  "include": ["src/lsp/js/**/*.ts"],
+  "exclude": ["node_modules"]
+}
