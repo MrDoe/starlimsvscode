@@ -11,6 +11,7 @@ import {
   DocumentSymbol,
   FoldingRange,
   Diagnostic,
+  DiagnosticSeverity,
   CompletionItemKind,
   TextDocumentChangeEvent,
   TextDocumentDidClose,
@@ -43,8 +44,8 @@ const parser = new SSLParser();
 const symbolTables = new Map<string, SymbolTable>();
 const astCache = new Map<string, ProgramNode>();
 
-// Debounce timer
-let validationTimer: ReturnType<typeof setTimeout> | null = null;
+// Per-document debounce timers
+const validationTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 connection.onInitialize((_params: InitializeParams): InitializeResult => {
   return {
@@ -69,18 +70,27 @@ connection.onInitialized(() => {
 
 // Document sync
 documents.onDidChangeContent((change: TextDocumentChangeEvent<TextDocument>) => {
-  // Debounce validation
-  if (validationTimer) {
-    clearTimeout(validationTimer);
+  const uri = change.document.uri;
+  // Cancel any pending validation for this document
+  const existing = validationTimers.get(uri);
+  if (existing) {
+    clearTimeout(existing);
   }
-  validationTimer = setTimeout(() => {
+  validationTimers.set(uri, setTimeout(() => {
+    validationTimers.delete(uri);
     validateDocument(change.document);
-  }, 300);
+  }, 300));
 });
 
 documents.onDidClose((event: TextDocumentDidClose) => {
-  // Clean up caches
   const uri = event.document.uri;
+  // Cancel pending validation
+  const existing = validationTimers.get(uri);
+  if (existing) {
+    clearTimeout(existing);
+    validationTimers.delete(uri);
+  }
+  // Clean up caches
   symbolTables.delete(uri);
   astCache.delete(uri);
   // Clear diagnostics
@@ -102,7 +112,7 @@ function validateDocument(document: TextDocument): void {
 
   // Send diagnostics
   const diagnostics: Diagnostic[] = errors.map((err) => ({
-    severity: 1, // Error
+    severity: DiagnosticSeverity.Error,
     range: {
       start: { line: err.line, character: err.column },
       end: { line: err.line, character: err.column + 1 },
@@ -160,11 +170,11 @@ connection.onCompletion((params: CompletionParams): CompletionItem[] => {
   const symbolTable = symbolTables.get(params.textDocument.uri);
   if (symbolTable) {
     const globalScope = symbolTable.getGlobalScope();
-    for (const [name, info] of globalScope.symbols) {
+    for (const [, info] of globalScope.symbols) {
       items.push({
         label: info.name,
         kind: info.kind === 'procedure' ? CompletionItemKind.Function : CompletionItemKind.Variable,
-        detail: info.kind,
+        detail: info.kind === 'procedure' ? 'SSL Procedure' : info.kind,
       });
     }
   }

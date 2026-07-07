@@ -55,6 +55,9 @@ export class ResourcesDataViewPanel {
     enterpriseService: EnterpriseService,
     enterpriseTree: EnterpriseTreeDataProvider
   ) {
+    if (ResourcesDataViewPanel.currentPanel) {
+      ResourcesDataViewPanel.currentPanel.dispose();
+    }
     const panel = vscode.window.createWebviewPanel("data-results", payload.title, vscode.ViewColumn.One, {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(extensionUri, "dist")]
@@ -106,9 +109,9 @@ export class ResourcesDataViewPanel {
     for (const language of enterpriseService.languages) {
       // set the selected attribute if the language matches the current language
       if (language[0] === this.language) {
-        languageOptions += `<vscode-option value="${language[0]}" selected>${language[1]}</vscode-option>\n`;
+        languageOptions += `<vscode-option value="${this.escapeXml(language[0])}" selected>${this.escapeXml(language[1])}</vscode-option>\n`;
       } else {
-        languageOptions += `<vscode-option value="${language[0]}">${language[1]}</vscode-option>\n`;
+        languageOptions += `<vscode-option value="${this.escapeXml(language[0])}">${this.escapeXml(language[1])}</vscode-option>\n`;
       }
     }
 
@@ -119,14 +122,14 @@ export class ResourcesDataViewPanel {
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' ${webview.cspSource}; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
           <link rel="stylesheet" href="${styleUri}">
           <link rel="stylesheet" href="${codiconUri}">
-          <title>${this.title}</title>
+          <title>${this.escapeXml(this.title)}</title>
         </head>
         <body>
-          <input type="hidden" id="docPath" value="${this.docPath}" />
-          <h1 id="title">${this.title}</h1>
+          <input type="hidden" id="docPath" value="${this.escapeXml(this.docPath)}" />
+          <h1 id="title">${this.escapeXml(this.title)}</h1>
           <div class="dropdown-wrapper">
             <label class="dropdown-label">Language:</label>
             <vscode-dropdown position="below" id="language-dropdown">
@@ -153,7 +156,7 @@ export class ResourcesDataViewPanel {
    */
   private _setWebviewMessageListener(webview: vscode.Webview) {
     webview.onDidReceiveMessage(
-      (message: any) => {
+      async (message: any) => {
         const command = message.command;
         switch (command) {
           case "requestData":
@@ -170,7 +173,7 @@ export class ResourcesDataViewPanel {
             // save the grid data to the file system
 
             // get payload containing columns and data
-            let jsonData = message.payload;
+            const jsonData = message.payload;
 
             // get row data as array
             const jsonDataObj = JSON.parse(jsonData);
@@ -184,23 +187,24 @@ export class ResourcesDataViewPanel {
             for (const row of data) {
               xmlData +=
                 "\t<ResourcesTable>\n" +
-                `\t\t<Guid>${row[0] || ""}</Guid>\n` +
+                `\t\t<Guid>${this.escapeXml(row[0] || "")}</Guid>\n` +
                 `\t\t<ResourceId>${this.escapeXml(row[1])}</ResourceId>\n` +
                 `\t\t<ResourceValue>${this.escapeXml(row[2])}</ResourceValue>\n` +
                 "\t</ResourcesTable>\n";
             }
             xmlData += "</ResourcesDataset>";
 
-            // save the file locally
-            fs.writeFile(this.docPath, xmlData, (err: any) => {
-              if (err) {
-                vscode.window.showErrorMessage(`Failed to save resource file: ${err.message}`);
-                return;
-              }
-            });
+            try {
+              // save the file locally
+              await fs.promises.writeFile(this.docPath, xmlData, "utf8");
 
-            // save the item
-            this.enterpriseService.saveEnterpriseItemCode(this.uri, xmlData, this.language);
+              // save the item
+              await this.enterpriseService.saveEnterpriseItemCode(this.uri, xmlData, this.language);
+
+              vscode.window.showInformationMessage("Resource file saved successfully.");
+            } catch (error: any) {
+              vscode.window.showErrorMessage(`Failed to save resource file: ${error.message}`);
+            }
             break;
 
           case "changeLanguage":
@@ -209,25 +213,23 @@ export class ResourcesDataViewPanel {
             this.language = message.payload;
 
             // check out and re-check in the form under the current language
-            const formUri = this.uri.replace("/Resources", "/XML");
-            (async () => {
-              try {
-                await this.enterpriseService.checkInItem(formUri, "Edit form resources", lastLanguage);
-                await this.enterpriseService.checkOutItem(formUri, this.language);
+            const formUri = this.uri.replace(/\/Resources$/, "/XML");
+            try {
+              await this.enterpriseService.checkInItem(formUri, "Edit form resources", lastLanguage);
+              await this.enterpriseService.checkOutItem(formUri, this.language);
 
-                // reload the enterprise tree & checked out tree
-                this.enterpriseTree.refresh();
+              // reload the enterprise tree & checked out tree
+              this.enterpriseTree.refresh();
 
-                // refresh checked out items
-                vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
+              // refresh checked out items
+              await vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
 
-                // reload the webview with the new language
-                const data = await this.enterpriseService.getFormResources(this.uri, this.language);
-                ResourcesDataViewPanel.render(this.extensionUri, data, this.enterpriseService, this.enterpriseTree);
-              } catch (error: any) {
-                vscode.window.showErrorMessage(`Failed to change language: ${error.message}`);
-              }
-            })();
+              // reload the webview with the new language
+              const data = await this.enterpriseService.getFormResources(this.uri, this.language);
+              ResourcesDataViewPanel.render(this.extensionUri, data, this.enterpriseService, this.enterpriseTree);
+            } catch (error: any) {
+              vscode.window.showErrorMessage(`Failed to change language: ${error.message}`);
+            }
             break;
 
           case "saveTableData":

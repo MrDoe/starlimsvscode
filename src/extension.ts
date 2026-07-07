@@ -150,8 +150,6 @@ type OpenCodeLaunchOptions = {
  * @param slvscodePath Path to the SLVSCODE folder
  */
 async function ensureSLVSCODEWorkspace(slvscodePath: string): Promise<void> {
-  const fs = require('fs');
-
   // Create SLVSCODE folder if it doesn't exist
   if (!fs.existsSync(slvscodePath)) {
     fs.mkdirSync(slvscodePath, { recursive: true });
@@ -2541,10 +2539,12 @@ Please provide:
   }
 
   // create output channel for the extension
-  const outputChannel = vscode.window.createOutputChannel("STARLIMS", 'log');
+  const outputChannel = vscode.window.createOutputChannel("STARLIMS", { log: true });
+  context.subscriptions.push(outputChannel);
 
   // create output channel for the log
-  const logChannel = vscode.window.createOutputChannel("STARLIMS Log", 'log');
+  const logChannel = vscode.window.createOutputChannel("STARLIMS Log", { log: true });
+  context.subscriptions.push(logChannel);
 
   async function publishFormCallbackPortToScm(): Promise<void> {
     const callbackPort = expressServer?.getPort();
@@ -2671,7 +2671,6 @@ Please provide:
       // copy .eslintrc and package.json to folder
       const eslintConfig = context.asAbsolutePath("src/client/eslint/.eslintrc.json");
       const packageJson = context.asAbsolutePath("src/client/eslint/package.json");
-      var fs = require('fs');
       fs.copyFileSync(eslintConfig, eslintConfigFile);
       fs.copyFileSync(packageJson, path.join(rootPath!, "package.json"));
 
@@ -2696,15 +2695,22 @@ Please provide:
 
       if (version !== apiVersion) {
         const sdpPackage = context.asAbsolutePath("dist/SCM_API.sdp");
-        executeWithProgress(async () => {
+        if (!fs.existsSync(sdpPackage)) {
+          vscode.window.showWarningMessage('Backend API package not found at ' + sdpPackage);
+          return;
+        }
+        await executeWithProgress(async () => {
           await enterpriseService.upgradeBackend(sdpPackage);
           const selection = await vscode.window.showInformationMessage(`Backend API upgraded successfully. We recommend that you restart Visual Studio Code.`,
             'Restart', 'Cancel');
           if (selection === "Restart") {
-            vscode.commands.executeCommand("workbench.action.reloadWindow");
+            await vscode.commands.executeCommand("workbench.action.reloadWindow");
           }
         }, "Upgrading the extension backend API.");
       }
+    })
+    .catch((error: any) => {
+      vscode.window.showErrorMessage(`Failed to verify API version: ${error.message}`);
     });
 
   // register the refreshLogChannel command
@@ -3606,11 +3612,15 @@ Please provide:
       }
 
       // remove text in brackets from item name to get the real item name
-      let sItemName = item.label.toString();
-      if (sItemName.indexOf("[") > 0) {
-        sItemName = sItemName.substring(0, sItemName.indexOf("[") - 1);
-      } else if (sItemName.indexOf('(Checked out')) {
-        sItemName = sItemName.substring(0, sItemName.indexOf("(Checked out") - 1);
+      let sItemName = toDisplayLabel(item);
+      const bracketIdx = sItemName.indexOf("[");
+      if (bracketIdx > 0) {
+        sItemName = sItemName.substring(0, bracketIdx - 1).trim();
+      } else {
+        const checkedOutIdx = sItemName.indexOf('(Checked out');
+        if (checkedOutIdx > 0) {
+          sItemName = sItemName.substring(0, checkedOutIdx - 1).trim();
+        }
       }
 
       // ask for confirmation
@@ -3902,7 +3912,7 @@ Please provide:
 
       // wait until the form script has been loaded
       let formScript = await new Promise<any>(resolve => {
-        var counter = 0;
+        let counter = 0;
         const interval = setInterval(async () => {
           // get debug protocol source from vscode loaded scripts
           const loadedScripts = await vscode.debug.activeDebugSession?.customRequest("loadedSources");
@@ -3914,14 +3924,15 @@ Please provide:
           if (script) {
             clearInterval(interval);
             resolve(script);
+            return;
           }
 
           // if the script is not loaded after 1 minute, stop the interval and return undefined
-          if (counter++ > 59) {
+          counter++;
+          if (counter >= 60) {
             clearInterval(interval);
             resolve(undefined);
           }
-          counter++;
         }, 1000);
       });
 
@@ -4138,6 +4149,9 @@ Please provide:
             ignoreFocusOut: true
           }
         );
+        if (!oReturn) {
+          return;
+        }
         language = oReturn.label;
 
         // add item language to the selected item type
@@ -4591,9 +4605,6 @@ Please provide:
       // convert item types to string
       const itemTypesString = itemTypes.map(itemType => itemType.itemType).join(",");
 
-      // remove all breakpoints
-      vscode.debug.removeBreakpoints(vscode.debug.breakpoints);
-
       if (searchTerm) {
         // display a progress message
         vscode.window.withProgress(
@@ -4647,7 +4658,7 @@ Please provide:
           vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
 
           // close and delete (local copies) open documents with the old name
-          const filteredTextDocuments = vscode.workspace.textDocuments.filter(td => td.fileName.indexOf(oldName) > 0);
+          const filteredTextDocuments = vscode.workspace.textDocuments.filter(td => td.fileName.indexOf(oldName) !== -1);
           for (const td of filteredTextDocuments) {
             await vscode.window.showTextDocument(td, { preview: true, preserveFocus: false });
             await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
@@ -4673,7 +4684,7 @@ Please provide:
       }
 
       if (selectedItem.type === EnterpriseItemType.ServerLog) {
-        vscode.window.showErrorMessage("Server Logs cannot be renamed.");
+        vscode.window.showErrorMessage("Server Logs cannot be moved.");
         return;
       }
 
@@ -4683,10 +4694,10 @@ Please provide:
       const refreshTreeAndCloseEditors = async (itemName: string) => {
         // refresh trees
         enterpriseTreeProvider.refresh();
-        vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
+        await vscode.commands.executeCommand("STARLIMS.GetCheckedOutItems");
 
         // close and delete (local copies) open documents with the old name
-        const filteredTextDocuments = vscode.workspace.textDocuments.filter(td => td.fileName.indexOf(itemName) > 0);
+        const filteredTextDocuments = vscode.workspace.textDocuments.filter(td => td.fileName.indexOf(itemName) !== -1);
         for (const td of filteredTextDocuments) {
           await vscode.window.showTextDocument(td, { preview: true, preserveFocus: false });
           await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
@@ -4803,27 +4814,25 @@ Please provide:
   // register the OpenCodeBehind command
   vscode.commands.registerCommand("STARLIMS.OpenCodeBehind", async (formId: string | any, functionName: string | any) => {
     // get tree item from formId
-    var item = await enterpriseService.getItemByGUID(formId, EnterpriseItemType.HTMLFormCode);
-    if (item === null) {
+    const item = await enterpriseService.getItemByGUID(formId, EnterpriseItemType.HTMLFormCode);
+    if (item === undefined || item === null) {
       vscode.window.showErrorMessage("Could not find the selected item.");
       return;
     }
 
-    if (item !== undefined) {
-      vscode.commands.executeCommand("STARLIMS.GetLocal", item);
+    await vscode.commands.executeCommand("STARLIMS.GetLocal", item);
 
-      // go to the function name
-      if (functionName !== undefined) {
-        const editor = vscode.window.activeTextEditor;
-        if (editor) {
-          const text = editor.document.getText();
-          const regex = new RegExp(`async function ${functionName}\\(`, "mig");
-          const match = regex.exec(text);
-          if (match) {
-            const position = editor.document.positionAt(match.index);
-            editor.selection = new vscode.Selection(position, position);
-            editor.revealRange(new vscode.Range(position, position));
-          }
+    // go to the function name
+    if (functionName !== undefined) {
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        const text = editor.document.getText();
+        const regex = new RegExp(`async function ${functionName}\\(`, "mig");
+        const match = regex.exec(text);
+        if (match) {
+          const position = editor.document.positionAt(match.index);
+          editor.selection = new vscode.Selection(position, position);
+          editor.revealRange(new vscode.Range(position, position));
         }
       }
     }
@@ -4903,7 +4912,6 @@ async function setupGitIntegration(
   enterpriseTreeProvider: EnterpriseTreeDataProvider,
   checkedOutTreeDataProvider: CheckedOutTreeDataProvider
 ): Promise<void> {
-  const fs = require('fs');
   const gitExtension = vscode.extensions.getExtension<{ getAPI(version: number): any }>('vscode.git');
 
   if (!gitExtension) {
@@ -4912,16 +4920,12 @@ async function setupGitIntegration(
   }
 
   if (!gitExtension.isActive) {
-    const gitActivationListener = vscode.extensions.onDidChange(() => {
-      const updatedGitExtension = vscode.extensions.getExtension<{ getAPI(version: number): any }>('vscode.git');
-      if (updatedGitExtension?.isActive) {
-        gitActivationListener.dispose();
-        void setupGitIntegration(context, slvscodePath, enterpriseService, enterpriseTreeProvider, checkedOutTreeDataProvider);
-      }
-    });
-    context.subscriptions.push(gitActivationListener);
-    console.log("Built-in Git extension is not active yet, Git integration will initialize when it becomes available");
-    return;
+    try {
+      await gitExtension.activate();
+    } catch {
+      console.log("Built-in Git extension could not be activated, Git integration disabled");
+      return;
+    }
   }
 
   const gitApiProvider = gitExtension.exports;
@@ -4940,11 +4944,14 @@ async function setupGitIntegration(
 
   // Track last known commit hash for each repository
   const lastCommitHashes = new Map<string, string>();
+  // Track per-repo state listeners to avoid double subscription
+  const repoDisposables = new Map<string, vscode.Disposable>();
 
-  // Watch for Git repository changes in the SLVSCODE folder
-  vscode.workspace.onDidChangeWorkspaceFolders(() => {
-    updateGitRepositoryWatchers();
-  });
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      updateGitRepositoryWatchers();
+    })
+  );
 
   // Initial setup
   updateGitRepositoryWatchers();
@@ -4956,10 +4963,16 @@ async function setupGitIntegration(
 
       // Check if this repository is within SLVSCODE folder or contains it
       if (repoPath.includes(SLVSCODE_FOLDER) || slvscodePath.startsWith(repoPath)) {
+        // Dispose existing listener for this repo to avoid duplicate subscriptions
+        const existing = repoDisposables.get(repoPath);
+        if (existing) {
+          existing.dispose();
+        }
         // Listen for state changes in this repository
-        repo.state.onDidChange(() => {
+        const disposable = repo.state.onDidChange(() => {
           handleGitStateChange(repo, repoPath);
         });
+        repoDisposables.set(repoPath, disposable);
       }
     });
   }

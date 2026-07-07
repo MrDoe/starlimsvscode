@@ -1,12 +1,12 @@
 import * as vscode from "vscode";
 
 /**
- * Removes the last / and the starhtml.lims suffics from the specified STARLIMS system URL.
+ * Removes the trailing `/` and any `.lims` suffix from the specified STARLIMS system URL.
  * @param url the URL to clean up.
  */
-export function cleanUrl(url: string) {
+export function cleanUrl(url: string): string {
   let newUrl = url.endsWith("/") ? url.slice(0, -1) : url;
-  if (newUrl.endsWith(".lims")) {
+  if (newUrl.toLowerCase().endsWith(".lims")) {
     newUrl = newUrl.slice(0, newUrl.lastIndexOf("/"));
   }
   return newUrl;
@@ -19,7 +19,7 @@ export function cleanUrl(url: string) {
  * @param fn an async function which executes a long running task
  * @param progressMessage the message to display in the VS Code progress indicator
  */
-export function executeWithProgress(fn: Function, progressMessage: string) {
+export async function executeWithProgress<T>(fn: () => Promise<T>, progressMessage: string): Promise<T> {
   return vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Window,
@@ -28,8 +28,9 @@ export function executeWithProgress(fn: Function, progressMessage: string) {
     },
     async (progress) => {
       progress.report({ increment: 0, message: progressMessage });
-      await fn();
+      const result = await fn();
       progress.report({ increment: 100, message: "Done." });
+      return result;
     }
   );
 }
@@ -40,11 +41,11 @@ export function executeWithProgress(fn: Function, progressMessage: string) {
  * @param str A string or character sequence to be tested for JSON validity.
  * @returns `true` if the string is valid JSON, otherwise `false`.
  */
-export function isJson(str: string) {
+export function isJson(str: string): boolean {
   try {
     JSON.parse(str);
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 }

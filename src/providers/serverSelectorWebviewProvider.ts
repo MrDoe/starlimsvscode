@@ -1,6 +1,6 @@
 "use strict";
 import * as vscode from "vscode";
-import * as crypto from 'crypto';
+import * as crypto from "crypto";
 
 export interface ServerConfig {
   name: string;
@@ -391,11 +391,19 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
       selectedServer: this._selectedServer
     }).replace(/</g, '\\u003c');
 
+    const nonce = crypto.randomBytes(16).toString("base64");
+    const cspSource = webview.cspSource;
+
     return `<!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="Content-Security-Policy"
+              content="default-src 'none';
+                       style-src ${cspSource} 'unsafe-inline';
+                       script-src 'nonce-${nonce}';
+                       font-src ${cspSource};">
         <title>Server Selector</title>
         <style>
             html, body {
@@ -464,7 +472,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
             <button id="deleteBtn" title="Delete Server" disabled>🗑️</button>
         </div>
 
-        <script>
+        <script nonce="${nonce}">
             const vscode = acquireVsCodeApi();
             const initialState = ${initialState};
             const serverSelect = document.getElementById('serverSelect');
@@ -573,7 +581,7 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
                     vscode.postMessage({ type: 'ready' });
                 }
             }, 500);
-          </script>
+        </script>
     </body>
     </html>`;
   }

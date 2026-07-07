@@ -103,7 +103,7 @@ function addRange(startLine: number, endLine: number, ranges: FoldingRange[]): v
   if (endLine > startLine) {
     ranges.push({
       startLine,
-      endLine: endLine - 1,
+      endLine,
     });
   }
 }

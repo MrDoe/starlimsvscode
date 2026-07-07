@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import * as path from "path";
 import { EnterpriseItemType } from "../providers/enterpriseTreeDataProvider";
 import { EnterpriseService } from "./enterpriseService";
 import { EnterpriseItemRecord } from "./starlimsAutomationTypes";
@@ -217,7 +218,7 @@ export class StarlimsAutomationService {
   }
 
 
-  public async readLog(user?: string, numLastLines?: number): Promise<StarlimsAutomationResult> {
+  public async readLog(user?: string, maxLines?: number): Promise<StarlimsAutomationResult> {
     const logUser = (user || this.enterpriseService.getCurrentUser() || "").trim();
     if (!logUser) {
       return {
@@ -226,8 +227,17 @@ export class StarlimsAutomationService {
       };
     }
 
-    const effectiveNumLines = typeof numLastLines === "number" && Number.isFinite(numLastLines)
-      ? Math.max(1, Math.floor(numLastLines))
+    // Prevent path traversal in the user parameter
+    if (/[^A-Za-z0-9._-]/.test(logUser)) {
+      return {
+        ok: false,
+        error: "Invalid user name. Only letters, digits, dots, underscores, and hyphens are allowed.",
+        user: logUser
+      };
+    }
+
+    const effectiveNumLines = typeof maxLines === "number" && Number.isFinite(maxLines)
+      ? Math.max(1, Math.floor(maxLines))
       : 20;
 
     const logUri = "/ServerLogs/" + logUser + ".log";
@@ -242,12 +252,12 @@ export class StarlimsAutomationService {
       };
     }
 
-    const lines = result.data.code.split("\\n");
+    const lines = result.data.code.split(/\r?\n/);
     const tail = lines.slice(-effectiveNumLines);
 
     return {
       ok: true,
-      code: tail.join("\\n"),
+      code: tail.join("\n"),
       numLastLines: effectiveNumLines,
       serverName: this.enterpriseService.getCurrentServerName(),
       totalLines: lines.length,
@@ -466,12 +476,24 @@ export class StarlimsAutomationService {
   }
 
   public async saveItem(localPath: string, language: string | undefined): Promise<StarlimsAutomationResult> {
-    const normalizedLocalPath = localPath.trim();
+    const normalizedLocalPath = path.resolve(localPath.trim());
     if (!normalizedLocalPath) {
       return {
         ok: false,
         error: "The local path cannot be empty."
       };
+    }
+
+    // Ensure the file is within the workspace root
+    const workspaceRoot = this.options.getWorkspaceRoot();
+    if (workspaceRoot) {
+      const resolvedRoot = path.resolve(workspaceRoot);
+      if (!normalizedLocalPath.startsWith(resolvedRoot)) {
+        return {
+          ok: false,
+          error: "The local path must be within the workspace root."
+        };
+      }
     }
 
     if (!fs.existsSync(normalizedLocalPath)) {
