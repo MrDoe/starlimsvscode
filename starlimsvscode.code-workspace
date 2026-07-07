@@ -1,0 +1,34 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"name": "SLVSCODE",
+			"path": "../../SLVSCODE"
+		}
+	],
+	"settings": {
+		"STARLIMS.servers": [
+			{
+				"name": "Production",
+				"url": "https://bmbh02.ads.krz.uni-heidelberg.de/starlims",
+				"user": "DC",
+				"urlSuffix": "lims"
+			},
+			{
+				"name": "Development",
+				"url": "https://bmbh02.ads.krz.uni-heidelberg.de/starlims.dev",
+				"user": "DC",
+				"urlSuffix": "lims"
+			},
+			{
+				"name": "Test",
+				"url": "https://bmbh02.ads.krz.uni-heidelberg.de/starlims.test",
+				"user": "DC",
+				"urlSuffix": "lims"
+			}
+		],
+		"STARLIMS.selectedServer": "Production"
+	}
+}

@@ -122,6 +122,44 @@ const webviewConfig = {
 };
 
 /** @type WebpackConfig */
+const jsServerConfig = {
+  mode: "none",
+  target: "node",
+  externals: {
+    vscode: "commonjs vscode",
+    typescript: "commonjs typescript",
+  },
+  resolve: {
+    extensions: [".ts", ".js"]
+  },
+  devtool: "source-map",
+  infrastructureLogging: {
+    level: "log"
+  },
+  entry: "./src/lsp/js/server.ts",
+  module: {
+    rules: [
+      {
+        test: /\.ts$/,
+        exclude: /node_modules/,
+        use: [{
+          loader: "ts-loader",
+          options: {
+            configFile: path.resolve(__dirname, "tsconfig.js-lsp.json"),
+            transpileOnly: true
+          }
+        }]
+      }
+    ]
+  },
+  output: {
+    path: path.resolve(__dirname, "dist"),
+    filename: "js-language-server.js",
+    libraryTarget: "commonjs2"
+  }
+};
+
+/** @type WebpackConfig */
 const serverConfig = {
   mode: "none",
   target: "node",
@@ -159,4 +197,4 @@ const serverConfig = {
   }
 };
 
-module.exports = [extensionConfig, webviewConfig, serverConfig];
+module.exports = [extensionConfig, webviewConfig, serverConfig, jsServerConfig];
