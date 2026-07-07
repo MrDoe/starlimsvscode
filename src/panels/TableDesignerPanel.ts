@@ -400,6 +400,7 @@ export class TableDesignerPanel {
       vscode.ViewColumn.One,
       {
         enableScripts: true,
+        retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, "dist")]
       }
     );

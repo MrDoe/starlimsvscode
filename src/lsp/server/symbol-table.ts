@@ -1,6 +1,7 @@
 import {
   ASTNode, ProcedureDeclNode, ClassDeclNode, DeclareStmtNode,
-  IdentifierNode, FunctionCallNode, MemberAccessNode, AssignmentStmtNode
+  IdentifierNode, FunctionCallNode, MemberAccessNode, AssignmentStmtNode,
+  ReturnStmtNode, LoopStmtNode
 } from './ast';
 
 export enum SymbolKind {
@@ -95,6 +96,9 @@ export class SymbolTable {
   }
 
   buildFromAST(ast: import('./ast').ProgramNode): void {
+    this.references.clear();
+    this.globalScope = new Scope();
+    this.currentScope = this.globalScope;
     for (const node of ast.body) {
       this.visitNode(node);
     }
@@ -113,6 +117,7 @@ export class SymbolTable {
         break;
       case 'IfStmt': {
         const ifNode = node as import('./ast').IfStmtNode;
+        this.visitNode(ifNode.condition);
         for (const stmt of ifNode.thenBody) this.visitNode(stmt);
         if (ifNode.elseBody) {
           for (const stmt of ifNode.elseBody) this.visitNode(stmt);
@@ -123,23 +128,37 @@ export class SymbolTable {
         const forNode = node as import('./ast').ForStmtNode;
         this.pushScope();
         this.visitNode(forNode.init);
+        this.visitNode(forNode.to);
+        if (forNode.step) this.visitNode(forNode.step);
         for (const stmt of forNode.body) this.visitNode(stmt);
         this.popScope();
         break;
       }
       case 'WhileStmt': {
         const whileNode = node as import('./ast').WhileStmtNode;
+        this.visitNode(whileNode.condition);
         for (const stmt of whileNode.body) this.visitNode(stmt);
         break;
       }
       case 'CaseStmt': {
         const caseNode = node as import('./ast').CaseStmtNode;
         for (const branch of caseNode.branches) {
-          for (const stmt of branch.body) this.visitNode(stmt);
+          this.visitNode(branch);
         }
         if (caseNode.otherwise) {
-          for (const stmt of caseNode.otherwise.body) this.visitNode(stmt);
+          this.visitNode(caseNode.otherwise);
         }
+        break;
+      }
+      case 'CaseBranch': {
+        const branch = node as import('./ast').CaseBranchNode;
+        this.visitNode(branch.condition);
+        for (const stmt of branch.body) this.visitNode(stmt);
+        break;
+      }
+      case 'OtherwiseBranch': {
+        const otherwise = node as import('./ast').OtherwiseBranchNode;
+        for (const stmt of otherwise.body) this.visitNode(stmt);
         break;
       }
       case 'TryStmt': {
@@ -192,6 +211,45 @@ export class SymbolTable {
         this.visitNode(expr.expression);
         break;
       }
+      case 'ReturnStmt': {
+        const ret = node as ReturnStmtNode;
+        if (ret.value) this.visitNode(ret.value);
+        break;
+      }
+      case 'LoopStmt':
+        break;
+      case 'ArrayLiteral': {
+        const arr = node as import('./ast').ArrayLiteralNode;
+        for (const el of arr.elements) this.visitNode(el);
+        break;
+      }
+      case 'ArrayAccess': {
+        const aa = node as import('./ast').ArrayAccessNode;
+        this.visitNode(aa.object);
+        this.visitNode(aa.index);
+        if (aa.index2) this.visitNode(aa.index2);
+        break;
+      }
+      case 'ParamsDecl': {
+        const params = node as import('./ast').ParamsDeclNode;
+        for (const param of params.params) {
+          this.visitNode(param.nameNode);
+        }
+        break;
+      }
+      case 'DefaultDecl': {
+        const def = node as import('./ast').DefaultDeclNode;
+        this.visitNode(def.value);
+        break;
+      }
+      case 'IncludeStmt':
+      case 'StringLiteral':
+      case 'NumberLiteral':
+      case 'BooleanLiteral':
+      case 'NilLiteral':
+      case 'SqlParameter':
+      case 'ErrorNode':
+        break;
     }
   }
 

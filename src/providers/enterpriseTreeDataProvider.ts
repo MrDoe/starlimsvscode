@@ -281,9 +281,18 @@ export class EnterpriseTreeDataProvider implements vscode.TreeDataProvider<TreeE
    * @param guid The GUID of the tree item to search for
    * @returns The tree item for the document
    */
-  async getTreeItemByGuid(guid: string, itemType: EnterpriseItemType): Promise<TreeEnterpriseItem | undefined> {
-    const enterpriseItems: TreeEnterpriseItem[] = this.treeItems;
-    return enterpriseItems.find((item) => item.guid === guid && item.type === itemType);
+  async getTreeItemByGuid(guid: string, itemType: EnterpriseItemType, items?: TreeEnterpriseItem[]): Promise<TreeEnterpriseItem | undefined> {
+    const searchItems = items ?? this.treeItems;
+    for (const item of searchItems) {
+      if (item.guid === guid && item.type === itemType) {
+        return item;
+      }
+      if (item.children && item.children.length > 0) {
+        const found = await this.getTreeItemByGuid(guid, itemType, item.children);
+        if (found) return found;
+      }
+    }
+    return undefined;
   }
 
   /**

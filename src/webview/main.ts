@@ -40,10 +40,10 @@ function main() {
   vscode.postMessage({ command: "requestData" });
 
   // add add button click event
-  const addButton = document.getElementById("add-button") as Button;
-  addButton.addEventListener("click", () => {
+  const addButton = document.getElementById("add-button");
+  addButton?.addEventListener("click", () => {
     const grid = document.getElementById("data-grid") as DataGrid;
-    if (grid.columnDefinitions === null || grid.rowsData === null) {
+    if (!grid?.columnDefinitions || !grid?.rowsData) {
       return;
     }
 
@@ -51,16 +51,7 @@ function main() {
     const newRow: any = {};
 
     // generate new guid
-    const guid = () => {
-      const s4 = () =>
-        Math.floor((1 + Math.random()) * 0x10000)
-          .toString(16)
-          .substring(1);
-      return `${s4() + s4()}-${s4()}-${s4()}-${s4()}-${s4() + s4() + s4()}`;
-    };
-
-    // add guid to first column
-    newRow["column0"] = guid();
+    newRow["column0"] = crypto.randomUUID();
 
     // add empty strings to the rest of the columns
     for (let i = 1; i < grid.columnDefinitions.length; i++) {
@@ -71,14 +62,14 @@ function main() {
   });
 
   // add save button click event
-  const saveButton = document.getElementById("save-button") as Button;
-  saveButton.addEventListener("click", () => {
+  const saveButton = document.getElementById("save-button");
+  saveButton?.addEventListener("click", () => {
     saveData();
   });
 
   // add language dropdown change event
   const languageDropdown = document.getElementById("language-dropdown") as Dropdown;
-  languageDropdown.addEventListener("change", () => {
+  languageDropdown?.addEventListener("change", () => {
     // send the selected language to the extension context
     vscode.postMessage({ command: "changeLanguage", payload: languageDropdown.value });
   });
@@ -93,8 +84,17 @@ function main() {
  */
 function setVSCodeMessageListener() {
   window.addEventListener("message", (event) => {
-    const command = event.data.command;
-    let data = JSON.parse(event.data.payload);
+    const command = event.data?.command;
+    if (!command) return;
+
+    let data: any;
+    if (event.data.payload) {
+      try {
+        data = JSON.parse(event.data.payload);
+      } catch {
+        return;
+      }
+    }
 
     // handle messages from the extension context
     switch (command) {
@@ -102,7 +102,7 @@ function setVSCodeMessageListener() {
         // load fresh data in the data grid
         const grid = document.getElementById("data-grid") as DataGrid;
 
-        if (grid) {
+        if (grid && Array.isArray(data) && data.length > 0) {
           // extract column definitions from the data
           const columns = data[0];
           // exclude the first row from the data
@@ -227,7 +227,7 @@ function syncCellChanges(cell: DataGridCell) {
 function saveData() {
   const grid = document.getElementById("data-grid") as DataGrid;
 
-  if (grid.columnDefinitions === null || grid.rowsData === null) {
+  if (!grid?.columnDefinitions || !grid?.rowsData) {
     return;
   }
 
@@ -247,7 +247,8 @@ function saveData() {
   );
 
   // Send the gridData object to the extension context
-  const title = (document.getElementById("title") as HTMLInputElement).innerText;
+  const titleEl = document.getElementById("title");
+  const title = titleEl?.innerText || "";
   if (title.includes("Resources")) {
     vscode.postMessage({ command: "saveResourcesData", payload: JSON.stringify(gridData) });
   } else if (title.includes("Table")) {

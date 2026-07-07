@@ -858,7 +858,7 @@ export class EnterpriseService implements IEnterpriseService {
   }
 
   async moveItem(uri: string, destination: string) {
-    const url = `${this.baseUrl}/SCM_API.Move.${this.urlSuffix}?URI=${uri}&Destination=${destination}`;
+    const url = this.buildApiUrl("Move", { URI: uri, Destination: destination });
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
       method: "GET",
@@ -893,7 +893,7 @@ export class EnterpriseService implements IEnterpriseService {
    * @param newName the new name
    */
   async renameItem(uri: string, newName: string) {
-    const url = `${this.baseUrl}/SCM_API.Rename.${this.urlSuffix}?URI=${uri}&NewName=${newName}`;
+    const url = this.buildApiUrl("Rename", { URI: uri, NewName: newName });
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
       method: "GET",
@@ -1735,8 +1735,9 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns true if the log file was cleared successfully, false otherwise
    */
   public async clearLog(uri: string) {
-    const user = uri.split("/")[2];
-    const url = `${this.baseUrl}/SCM_API.ClearLog.${this.urlSuffix}?User=${user}`;
+    const userSegments = uri.split("/");
+    const user = userSegments.length > 2 ? userSegments[2] : "";
+    const url = this.buildApiUrl("ClearLog", { User: user });
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
       method: "GET",
@@ -1795,8 +1796,9 @@ export class EnterpriseService implements IEnterpriseService {
     // remove file extension
     filePath = filePath.replace(/\.[^/.]+$/, "");
 
-    // remove workspace folder path from file path
-    filePath = filePath.replace(new RegExp(rootPath, "ig"), "");
+    // remove workspace folder path from file path (use literal string replacement, not regex)
+    const escapedRoot = rootPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    filePath = filePath.replace(new RegExp(escapedRoot, "ig"), "");
     return this.normalizeEnterpriseUri(filePath);
   }
 
@@ -1983,7 +1985,7 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns true if the item was deleted successfully, false otherwise
    */
   public async deleteItem(uri: string) {
-    const url = `${this.baseUrl}/SCM_API.Delete.${this.urlSuffix}?URI=${uri}`;
+    const url = this.buildApiUrl("Delete", { URI: uri });
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
       method: "GET",
@@ -2107,6 +2109,26 @@ export class EnterpriseService implements IEnterpriseService {
    *
    * @returns ```true``` if the STARLIMS bridge is up and ```false``` otherwise
    */
+  /**
+   * Build a URL with query parameters, properly encoding all values.
+   */
+  private buildApiUrl(path: string, params?: Record<string, string | undefined>): string {
+    let url = `${this.baseUrl}/SCM_API.${path}.${this.urlSuffix}`;
+    if (params) {
+      const qs = new URLSearchParams();
+      for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined) {
+          qs.append(key, value);
+        }
+      }
+      const qstr = qs.toString();
+      if (qstr) {
+        url += `?${qstr}`;
+      }
+    }
+    return url;
+  }
+
   private async connectStarlimsBridge() {
     if (this.refreshSessionInterval) {
       clearInterval(this.refreshSessionInterval);
@@ -2114,14 +2136,19 @@ export class EnterpriseService implements IEnterpriseService {
 
     const result = await connectBridge();
     if (result) {
-      const _this = this;
       this.refreshSessionInterval = setInterval(() => {
-        console.log("Refreshing bridge session.");
-        _this.getServerSessions();
+        void this.getServerSessions().catch(err => console.error("Failed to refresh bridge session:", err));
       }, 90 * 1000);
     }
 
     return result;
+  }
+
+  dispose(): void {
+    if (this.refreshSessionInterval) {
+      clearInterval(this.refreshSessionInterval);
+      this.refreshSessionInterval = undefined;
+    }
   }
 
   /**
@@ -2131,7 +2158,7 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns the GUID of the enterprise item
    */
   public async getGUID(uri: string): Promise<string | null> {
-    const url = `${this.baseUrl}/SCM_API.GetItemGUID.${this.urlSuffix}?URI=${uri}`;
+    const url = this.buildApiUrl("GetItemGUID", { URI: uri });
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
       method: "GET",
@@ -2182,7 +2209,7 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns the checked out items
    */
   public async getCheckedOutItems(bAllUsers: boolean = false) {
-    const url = `${this.baseUrl}/SCM_API.GetCheckedOutItems.${this.urlSuffix}${bAllUsers ? "?allUsers=true" : ""}`;
+    const url = this.buildApiUrl("GetCheckedOutItems", bAllUsers ? { allUsers: "true" } : undefined);
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
       method: "GET",
@@ -2218,7 +2245,7 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns true if all items were checked in successfully, false otherwise
    */
   public async checkInAllItems(reason: string | undefined) {
-    const url = `${this.baseUrl}/SCM_API.CheckInAll.${this.urlSuffix}?Reason=${reason}`;
+    const url = this.buildApiUrl("CheckInAll", { Reason: reason });
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
       method: "GET",
@@ -2255,7 +2282,7 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns true if the item was checked in successfully, false otherwise
    */
   public async undoCheckOut(uri: string) {
-    const url = `${this.baseUrl}/SCM_API.UndoCheckOut.${this.urlSuffix}?URI=${uri}`;
+    const url = this.buildApiUrl("UndoCheckOut", { URI: uri });
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
       method: "GET",

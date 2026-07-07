@@ -126,7 +126,7 @@ const runIntegrationTestsInputSchema = z.object({
 
 const readLogInputSchema = z.object({
   user: z.string().optional().describe("STARLIMS user name whose log to read. Defaults to the current user configured in starlimsvscode."),
-  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return from the log.")
+  maxLines: z.number().int().positive().optional().describe("Optional maximum number of lines to return from the log.")
 });
 
 export class StarlimsMcpServer {
@@ -289,11 +289,11 @@ export class StarlimsMcpServer {
         inputSchema: readLogInputSchema,
         outputSchema: toolResultSchema
       },
-      async ({ user, maxCharacters }) => this.executeTool(
+      async ({ user, maxLines }) => this.executeTool(
         "read_log",
-        { maxCharacters, user },
-        () => this.automationService.readLog(user, maxCharacters),
-        (result) => `Retrieved ${this.toCount(result.totalCharacters)} character(s) from log for user '${result.user}'.`
+        { maxLines, user },
+        () => this.automationService.readLog(user, maxLines),
+        (result) => `Retrieved ${this.toCount(result.totalLines)} line(s) from log for user '${result.user}'.`
       )
     );
 
@@ -490,21 +490,6 @@ export class StarlimsMcpServer {
     );
 
     server.registerTool(
-      "add_table",
-      {
-        description: "Create a new STARLIMS table.",
-        inputSchema: addTableInputSchema,
-        outputSchema: toolResultSchema
-      },
-      async ({ tableName, dsn }) => this.executeTool(
-        "add_table",
-        { dsn, tableName },
-        () => this.automationService.addTable(tableName, dsn),
-        (result) => `Created table ${typeof result.tableName === "string" ? result.tableName : ""} in ${typeof result.dsn === "string" ? result.dsn : "the target location"}.`
-      )
-    );
-
-    server.registerTool(
       "edit_table",
       {
         description: "Save a modified STARLIMS table XML definition.",
@@ -568,7 +553,13 @@ export class StarlimsMcpServer {
     successMessageFactory: (result: StarlimsAutomationResult) => string
   ) {
     this.options.logInfo(`${toolName} request ${this.stringifyForLog(input)}`);
-    const result = await operation();
+    let result: StarlimsAutomationResult;
+    try {
+      result = await operation();
+    } catch (error: any) {
+      this.options.logError(`${toolName} threw an exception: ${error?.message ?? error}`);
+      result = { ok: false, error: error?.message ?? "Unknown error." };
+    }
     this.options.logInfo(
       result.ok
         ? `${toolName} completed successfully.`

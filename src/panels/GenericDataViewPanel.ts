@@ -29,6 +29,9 @@ export class GenericDataViewPanel {
 
   // render the webview panel
   public static render(extensionUri: vscode.Uri, payload: any) {
+    if (GenericDataViewPanel.currentPanel) {
+      GenericDataViewPanel.currentPanel.dispose();
+    }
     const panel = vscode.window.createWebviewPanel("data-results", payload.title, vscode.ViewColumn.One, {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(extensionUri, "dist")]
