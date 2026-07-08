@@ -16,7 +16,6 @@ import {
   Diagnostic,
   DiagnosticSeverity,
   TextDocumentChangeEvent,
-  TextDocumentDidClose,
   CompletionParams,
   TextDocumentPositionParams,
   ReferenceParams,
@@ -124,7 +123,7 @@ documents.onDidChangeContent((change: TextDocumentChangeEvent<TextDocument>) => 
   }, 300));
 });
 
-documents.onDidClose((event: TextDocumentDidClose) => {
+documents.onDidClose((event: TextDocumentChangeEvent<TextDocument>) => {
   const uri = event.document.uri;
   const existing = validationTimers.get(uri);
   if (existing) { clearTimeout(existing); validationTimers.delete(uri); }

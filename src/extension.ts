@@ -2617,7 +2617,7 @@ Please provide:
     }
   });
   const starlimsMcpServer = new StarlimsMcpServer(automationService, {
-    getEnabled: () => getMcpConfig().get<boolean>("mcp.enabled", false),
+    getEnabled: () => getMcpConfig().get<boolean>("mcp.enabled", true),
     getVersion: () => version,
     logError: (message: string, error?: unknown) => {
       outputChannel.appendLine(`[MCP] ${message}`);
