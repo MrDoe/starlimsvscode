@@ -8,7 +8,11 @@
     "rootDir": "src",
     "esModuleInterop": true,
     "strict": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "vscode-languageclient/node": ["./node_modules/vscode-languageclient/lib/node/main.d.ts"],
+      "vscode-languageclient": ["./node_modules/vscode-languageclient/lib/common/api.d.ts"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", ".vscode-test", "src/webview", "src/lsp/server", "src/lsp/js", "hello-webview-repro"]

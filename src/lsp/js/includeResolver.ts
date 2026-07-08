@@ -29,7 +29,7 @@ export function buildWorkspaceIndex(rootPath: string): Map<string, string[]> {
       return;
     }
     for (const entry of entries) {
-      if (entry === 'node_modules' || entry === '.git' || entry === 'ServerLogs') continue;
+      if (entry === 'node_modules' || entry === '.git' || entry === 'ServerLogs') { continue; }
       const full = path.join(dir, entry);
       let stat: import('fs').Stats;
       try {
@@ -67,20 +67,20 @@ export function resolveIncludeLocally(
   const app = parts.length > 1 ? parts[0].toLowerCase() : undefined;
 
   const candidates = workspaceIndex.get(itemBase);
-  if (!candidates || candidates.length === 0) return undefined;
+  if (!candidates || candidates.length === 0) { return undefined; }
 
-  if (candidates.length === 1) return candidates[0];
+  if (candidates.length === 1) { return candidates[0]; }
 
   // Multiple candidates: prefer the one whose parent folder name matches the app prefix
   if (app) {
     for (const c of candidates) {
       const parent = require('path').basename(require('path').dirname(c)).toLowerCase();
-      if (parent === app) return c;
+      if (parent === app) { return c; }
     }
   }
 
   // Fallback: prefer ClientScripts over HTMLForms/CodeBehind
   const cs = candidates.find(c => c.includes('ClientScripts'));
-  if (cs) return cs;
+  if (cs) { return cs; }
   return candidates[0];
 }

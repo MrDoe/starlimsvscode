@@ -14,7 +14,6 @@ import {
   DiagnosticSeverity,
   CompletionItemKind,
   TextDocumentChangeEvent,
-  TextDocumentDidClose,
   CompletionParams,
   TextDocumentPositionParams,
   ReferenceParams,
@@ -82,7 +81,7 @@ documents.onDidChangeContent((change: TextDocumentChangeEvent<TextDocument>) => 
   }, 300));
 });
 
-documents.onDidClose((event: TextDocumentDidClose) => {
+documents.onDidClose((event: TextDocumentChangeEvent<TextDocument>) => {
   const uri = event.document.uri;
   // Cancel pending validation
   const existing = validationTimers.get(uri);
