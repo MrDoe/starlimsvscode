@@ -202,11 +202,12 @@ export class EnterpriseService implements IEnterpriseService {
     }
 
     if (data && typeof data === "object") {
-      const message = "message" in data && typeof (data as { message?: unknown }).message === "string"
-        ? (data as { message: string }).message.trim()
-        : "";
-      if (message.length > 0) {
-        return message;
+      const obj = data as Record<string, unknown>;
+      for (const key of ["message", "error"]) {
+        const candidate = typeof obj[key] === "string" ? (obj[key] as string).trim() : "";
+        if (candidate.length > 0) {
+          return candidate;
+        }
       }
     }
 
