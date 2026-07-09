@@ -270,6 +270,15 @@ bFolder := .T.;
 		bFolder := .F.;
 	:EXITCASE;
 
+	:CASE oEnterpriseItem:Type == "UNKNOWN_ROOT";
+		oResult := CreateUDObject({
+			{"success", .F.},
+			{"error", "Unknown enterprise root '" + oEnterpriseItem:Name + "'. Expected one of: Applications, ServerScripts, ClientScripts, DataSources, Tables, ServerLogs."}
+		});
+		Response:StatusCode := 400;
+		:RETURN oResult;
+	:EXITCASE;
+
 :ENDCASE;
 
 :DECLARE aResultItems;

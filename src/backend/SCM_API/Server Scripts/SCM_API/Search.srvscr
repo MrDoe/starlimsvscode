@@ -53,15 +53,19 @@ bExactMatch := .F.;
 nLayerID := GetSystemLayerId();
 sSQL := "select * from (";
 
-:DECLARE sFormNameFilter, sScriptNameFilter, sDSNameFilter;
+:DECLARE sFormNameFilter, sScriptNameFilter, sDSNameFilter, sAppNameFilter, sAppCatNameFilter;
 :IF bExactMatch;
 	sFormNameFilter := "f.FORMNAME = '" + limsstring(sItemName) + "'";
 	sScriptNameFilter := "s.SCRIPTNAME = '" + limsstring(sItemName) + "'";
 	sDSNameFilter := "s.DSNAME = '" + limsstring(sItemName) + "'";
+	sAppNameFilter := "a.APPNAME = '" + limsstring(sItemName) + "'";
+	sAppCatNameFilter := "c.CATNAME = '" + limsstring(sItemName) + "'";
 :ELSE;
 	sFormNameFilter := "f.FORMNAME like '%" + limsstring(sItemName) + "%'";
 	sScriptNameFilter := "s.SCRIPTNAME like '%" + limsstring(sItemName) + "%'";
 	sDSNameFilter := "s.DSNAME like '%" + limsstring(sItemName) + "%'";
+	sAppNameFilter := "a.APPNAME like '%" + limsstring(sItemName) + "%'";
+	sAppCatNameFilter := "c.CATNAME like '%" + limsstring(sItemName) + "%'";
 :ENDIF;
 
 :IF sItemType == "FORMCODEBEHIND" .OR. Empty(sItemType);
@@ -397,6 +401,47 @@ sSQL := "select * from (";
 	and LAYERID = ?nLayerID?";
 :ENDIF;
 
+:IF Empty(sItemType);
+	sSQL += " union ";
+:ENDIF;
+:IF sItemType == "APP" .OR. Empty(sItemType);
+	sSQL += "select
+	a.APPNAME as name,
+	'APP' as type,
+	'/Applications/' + c.CATNAME + '/' + a.APPNAME as uri,
+	'' as checkedOutBy,
+	'' as language,
+	'Y' as isFolder,
+	a.APPID as guid
+	from LIMSAPPLICATIONS a
+	join LIMSAPPCATEGORIES c on c.CATEGORYID = a.CATEGORYID
+	where " + sAppNameFilter;
+
+	:IF !Empty(sAppCatName);
+		sSQL += " and c.CATNAME like '%" + limsstring(sAppCatName) + "%'";
+	:ENDIF;
+
+	sSQL += " and a.LAYERID = ?nLayerID?";
+:ENDIF;
+:IF sItemType == "APPCATEGORY";
+	sSQL += " select
+	c.CATNAME as name,
+	'APPCATEGORY' as type,
+	'/Applications/' + c.CATNAME as uri,
+	'' as checkedOutBy,
+	'' as language,
+	'Y' as isFolder,
+	c.CATEGORYID as guid
+	from LIMSAPPCATEGORIES c
+	where " + sAppCatNameFilter;
+
+	:IF !Empty(sAppCatName);
+		sSQL += " and c.CATNAME like '%" + limsstring(sAppCatName) + "%'";
+	:ENDIF;
+
+	sSQL += " and c.LAYERID = ?nLayerID?";
+:ENDIF;
+
 :IF sSQL == "select * from (";
 	oResult := CreateUDObject({
 		{"success", .T.},
@@ -424,13 +469,22 @@ aResultItems := {};
 			sLanguage := "JS";
 	:ENDIF;
 
+	:DECLARE sDisplayName, bIsFolderItem;
+	:IF Empty(sLanguage);
+		sDisplayName := aItems[i][1];
+		bIsFolderItem := aItems[i][2] == "APP" .OR. aItems[i][2] == "APPCATEGORY";
+	:ELSE;
+		sDisplayName := aItems[i][3] + '.' + Lower(sLanguage);
+		bIsFolderItem := .F.;
+	:ENDIF;
+
 	oItem := oUtils:RemoveDBNull(CreateUDObject({
-		{"name", aItems[i][3] + '.' + Lower(sLanguage)},
+		{"name", sDisplayName},
 		{"type", aItems[i][2]},
 		{"uri", aItems[i][3]},
 		{"checkedOutBy", aItems[i][4]},
 		{"language", sLanguage},
-		{"isFolder", .F.},
+		{"isFolder", bIsFolderItem},
 		{"guid", aItems[i][7]}
 	}));
 	AAdd(aResultItems, oItem);
