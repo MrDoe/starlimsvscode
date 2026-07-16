@@ -3,11 +3,11 @@
     "displayName":  "STARLIMS VS Code Extension",
     "description":  "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license":  "SEE LICENSE IN LICENSE.md",
-    "version":  "1.6.13",
+    "version":  "1.6.15",
     "icon":  "resources/extension/starlimsvscode.png",
     "publisher":  "cdoellinger",
     "author":  {
-                   "name":  "Christoph Döllinger, Marius Popovici, Jan Bouecke"
+                   "name":  "Christoph DÃƒÂ¶llinger, Marius Popovici, Jan Bouecke"
                },
     "keywords":  [
                      "STARLIMS",
@@ -1164,7 +1164,6 @@
                             "run-script-os":  "^1.1.6",
                             "style-loader":  "^3.3.4",
                             "ts-loader":  "^9.5.1",
-
                             "webpack":  "^5.90.3",
                             "webpack-cli":  "^4.10.0"
                         },
