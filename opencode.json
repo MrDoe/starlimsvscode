@@ -1,5 +1,10 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "lsp": true,
+  "lsp": {
+    "ssl": {
+      "command": ["node", "dist/ssl-language-server.js"],
+      "extensions": [".srvscr", ".ssl"]
+    }
+  },
   "plugin": ["opencode-llm-proxy"]
 }
