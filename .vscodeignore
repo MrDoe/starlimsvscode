@@ -2,6 +2,7 @@
 .vscode-test/**
 out/**
 node_modules/**
+!node_modules/typescript/**
 src/**
 .gitignore
 .yarnrc
@@ -13,3 +14,19 @@ vsc-extension-quickstart.md
 **/*.ts
 package-lock.json
 .env
+.opencode/**
+.copilot/**
+.github/**
+api/**
+tools/**
+resources/instructions/**
+tsconfig.js-lsp.json
+tsconfig.server.json
+AGENTS.md
+opencode.json
+opencode-rag.json
+package.min.json
+starlims-lsp.md
+starlimsvscode.code-workspace
+.prettierignore
+.prettierrc.json

@@ -125,7 +125,7 @@ sSQL := "select * from (";
 	from LIMSXFDFORMS f
 	join LIMSAPPLICATIONS a on a.APPID = f.APPID
 	join LIMSAPPCATEGORIES c on c.CATEGORYID = a.CATEGORYID
-	where " + sFormNameFilter;;
+	where " + sFormNameFilter;
 
 	:IF !Empty(sAppCatName);
 		sSQL += " and a.DISPLAYTEXT like '%" + limsstring(sAppCatName) + "%'";

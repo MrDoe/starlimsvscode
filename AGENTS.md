@@ -135,3 +135,15 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 - After code change: reload extension host (`Ctrl+Shift+P` → Reload Window).
 - `tsconfig.json` excludes `src/webview`, `src/lsp/server`, `src/lsp/js` — see Build table; `pretest` won't typecheck them.
 - `.vscode/*` and `.env` are gitignored — no shared launch configs/tasks.
+
+<!-- BEGIN opencode-rag -->
+## Code Navigation
+
+ALWAYS use OpenCodeRAG tools before reading or editing:
+- **Search first** — `search_semantic(query)` instead of grep/glob
+- **Skeleton before read** — `get_file_skeleton(filePath)` then read specific lines
+- **Usages before edit** — `find_usages(symbolName)` before modifying any symbol
+- **Images via describe** — `describe_image(filePath)` — never read raw bytes
+
+If no results, run `opencode-rag index`.
+<!-- END opencode-rag -->

@@ -183,7 +183,7 @@ export class SSLLexer {
     // Newlines
     if (ch === '\r') {
       this.advance();
-      if (this.peek() === '\n') {
+      if (this.pos < this.source.length && this.source[this.pos] === '\n') {
         this.advance();
       }
       this.line++;
@@ -380,7 +380,7 @@ export class SSLLexer {
       }
       if (ch === '\r') {
         this.advance();
-        if (this.peek() === '\n') {
+        if (this.pos < this.source.length && this.source[this.pos] === '\n') {
           this.advance();
         }
         this.line++;
@@ -434,7 +434,16 @@ export class SSLLexer {
           value += this.source[this.pos];
           this.advance();
         }
-      } else if (ch === '\r' || ch === '\n') {
+      } else if (ch === '\r') {
+        this.line++;
+        this.column = 0;
+        value += ch;
+        this.advance();
+        if (this.pos < this.source.length && this.source[this.pos] === '\n') {
+          value += '\n';
+          this.advance();
+        }
+      } else if (ch === '\n') {
         this.line++;
         this.column = 0;
         value += ch;
@@ -468,7 +477,16 @@ export class SSLLexer {
           value += this.source[this.pos];
           this.advance();
         }
-      } else if (ch === '\r' || ch === '\n') {
+      } else if (ch === '\r') {
+        this.line++;
+        this.column = 0;
+        value += ch;
+        this.advance();
+        if (this.pos < this.source.length && this.source[this.pos] === '\n') {
+          value += '\n';
+          this.advance();
+        }
+      } else if (ch === '\n') {
         this.line++;
         this.column = 0;
         value += ch;
@@ -529,7 +547,7 @@ export class SSLLexer {
       return;
     }
 
-    // Not a keyword — check for := or :==
+    // Not a keyword - check for := or :==
     if (this.pos < this.source.length && this.source[this.pos] === '=') {
       this.advance();
       if (this.pos < this.source.length && this.source[this.pos] === '=') {
@@ -541,7 +559,7 @@ export class SSLLexer {
       return;
     }
 
-    // Not a keyword, not := or :== — backtrack so the identifier after ':' is not lost
+    // Not a keyword, not := or :== - backtrack so the identifier after ':' is not lost
     this.pos = wordStart;
     this.column = startCol + 1;
 
@@ -576,7 +594,7 @@ export class SSLLexer {
     } else if (upper === '.NOT.') {
       this.addToken(TokenType.DotNot, word, startLine, startCol, startOffset, this.pos - startOffset);
     } else {
-      // Unknown dot expression — backtrack and emit just the dot
+      // Unknown dot expression - backtrack and emit just the dot
       this.pos = wordStart;
       this.column = startCol + 1;
       this.addToken(TokenType.Dot, '.', startLine, startCol, startOffset, 1);

@@ -152,6 +152,16 @@ const jsServerConfig = {
       }
     ]
   },
+  plugins: [
+    new copyPlugin({
+      patterns: [
+        {
+          from: "./src/lsp/globals.d.ts",
+          to: path.resolve(__dirname, "dist/starlims-globals.d.ts")
+        }
+      ]
+    })
+  ],
   output: {
     path: path.resolve(__dirname, "dist"),
     filename: "js-language-server.js",
