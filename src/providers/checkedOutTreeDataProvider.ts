@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import { EnterpriseItemType, TreeEnterpriseItem } from "./enterpriseTreeDataProvider";
 import { EnterpriseService } from "../services/enterpriseService";
 import path from "path";
+import { DOMParser } from "@xmldom/xmldom";
 
 /**
  * Implements the VS Code TreeDataProvider to build the STARLIMS Checked out tree.
@@ -22,7 +23,7 @@ export class CheckedOutTreeDataProvider implements vscode.TreeDataProvider<TreeE
    * @returns CheckedOutTreeDataProvider
    */
   constructor(xmlDS: string, private service: EnterpriseService) {
-    this.getDataObject(xmlDS).then((items) => { this.treeItems = items; });
+    this.treeItems = this.getDataObject(xmlDS);
   }
 
   /**
@@ -266,7 +267,7 @@ export class CheckedOutTreeDataProvider implements vscode.TreeDataProvider<TreeE
    * @param checkedOutItems XML dataset as string
    * @returns data object for tree view.
    */
-  async getDataObject(checkedOutItems: any): Promise<any> {
+  getDataObject(checkedOutItems: any): any {
     if (typeof checkedOutItems !== "string") {
       if (checkedOutItems && typeof checkedOutItems.data === "string") {
         checkedOutItems = checkedOutItems.data;
@@ -275,7 +276,6 @@ export class CheckedOutTreeDataProvider implements vscode.TreeDataProvider<TreeE
       }
     }
 
-    const { DOMParser } = await import("@xmldom/xmldom");
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(checkedOutItems, "text/xml");
     let pendingCheckins = xmlDoc.getElementsByTagName("PendingCheckins");
