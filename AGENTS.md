@@ -136,6 +136,10 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 - `tsconfig.json` excludes `src/webview`, `src/lsp/server`, `src/lsp/js` — see Build table; `pretest` won't typecheck them.
 - `.vscode/*` and `.env` are gitignored — no shared launch configs/tasks.
 
+## Wiki
+
+`.opencode/wiki/` — structured knowledge base with entity pages per module and concept pages for patterns/workflows. Read `index.md` first to find relevant pages. Always consult the wiki before reading source files directly.
+
 <!-- BEGIN opencode-rag -->
 ## Code Navigation
 

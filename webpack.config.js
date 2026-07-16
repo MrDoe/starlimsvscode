@@ -2,8 +2,8 @@
 
 "use strict";
 
-const path = require("path");
-const copyPlugin = require("copy-webpack-plugin");
+import { resolve as _resolve } from "path";
+import copyPlugin from "copy-webpack-plugin";
 
 //@ts-check
 /** @typedef {import('webpack').Configuration} WebpackConfig **/
@@ -53,7 +53,7 @@ const extensionConfig = {
     ]
   },
   output: {
-    path: path.resolve(__dirname, "dist"),
+    path: _resolve(__dirname, "dist"),
     filename: "extension.js",
     libraryTarget: "commonjs2"
   }
@@ -96,7 +96,7 @@ const webviewConfig = {
     ]
   },
   output: {
-    path: path.resolve(__dirname, "dist"),
+    path: _resolve(__dirname, "dist"),
     filename: "webview.js",
     libraryTarget: "module",
     chunkFormat: "module"
@@ -106,15 +106,15 @@ const webviewConfig = {
       patterns: [
         {
           from: "./src/webview/style.css",
-          to: path.resolve(__dirname, "dist")
+          to: _resolve(__dirname, "dist")
         },
         {
           from: "./src/backend/SCM_API.sdp",
-          to: path.resolve(__dirname, "dist")
+          to: _resolve(__dirname, "dist")
         },
         {
           from: "./resources/instructions",
-          to: path.resolve(__dirname, "dist/instructions")
+          to: _resolve(__dirname, "dist/instructions")
         }
       ]
     })
@@ -145,7 +145,7 @@ const jsServerConfig = {
         use: [{
           loader: "ts-loader",
           options: {
-            configFile: path.resolve(__dirname, "tsconfig.js-lsp.json"),
+            configFile: _resolve(__dirname, "tsconfig.js-lsp.json"),
             transpileOnly: true
           }
         }]
@@ -157,13 +157,13 @@ const jsServerConfig = {
       patterns: [
         {
           from: "./src/lsp/globals.d.ts",
-          to: path.resolve(__dirname, "dist/starlims-globals.d.ts")
+          to: _resolve(__dirname, "dist/starlims-globals.d.ts")
         }
       ]
     })
   ],
   output: {
-    path: path.resolve(__dirname, "dist"),
+    path: _resolve(__dirname, "dist"),
     filename: "js-language-server.js",
     libraryTarget: "commonjs2"
   }
@@ -192,7 +192,7 @@ const serverConfig = {
         use: [{
           loader: "ts-loader",
           options: {
-            configFile: path.resolve(__dirname, "tsconfig.server.json"),
+            configFile: _resolve(__dirname, "tsconfig.server.json"),
             transpileOnly: true
           }
         }]
@@ -201,10 +201,10 @@ const serverConfig = {
     ]
   },
   output: {
-    path: path.resolve(__dirname, "dist"),
+    path: _resolve(__dirname, "dist"),
     filename: "ssl-language-server.js",
     libraryTarget: "commonjs2"
   }
 };
 
-module.exports = [extensionConfig, webviewConfig, serverConfig, jsServerConfig];
+export default [extensionConfig, webviewConfig, serverConfig, jsServerConfig];
