@@ -5,7 +5,8 @@
     "model": "qwen3-embedding:0.6b",
     "timeoutMs": 60000,
     "documentPrefix": "",
-    "queryPrefix": ""
+    "queryPrefix": "",
+    "vectorDimension": 1024
   },
   "indexing": {
     "includeExtensions": [
@@ -106,5 +107,8 @@
   "logging": {
     "level": "none",
     "logFilePath": "./.opencode/opencode-rag.log"
+  },
+  "wikiMode": {
+    "enabled": true
   }
 }

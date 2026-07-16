@@ -30,6 +30,13 @@ import { parseIncludes, buildWorkspaceIndex, resolveIncludeLocally } from './inc
 import { createBridge } from './bridge';
 
 const connection = createConnection(ProposedFeatures.all);
+process.on('unhandledRejection', (reason) => {
+  connection.console.error(`[js-lsp] Unhandled Rejection: ${reason instanceof Error ? reason.stack || reason.message : String(reason)}`);
+});
+process.on('uncaughtException', (error) => {
+  connection.console.error(`[js-lsp] Uncaught Exception: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+});
+
 const documents = new TextDocuments(TextDocument);
 
 let languageHost: StarlimsJsLanguageHost | undefined;
@@ -130,217 +137,260 @@ documents.onDidClose((event: TextDocumentChangeEvent<TextDocument>) => {
 });
 
 async function validateDocument(document: TextDocument): Promise<void> {
-  const uri = document.uri;
-  if (!languageHost || !languageService) return;
+  try {
+    const uri = document.uri;
+    if (!languageHost || !languageService) return;
 
-  languageHost.openDocument(uri, document);
+    languageHost.openDocument(uri, document);
 
-  const text = document.getText();
-  const includeNames = parseIncludes(text);
-  for (const includeName of includeNames) {
-    const localPath = resolveIncludeLocally(includeName, workspaceIndex, workspaceRoot);
-    if (localPath) {
-      if (!remoteFileCache!.has(localPath)) {
-        try {
-          const fs = require('fs');
-          const source = fs.readFileSync(localPath, 'utf-8');
-          remoteFileCache!.set(localPath, source);
-        } catch { /* skip unreadable */ continue; }
-      }
-      languageHost.addRemoteFile(localPath);
-      continue;
-    }
-    const cacheKey = `starlims://${includeName}`;
-    if (!remoteFileCache!.has(cacheKey)) {
-      if (bridge) {
-        const result = await bridge.resolveInclude(includeName, workspaceRoot);
-        if (result) {
-          remoteFileCache!.set(result.uri, result.sourceText);
-          languageHost.addRemoteFile(result.uri);
+    const text = document.getText();
+    const includeNames = parseIncludes(text);
+    for (const includeName of includeNames) {
+      const localPath = resolveIncludeLocally(includeName, workspaceIndex, workspaceRoot);
+      if (localPath) {
+        if (!remoteFileCache!.has(localPath)) {
+          try {
+            const fs = require('fs');
+            const source = fs.readFileSync(localPath, 'utf-8');
+            remoteFileCache!.set(localPath, source);
+          } catch { /* skip unreadable */ continue; }
         }
+        languageHost.addRemoteFile(localPath);
+        continue;
       }
-    } else {
-      languageHost.addRemoteFile(cacheKey);
+      const cacheKey = `starlims://${includeName}`;
+      if (!remoteFileCache!.has(cacheKey)) {
+        if (bridge) {
+          const result = await bridge.resolveInclude(includeName, workspaceRoot);
+          if (result) {
+            remoteFileCache!.set(result.uri, result.sourceText);
+            languageHost.addRemoteFile(result.uri);
+          }
+        }
+      } else {
+        languageHost.addRemoteFile(cacheKey);
+      }
     }
+
+    const diagnostics: Diagnostic[] = [];
+
+    // Syntactic errors (parse)
+    const syntacticDiags = languageService.getSyntacticDiagnostics(uri);
+    for (const diag of syntacticDiags) {
+      if (!diag.file || !diag.start) continue;
+      const start = diag.file.getLineAndCharacterOfPosition(diag.start);
+      const end = diag.file.getLineAndCharacterOfPosition(diag.start + diag.length);
+      diagnostics.push({
+        severity: DiagnosticSeverity.Error,
+        range: {
+          start: { line: start.line, character: start.character },
+          end: { line: end.line, character: end.character },
+        },
+        message: typeof diag.messageText === 'string' ? diag.messageText : diag.messageText.messageText,
+        source: 'js-lsp',
+      });
+    }
+
+    // Suggestion diagnostics (unused variables, etc.) — cross-file aware
+    const suggestionDiags = languageService.getSuggestionDiagnostics(uri);
+    for (const diag of suggestionDiags) {
+      if (!diag.file || !diag.start) continue;
+      const start = diag.file.getLineAndCharacterOfPosition(diag.start);
+      const end = diag.file.getLineAndCharacterOfPosition(diag.start + diag.length);
+      diagnostics.push({
+        severity: DiagnosticSeverity.Warning,
+        range: {
+          start: { line: start.line, character: start.character },
+          end: { line: end.line, character: end.character },
+        },
+        message: typeof diag.messageText === 'string' ? diag.messageText : diag.messageText.messageText,
+        source: 'js-lsp',
+      });
+    }
+
+    connection.sendDiagnostics({ uri, diagnostics });
+  } catch (error) {
+    connection.console.error(`[js-lsp] Error validating ${document.uri}: ${error instanceof Error ? error.stack || error.message : String(error)}`);
   }
-
-  const diagnostics: Diagnostic[] = [];
-
-  // Syntactic errors (parse)
-  const syntacticDiags = languageService.getSyntacticDiagnostics(uri);
-  for (const diag of syntacticDiags) {
-    if (!diag.file || !diag.start) continue;
-    const start = diag.file.getLineAndCharacterOfPosition(diag.start);
-    const end = diag.file.getLineAndCharacterOfPosition(diag.start + diag.length);
-    diagnostics.push({
-      severity: DiagnosticSeverity.Error,
-      range: {
-        start: { line: start.line, character: start.character },
-        end: { line: end.line, character: end.character },
-      },
-      message: typeof diag.messageText === 'string' ? diag.messageText : diag.messageText.messageText,
-      source: 'js-lsp',
-    });
-  }
-
-  // Suggestion diagnostics (unused variables, etc.) — cross-file aware
-  const suggestionDiags = languageService.getSuggestionDiagnostics(uri);
-  for (const diag of suggestionDiags) {
-    if (!diag.file || !diag.start) continue;
-    const start = diag.file.getLineAndCharacterOfPosition(diag.start);
-    const end = diag.file.getLineAndCharacterOfPosition(diag.start + diag.length);
-    diagnostics.push({
-      severity: DiagnosticSeverity.Warning,
-      range: {
-        start: { line: start.line, character: start.character },
-        end: { line: end.line, character: end.character },
-      },
-      message: typeof diag.messageText === 'string' ? diag.messageText : diag.messageText.messageText,
-      source: 'js-lsp',
-    });
-  }
-
-  connection.sendDiagnostics({ uri, diagnostics });
 }
 
 // Completion
 connection.onCompletion((params: CompletionParams): CompletionItem[] => {
-  if (!languageService) return [];
-  const uri = params.textDocument.uri;
-  const pos = params.position;
-  const doc = languageHost?.getOpenDocument(uri);
-  if (!doc) return [];
-  const offset = doc.offsetAt(pos);
-  const items = languageService.getCompletionsAtPosition(uri, offset, {
-    includeCompletionsForModuleExports: true,
-    includeCompletionsWithInsertText: true,
-    triggerCharacter: params.context?.triggerCharacter as ts.CompletionsTriggerCharacter | undefined,
-  });
-  if (!items) return [];
-  return items.entries.map(entry => ({
-    label: entry.name,
-    kind: mapCompletionKind(entry.kind),
-    sortText: entry.sortText,
-    data: { uri, offset, entryName: entry.name },
-  }));
+  try {
+    if (!languageService) return [];
+    const uri = params.textDocument.uri;
+    const pos = params.position;
+    const doc = languageHost?.getOpenDocument(uri);
+    if (!doc) return [];
+    const offset = doc.offsetAt(pos);
+    const items = languageService.getCompletionsAtPosition(uri, offset, {
+      includeCompletionsForModuleExports: true,
+      includeCompletionsWithInsertText: true,
+      triggerCharacter: params.context?.triggerCharacter as ts.CompletionsTriggerCharacter | undefined,
+    });
+    if (!items) return [];
+    return items.entries.map(entry => ({
+      label: entry.name,
+      kind: mapCompletionKind(entry.kind),
+      sortText: entry.sortText,
+      data: { uri, offset, entryName: entry.name },
+    }));
+  } catch (error) {
+    connection.console.error(`[js-lsp] Error in completion: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+    return [];
+  }
 });
 
 connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
-  if (!languageService || !item.data) return item;
-  const { uri, offset, entryName } = item.data as any;
-  const details = languageService.getCompletionEntryDetails(uri, offset, entryName, {}, undefined, undefined, undefined);
-  if (details) {
-    item.detail = details.displayParts?.map(p => p.text).join('') || '';
-    item.documentation = details.documentation?.map(p => p.text).join('') || '';
+  try {
+    if (!languageService || !item.data) return item;
+    const { uri, offset, entryName } = item.data as any;
+    const details = languageService.getCompletionEntryDetails(uri, offset, entryName, {}, undefined, undefined, undefined);
+    if (details) {
+      item.detail = details.displayParts?.map(p => p.text).join('') || '';
+      item.documentation = details.documentation?.map(p => p.text).join('') || '';
+    }
+  } catch (error) {
+    connection.console.error(`[js-lsp] Error in completion resolve: ${error instanceof Error ? error.stack || error.message : String(error)}`);
   }
   return item;
 });
 
 // Hover
 connection.onHover((params: TextDocumentPositionParams): Hover | null => {
-  if (!languageService) return null;
-  const uri = params.textDocument.uri;
-  const doc = languageHost?.getOpenDocument(uri);
-  if (!doc) return null;
-  const offset = doc.offsetAt(params.position);
-  const info = languageService.getQuickInfoAtPosition(uri, offset);
-  if (!info) return null;
-  const text = info.displayParts?.map(p => p.text).join('') || '';
-  if (!text) return null;
-  return {
-    contents: { kind: 'markdown', value: text },
-    range: info.textSpan ? tsSpanToRange(uri, info.textSpan) : undefined,
-  };
+  try {
+    if (!languageService) return null;
+    const uri = params.textDocument.uri;
+    const doc = languageHost?.getOpenDocument(uri);
+    if (!doc) return null;
+    const offset = doc.offsetAt(params.position);
+    const info = languageService.getQuickInfoAtPosition(uri, offset);
+    if (!info) return null;
+    const text = info.displayParts?.map(p => p.text).join('') || '';
+    if (!text) return null;
+    return {
+      contents: { kind: 'markdown', value: text },
+      range: info.textSpan ? tsSpanToRange(uri, info.textSpan) : undefined,
+    };
+  } catch (error) {
+    connection.console.error(`[js-lsp] Error in hover: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+    return null;
+  }
 });
 
 // Definition
 connection.onDefinition((params: TextDocumentPositionParams): Location[] | null => {
-  if (!languageService) return null;
-  const uri = params.textDocument.uri;
-  const doc = languageHost?.getOpenDocument(uri);
-  if (!doc) return null;
-  const offset = doc.offsetAt(params.position);
-  const defs = languageService.getDefinitionAtPosition(uri, offset);
-  if (!defs || defs.length === 0) return null;
-  return defs.map(def => Location.create(def.fileName, tsSpanToRange(def.fileName, def.textSpan)));
+  try {
+    if (!languageService) return null;
+    const uri = params.textDocument.uri;
+    const doc = languageHost?.getOpenDocument(uri);
+    if (!doc) return null;
+    const offset = doc.offsetAt(params.position);
+    const defs = languageService.getDefinitionAtPosition(uri, offset);
+    if (!defs || defs.length === 0) return null;
+    return defs.map(def => Location.create(def.fileName, tsSpanToRange(def.fileName, def.textSpan)));
+  } catch (error) {
+    connection.console.error(`[js-lsp] Error in definition: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+    return null;
+  }
 });
 
 // References
 connection.onReferences((params: ReferenceParams): Location[] | null => {
-  if (!languageService) return null;
-  const uri = params.textDocument.uri;
-  const doc = languageHost?.getOpenDocument(uri);
-  if (!doc) return null;
-  const offset = doc.offsetAt(params.position);
-  const refs = languageService.getReferencesAtPosition(uri, offset);
-  if (!refs || refs.length === 0) return null;
-  return refs.map(ref => Location.create(ref.fileName, tsSpanToRange(ref.fileName, ref.textSpan)));
+  try {
+    if (!languageService) return null;
+    const uri = params.textDocument.uri;
+    const doc = languageHost?.getOpenDocument(uri);
+    if (!doc) return null;
+    const offset = doc.offsetAt(params.position);
+    const refs = languageService.getReferencesAtPosition(uri, offset);
+    if (!refs || refs.length === 0) return null;
+    return refs.map(ref => Location.create(ref.fileName, tsSpanToRange(ref.fileName, ref.textSpan)));
+  } catch (error) {
+    connection.console.error(`[js-lsp] Error in references: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+    return null;
+  }
 });
 
 // Document Symbols
 connection.onDocumentSymbol((params: DocumentSymbolParams): SymbolInformation[] => {
-  if (!languageService) return [];
-  const uri = params.textDocument.uri;
-  const items = languageService.getNavigationBarItems(uri);
-  if (!items || items.length === 0) return [];
-  const symbols: SymbolInformation[] = [];
-  function walk(barItems: ts.NavigationBarItem[]) {
-    for (const item of barItems) {
-      for (const span of item.spans) {
-        symbols.push({
-          name: item.text,
-          kind: mapSymbolKind(item.kind),
-          location: Location.create(uri, tsSpanToRange(uri, span)),
-        });
+  try {
+    if (!languageService) return [];
+    const uri = params.textDocument.uri;
+    const items = languageService.getNavigationBarItems(uri);
+    if (!items || items.length === 0) return [];
+    const symbols: SymbolInformation[] = [];
+    function walk(barItems: ts.NavigationBarItem[]) {
+      for (const item of barItems) {
+        for (const span of item.spans) {
+          symbols.push({
+            name: item.text,
+            kind: mapSymbolKind(item.kind),
+            location: Location.create(uri, tsSpanToRange(uri, span)),
+          });
+        }
+        if (item.childItems) walk(item.childItems);
       }
-      if (item.childItems) walk(item.childItems);
     }
+    walk(items);
+    return symbols;
+  } catch (error) {
+    connection.console.error(`[js-lsp] Error in document symbols: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+    return [];
   }
-  walk(items);
-  return symbols;
 });
 
 // Folding Ranges
 connection.onFoldingRanges((params: FoldingRangeParams): FoldingRange[] => {
-  if (!languageService) return [];
-  const uri = params.textDocument.uri;
-  const source = getSourceForUri(uri);
-  if (!source) return [];
-  const spans = languageService.getOutliningSpans(uri);
-  if (!spans || spans.length === 0) return [];
-  return spans.map(span => {
-    const start = offsetToPosition(source, span.textSpan.start);
-    const end = offsetToPosition(source, span.textSpan.start + span.textSpan.length);
-    return {
-      startLine: start.line,
-      endLine: end.line,
-      kind: span.kind === ts.OutliningSpanKind.Comment ? 'comment' as const : undefined,
-    };
-  });
+  try {
+    if (!languageService) return [];
+    const uri = params.textDocument.uri;
+    const source = getSourceForUri(uri);
+    if (!source) return [];
+    const spans = languageService.getOutliningSpans(uri);
+    if (!spans || spans.length === 0) return [];
+    return spans.map(span => {
+      const start = offsetToPosition(source, span.textSpan.start);
+      const end = offsetToPosition(source, span.textSpan.start + span.textSpan.length);
+      return {
+        startLine: start.line,
+        endLine: end.line,
+        kind: span.kind === ts.OutliningSpanKind.Comment ? 'comment' as const : undefined,
+      };
+    });
+  } catch (error) {
+    connection.console.error(`[js-lsp] Error in folding ranges: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+    return [];
+  }
 });
 
 // Signature Help
 connection.onSignatureHelp((params: TextDocumentPositionParams) => {
-  if (!languageService) return null;
-  const uri = params.textDocument.uri;
-  const doc = languageHost?.getOpenDocument(uri);
-  if (!doc) return null;
-  const offset = doc.offsetAt(params.position);
-  const help = languageService.getSignatureHelpItems(uri, offset, { triggerReason: { kind: 'invoked' as const } });
-  if (!help) return null;
-  return {
-    signatures: help.items.map(item => ({
-      label: [...item.prefixDisplayParts, ...item.suffixDisplayParts].map(p => p.text).join('') ||
-        item.parameters.map((p, i) => (i > 0 ? ', ' : '') + p.displayParts.map(d => d.text).join('')).join(''),
-      documentation: item.documentation?.map(p => p.text).join('') || '',
-      parameters: item.parameters.map(p => ({
-        label: p.displayParts.map(d => d.text).join(''),
-        documentation: p.documentation?.map(d => d.text).join('') || '',
+  try {
+    if (!languageService) return null;
+    const uri = params.textDocument.uri;
+    const doc = languageHost?.getOpenDocument(uri);
+    if (!doc) return null;
+    const offset = doc.offsetAt(params.position);
+    const help = languageService.getSignatureHelpItems(uri, offset, { triggerReason: { kind: 'invoked' as const } });
+    if (!help) return null;
+    return {
+      signatures: help.items.map(item => ({
+        label: [...item.prefixDisplayParts, ...item.suffixDisplayParts].map(p => p.text).join('') ||
+          item.parameters.map((p, i) => (i > 0 ? ', ' : '') + p.displayParts.map(d => d.text).join('')).join(''),
+        documentation: item.documentation?.map(p => p.text).join('') || '',
+        parameters: item.parameters.map(p => ({
+          label: p.displayParts.map(d => d.text).join(''),
+          documentation: p.documentation?.map(d => d.text).join('') || '',
+        })),
       })),
-    })),
-    activeSignature: help.selectedItemIndex,
-    activeParameter: help.argumentIndex,
-  };
+      activeSignature: help.selectedItemIndex,
+      activeParameter: help.argumentIndex,
+    };
+  } catch (error) {
+    connection.console.error(`[js-lsp] Error in signature help: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+    return null;
+  }
 });
 
 // Mapping helpers
