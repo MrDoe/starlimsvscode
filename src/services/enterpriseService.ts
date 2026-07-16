@@ -1437,7 +1437,7 @@ export class EnterpriseService implements IEnterpriseService {
 
       const { success, data }: { success: boolean; data: unknown } = result;
       if (success) {
-        this.setCheckedOut(uri, "");
+        this.setCheckedOut(uri, null);
         return { ok: true, data: true };
       }
 
