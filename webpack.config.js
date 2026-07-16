@@ -3,7 +3,9 @@
 "use strict";
 
 import { resolve as _resolve } from "path";
+import { fileURLToPath } from "url";
 import copyPlugin from "copy-webpack-plugin";
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 //@ts-check
 /** @typedef {import('webpack').Configuration} WebpackConfig **/

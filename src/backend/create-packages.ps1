@@ -9,7 +9,8 @@ $new_version = [version]::new($new_version.Major, $new_version.Minor, $new_versi
 # patch package.json with the new version
 Write-Host "Patching package.json with version $new_version ..."
 $jsonData.version = $new_version.ToString()
-$jsonData | ConvertTo-Json -Depth 10 | Set-Content -Path "..\..\package.json"
+$json = $jsonData | ConvertTo-Json -Depth 10
+[System.IO.File]::WriteAllText((Resolve-Path "..\..\package.json").Path, $json, [System.Text.UTF8Encoding]::new($false))
 
 # patch the version endpoint script to return the same value
 Write-Host "Patching Version.srvscr with version $new_version from package.json ..."
