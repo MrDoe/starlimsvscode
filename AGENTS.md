@@ -86,9 +86,30 @@ All tools are defined in `src/services/starlimsMcpServer.ts` and implemented in 
 | `edit_table` | `uri`, `tableXml` | Save table XML |
 | `run_integration_tests` | `reason?`, `maxCharacters?` | Run `npm test` (prompts user) |
 
+## Workflow for OpenCode agents
+
+When working with STARLIMS items from the SLVSCODE workspace, always use MCP tools in this order:
+
+1. **Find** — `search_by_name` with `query` to locate the item. Use the `.uri` from the result.
+2. **Read** — `get_item_code` with the URI to get the authoritative server version.
+3. **Checkout** — `checkout_item` with `uri`. For form items (HTMLFORMXML, HTMLFORMCODE, etc.) pass `language: "GER"`.
+4. **Refresh tree** — `refresh_checkout_tree` after checkout/undo to update VS Code.
+5. **Edit** — modify the synced local file (path from `checkout_item.localPath`).
+6. **Save** — `save_item` with the absolute `localPath` from step 3.
+7. **Never check in** unless the user explicitly asks.
+
+**Important:** Every MCP tool response has two parts:
+- `content`: human-readable summary string (DO NOT use for data)
+- `structuredContent`: the full structured result with all fields (`uri`, `localPath`, `items`, `code`, etc.)
+
 ### URI format
 
 `/Applications/BMBH_Modules/CaseManagement/ServerScripts/scGetCases`
+
+Sandbox items use the `/_Sandbox` prefix:
+`/Applications/_Sandbox/TestApp/HTMLForms/XML/frmTest`
+
+The URI is always returned in the `.uri` field of `search_by_name` results.
 
 ### `create_item` item types
 

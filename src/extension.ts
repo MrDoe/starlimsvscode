@@ -1222,7 +1222,10 @@ Please analyze this ticket and provide a solution. When you need to:
   - Check out items to workspace
   - Execute server scripts and data sources for runtime verification when needed
   - Run extension integration tests, but only after asking the user for permission
-  
+
+### 5. **mssql MCP Tool Usage**
+- Use the mssql MCP tool to query the STARLIMS database for data verification or to retrieve additional information
+
 **Remember**: Always prefer STARLIMS MCP tools over local workspace search when working with STARLIMS items to ensure you have the correct, checked-out version.
 **Do not** use STARLIMS check-in tools unless the user explicitly requests check-in, and never use Linux or Bash commands when suggesting terminal steps.
 
