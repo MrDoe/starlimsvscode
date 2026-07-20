@@ -265,7 +265,11 @@ export class SSLParser {
 
   private parseIncludeStmt(): IncludeStmtNode {
     const start = this.consume(TokenType.Include, 'Expected :INCLUDE');
-    const target = this.consumeIdentifier('Expected include target');
+    let target = this.consumeIdentifier('Expected include target');
+    while (this.check(TokenType.Dot)) {
+      this.advance();
+      target += '.' + this.consumeIdentifier('Expected include target after dot');
+    }
     this.expectSemicolon();
 
     return {
@@ -282,6 +286,7 @@ export class SSLParser {
 
   private parseStatement(): ASTNode | null {
     this.skipComments();
+    if (this.check(TokenType.Include)) return this.parseIncludeStmt();
     if (this.check(TokenType.If)) return this.parseIfStmt();
     if (this.check(TokenType.For)) return this.parseForStmt();
     if (this.check(TokenType.While)) return this.parseWhileStmt();
@@ -811,7 +816,8 @@ export class SSLParser {
   private parseComparison(): ASTNode {
     let left = this.parseAddition();
     while (this.check(TokenType.LessThan) || this.check(TokenType.GreaterThan) ||
-           this.check(TokenType.LessEqual) || this.check(TokenType.GreaterEqual)) {
+           this.check(TokenType.LessEqual) || this.check(TokenType.GreaterEqual) ||
+           this.check(TokenType.Dollar)) {
       const op = this.advance();
       const right = this.parseAddition();
       left = this.makeBinaryExpr(op, left, right);
@@ -1064,6 +1070,18 @@ export class SSLParser {
         continue;
       }
 
+      // Postfix increment/decrement: expr++ / expr--
+      if (this.check(TokenType.Plus) && !this.isAtEnd() && this.tokens[this.pos + 1]?.type === TokenType.Plus) {
+        this.advance();
+        this.advance();
+        break;
+      }
+      if (this.check(TokenType.Minus) && !this.isAtEnd() && this.tokens[this.pos + 1]?.type === TokenType.Minus) {
+        this.advance();
+        this.advance();
+        break;
+      }
+
       break;
     }
 
@@ -1085,13 +1103,16 @@ export class SSLParser {
       }
       // Parse the body expressions
       while (!this.check(TokenType.RightBrace) && !this.isAtEnd()) {
-        elements.push(this.parseStatement() || {
-          type: 'NilLiteral',
-          startLine: this.previous().line,
-          startCol: this.previous().column,
-          endLine: this.previous().line,
-          endCol: this.previous().column,
-        } as NilLiteralNode);
+        this.skipComments();
+        if (this.check(TokenType.RightBrace)) break;
+        if (this.check(TokenType.Semicolon)) {
+          this.advance();
+          continue;
+        }
+        elements.push(this.parseExpression());
+        if (this.check(TokenType.Semicolon)) {
+          this.advance();
+        }
       }
       this.consume(TokenType.RightBrace, 'Expected }');
       return {
@@ -1138,7 +1159,17 @@ export class SSLParser {
   private parseArgList(): ASTNode[] {
     const args: ASTNode[] = [];
     if (!this.check(TokenType.RightParen) && !this.isAtEnd()) {
-      args.push(this.parseExpression());
+      if (this.check(TokenType.Comma)) {
+        args.push({
+          type: 'NilLiteral',
+          startLine: this.previous().line,
+          startCol: this.previous().column + this.previous().length,
+          endLine: this.previous().line,
+          endCol: this.previous().column + this.previous().length,
+        } as NilLiteralNode);
+      } else {
+        args.push(this.parseExpression());
+      }
       while (this.check(TokenType.Comma)) {
         this.advance();
         if (this.check(TokenType.RightParen) || this.check(TokenType.Comma)) {
