@@ -256,6 +256,12 @@ export class SSLLexer {
       this.addToken(TokenType.NotEquals, '!=', startLine, startCol, startOffset, 2);
       return;
     }
+    if (ch === '<' && this.peek() === '>') {
+      this.advance();
+      this.advance();
+      this.addToken(TokenType.NotEquals, '<>', startLine, startCol, startOffset, 2);
+      return;
+    }
     if (ch === '+' && this.peek() === '=') {
       this.advance();
       this.advance();
@@ -429,9 +435,25 @@ export class SSLLexer {
     while (this.pos < this.source.length && this.source[this.pos] !== '"') {
       const ch = this.source[this.pos];
       if (ch === '\\') {
-        this.advance();
-        if (this.pos < this.source.length) {
-          value += this.source[this.pos];
+        const nextChar = this.pos + 1 < this.source.length ? this.source[this.pos + 1] : '\0';
+        if (nextChar === '"') {
+          let lookAhead = this.pos + 2;
+          while (lookAhead < this.source.length && (this.source[lookAhead] === ' ' || this.source[lookAhead] === '\t')) {
+            lookAhead++;
+          }
+          const following = lookAhead < this.source.length ? this.source[lookAhead] : '\0';
+          if (following === ';' || following === '+' || following === ')' ||
+              following === ',' || following === '\r' || following === '\n' ||
+              following === '\0') {
+            value += ch;
+            this.advance();
+          } else {
+            this.advance();
+            value += '"';
+            this.advance();
+          }
+        } else {
+          value += ch;
           this.advance();
         }
       } else if (ch === '\r') {
@@ -472,9 +494,25 @@ export class SSLLexer {
     while (this.pos < this.source.length && this.source[this.pos] !== '\'') {
       const ch = this.source[this.pos];
       if (ch === '\\') {
-        this.advance();
-        if (this.pos < this.source.length) {
-          value += this.source[this.pos];
+        const nextChar = this.pos + 1 < this.source.length ? this.source[this.pos + 1] : '\0';
+        if (nextChar === '\'') {
+          let lookAhead = this.pos + 2;
+          while (lookAhead < this.source.length && (this.source[lookAhead] === ' ' || this.source[lookAhead] === '\t')) {
+            lookAhead++;
+          }
+          const following = lookAhead < this.source.length ? this.source[lookAhead] : '\0';
+          if (following === ';' || following === '+' || following === ')' ||
+              following === ',' || following === '\r' || following === '\n' ||
+              following === '\0') {
+            value += ch;
+            this.advance();
+          } else {
+            this.advance();
+            value += '\'';
+            this.advance();
+          }
+        } else {
+          value += ch;
           this.advance();
         }
       } else if (ch === '\r') {
@@ -543,6 +581,15 @@ export class SSLLexer {
 
     const keywordType = KEYWORDS[word] || KEYWORDS[word.toUpperCase()];
     if (keywordType) {
+      // Don't treat as keyword if previous token was an identifier (member access context,
+      // e.g. oPayload:Parameters where :Parameters would match the :PARAMETERS keyword)
+      const prevToken = this.tokens.length > 0 ? this.tokens[this.tokens.length - 1] : null;
+      if (prevToken && prevToken.type === TokenType.Identifier) {
+        this.pos = wordStart;
+        this.column = startCol + 1;
+        this.addToken(TokenType.Colon, ':', startLine, startCol, startOffset, 1);
+        return;
+      }
       this.addToken(keywordType, word, startLine, startCol, startOffset, this.pos - startOffset);
       return;
     }

@@ -1374,7 +1374,7 @@ export class EnterpriseService implements IEnterpriseService {
       const response = await fetch(url, options);
       const result = await this.safeParseJsonInternal(response, false);
       if (!result) {
-        return { ok: false, error: "Could not retrieve item code." };
+        return { ok: false, error: `Could not retrieve item code (HTTP ${response.status}: ${response.statusText || "non-JSON response"}).` };
       }
 
       const { success, data }: { success: boolean; data: EnterpriseItemCodeRecord } = result;
@@ -1393,7 +1393,7 @@ export class EnterpriseService implements IEnterpriseService {
       };
     } catch (e: any) {
       console.error(e);
-      return { ok: false, error: "Could not retrieve item code." };
+      return { ok: false, error: `Could not retrieve item code: ${e?.message ?? e}.` };
     }
   }
 

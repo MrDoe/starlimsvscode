@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "module": "commonjs",
+    "target": "ES2020",
+    "lib": ["ES2020"],
+    "sourceMap": false,
+    "rootDir": "src",
+    "esModuleInterop": true,
+    "strict": true,
+    "declaration": false,
+    "skipLibCheck": true,
+    "outDir": "out-lsp-test",
+    "paths": {
+      "vscode-languageserver/node": ["./node_modules/vscode-languageserver/lib/node/main.d.ts"],
+      "vscode-languageserver": ["./node_modules/vscode-languageserver/lib/common/api.d.ts"],
+      "vscode-languageclient/node": ["./node_modules/vscode-languageclient/lib/node/main.d.ts"],
+      "vscode-languageclient": ["./node_modules/vscode-languageclient/lib/common/api.d.ts"],
+      "vscode-languageserver-textdocument": ["./node_modules/vscode-languageserver-textdocument/lib/umd/main.d.ts"],
+      "vscode-jsonrpc/node": ["./node_modules/vscode-jsonrpc/lib/node/main.d.ts"],
+      "vscode-jsonrpc": ["./node_modules/vscode-jsonrpc/lib/common/api.d.ts"],
+      "vscode-languageserver-protocol/node": ["./node_modules/vscode-languageserver-protocol/lib/node/main.d.ts"],
+      "vscode-languageserver-protocol": ["./node_modules/vscode-languageserver-protocol/lib/common/api.d.ts"],
+      "vscode-languageserver-types": ["./node_modules/vscode-languageserver-types/lib/umd/main.d.ts"]
+    }
+  },
+  "include": ["src/lsp/server/parser.test.ts"],
+  "exclude": ["node_modules"]
+}
