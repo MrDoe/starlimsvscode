@@ -582,10 +582,22 @@ export class StarlimsMcpServer {
     result: StarlimsAutomationResult,
     successMessageFactory: (result: StarlimsAutomationResult) => string
   ) {
+    let text = result.ok ? successMessageFactory(result) : result.error ?? "STARLIMS operation failed.";
+    // Append warning to visible text if present (always meaningful for AI agents)
+    if (result.warning) {
+      text += `\nWARNING: ${result.warning}`;
+    }
+    // Append info/note to visible text if present
+    if (result.info) {
+      text += `\n${result.info}`;
+    } else if (result.note) {
+      text += `\nNote: ${result.note}`;
+    }
+
     return {
       content: [
         {
-          text: result.ok ? successMessageFactory(result) : result.error ?? "STARLIMS operation failed.",
+          text,
           type: "text" as const
         }
       ],
