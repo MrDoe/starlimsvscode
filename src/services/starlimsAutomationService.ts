@@ -126,7 +126,7 @@ export class StarlimsAutomationService {
     }
 
     const bounded = this.limitItems((result.data ?? []).map((item) => this.mapItem(item)), maxItems);
-    return {
+    const searchResult: StarlimsAutomationResult = {
       ok: true,
       exactMatch: exactMatch === true,
       itemType: (itemType || "").trim(),
@@ -137,6 +137,12 @@ export class StarlimsAutomationService {
       totalItems: bounded.totalItems,
       truncated: bounded.truncated
     };
+
+    if (bounded.totalItems === 0) {
+      searchResult.note = `No items found matching '${normalizedQuery}'. Try a broader search or check the item type filter.`;
+    }
+
+    return searchResult;
   }
 
   public async globalCodeSearch(
@@ -169,7 +175,7 @@ export class StarlimsAutomationService {
     }
 
     const bounded = this.limitItems((result.data ?? []).map((item) => this.mapItem(item)), maxItems);
-    return {
+    const globalSearchResult: StarlimsAutomationResult = {
       ok: true,
       itemTypes: normalizedItemTypes,
       items: bounded.items,
@@ -179,6 +185,14 @@ export class StarlimsAutomationService {
       totalItems: bounded.totalItems,
       truncated: bounded.truncated
     };
+
+    if (bounded.truncated) {
+      globalSearchResult.note = `Results limited to ${bounded.limit} of ${bounded.totalItems} total matches. Narrow the search with more specific criteria.`;
+    } else if (bounded.totalItems === 0) {
+      globalSearchResult.note = `No code matches found for '${normalizedSearchString}'. Try a different search term or check item types.`;
+    }
+
+    return globalSearchResult;
   }
 
   public async getItemCode(
@@ -526,6 +540,18 @@ export class StarlimsAutomationService {
     const itemLookup = await this.enterpriseService.getEnterpriseItemsResult(normalizedUri);
     const item = this.getExactItemMatch(itemLookup.data ?? [], normalizedUri);
     if (!item) {
+      // Guide/Resources are auto-saved when the form XML is checked in — no explicit save needed
+      if (/\/Guide\/|\/Resources\//i.test(normalizedUri)) {
+        return {
+          ok: true,
+          autoSaved: true,
+          info: "Guide and Resources are auto-saved when the form XML is checked in. No explicit save needed.",
+          localPath: normalizedLocalPath,
+          serverName: this.enterpriseService.getCurrentServerName(),
+          uri: normalizedUri
+        };
+      }
+
       return {
         ok: false,
         error: "Could not resolve STARLIMS item metadata for the local path.",
@@ -585,10 +611,12 @@ export class StarlimsAutomationService {
 
     return {
       ok: true,
+      codeLength: code.length,
       item: this.mapItem(item),
       language: resolvedLanguage.language,
       localPath: normalizedLocalPath,
       serverName: this.enterpriseService.getCurrentServerName(),
+      savedAt: new Date().toISOString(),
       uri: normalizedUri
     };
   }
@@ -606,7 +634,16 @@ export class StarlimsAutomationService {
     const normalizedCategoryName = categoryName.trim();
     const normalizedAppName = appName.trim();
 
-    if (!normalizedItemName || !normalizedItemType || !normalizedLanguage) {
+    let effectiveLanguage = normalizedLanguage;
+    let languageAdjusted = false;
+    if (FORM_ITEM_TYPES.has(normalizedItemType.toUpperCase())) {
+      if (!effectiveLanguage || effectiveLanguage.toUpperCase() === "N/A") {
+        effectiveLanguage = this.options.getDefaultFormLanguage() || "GER";
+        languageAdjusted = true;
+      }
+    }
+
+    if (!normalizedItemName || !normalizedItemType || !effectiveLanguage) {
       return {
         ok: false,
         error: "The item name, type, and language cannot be empty."
@@ -616,7 +653,7 @@ export class StarlimsAutomationService {
     const result = await this.enterpriseService.addItem(
       normalizedItemName,
       normalizedItemType,
-      normalizedLanguage,
+      effectiveLanguage,
       normalizedCategoryName,
       normalizedAppName
     );
@@ -635,7 +672,7 @@ export class StarlimsAutomationService {
         categoryName: normalizedCategoryName,
         itemName: normalizedItemName,
         itemType: normalizedItemType,
-        language: normalizedLanguage,
+        language: effectiveLanguage,
         serverName: this.enterpriseService.getCurrentServerName()
       };
     }
@@ -656,12 +693,12 @@ export class StarlimsAutomationService {
         categoryName: normalizedCategoryName,
         itemName: normalizedItemName,
         itemType: normalizedItemType,
-        language: normalizedLanguage,
+        language: effectiveLanguage,
         serverName: this.enterpriseService.getCurrentServerName()
       };
     }
 
-    const checkoutResult = await this.enterpriseService.checkOutItemResult(checkoutUri, normalizedLanguage);
+    const checkoutResult = await this.enterpriseService.checkOutItemResult(checkoutUri, effectiveLanguage);
     if (!checkoutResult.ok) {
       return {
         ok: false,
@@ -670,7 +707,7 @@ export class StarlimsAutomationService {
         categoryName: normalizedCategoryName,
         itemName: normalizedItemName,
         itemType: normalizedItemType,
-        language: normalizedLanguage,
+        language: effectiveLanguage,
         serverName: this.enterpriseService.getCurrentServerName(),
         uri: checkoutUri
       };
@@ -686,7 +723,7 @@ export class StarlimsAutomationService {
         categoryName: normalizedCategoryName,
         itemName: normalizedItemName,
         itemType: normalizedItemType,
-        language: normalizedLanguage,
+        language: effectiveLanguage,
         serverName: this.enterpriseService.getCurrentServerName(),
         uri: checkoutUri
       };
@@ -695,7 +732,7 @@ export class StarlimsAutomationService {
     const localCopyResult = await this.enterpriseService.getLocalCopyResult(
       checkoutUri,
       this.enterpriseService.getServerWorkspacePath(workspaceRoot),
-      normalizedLanguage
+      effectiveLanguage
     );
     if (!localCopyResult.ok || !localCopyResult.data) {
       return {
@@ -706,23 +743,29 @@ export class StarlimsAutomationService {
         categoryName: normalizedCategoryName,
         itemName: normalizedItemName,
         itemType: normalizedItemType,
-        language: normalizedLanguage,
+        language: effectiveLanguage,
         serverName: this.enterpriseService.getCurrentServerName(),
         uri: checkoutUri
       };
     }
 
-    return {
+    const createResult: StarlimsAutomationResult = {
       ok: true,
       appName: normalizedAppName,
       categoryName: normalizedCategoryName,
       itemName: normalizedItemName,
       itemType: normalizedItemType,
-      language: normalizedLanguage,
+      language: effectiveLanguage,
       localPath: localCopyResult.data.localFilePath,
       serverName: this.enterpriseService.getCurrentServerName(),
       uri: checkoutUri
     };
+
+    if (languageAdjusted) {
+      createResult.note = `Language was overridden from "${normalizedLanguage}" to "${effectiveLanguage}" for form item. Form items require a valid language (GER/ENG).`;
+    }
+
+    return createResult;
   }
 
   public async checkinItem(
@@ -796,6 +839,7 @@ export class StarlimsAutomationService {
 
     return {
       ok: true,
+      note: "Server checkout was released. Local file was NOT reverted — it still contains your changes but is no longer checked out. Use checkout_item to re-sync.",
       serverName: this.enterpriseService.getCurrentServerName(),
       uri: normalizedUri
     };
@@ -849,9 +893,11 @@ export class StarlimsAutomationService {
       };
     }
 
+    // Check if a local file already exists before the sync overwrites it
+    const workspaceServerPath = this.enterpriseService.getServerWorkspacePath(workspaceRoot);
     const localCopyResult = await this.enterpriseService.getLocalCopyResult(
       normalizedUri,
-      this.enterpriseService.getServerWorkspacePath(workspaceRoot),
+      workspaceServerPath,
       resolvedLanguage.language ?? ""
     );
     if (!localCopyResult.ok || !localCopyResult.data) {
@@ -866,7 +912,7 @@ export class StarlimsAutomationService {
       };
     }
 
-    return {
+    const checkoutResultResponse: StarlimsAutomationResult = {
       ok: true,
       item: item ? this.mapItem(item) : undefined,
       language: localCopyResult.data.language,
@@ -874,6 +920,16 @@ export class StarlimsAutomationService {
       serverName: this.enterpriseService.getCurrentServerName(),
       uri: normalizedUri
     };
+
+    // Warn that checkout overwrites the local file with server content
+    const localFileContent = fs.existsSync(localCopyResult.data.localFilePath)
+      ? fs.readFileSync(localCopyResult.data.localFilePath, { encoding: "utf8" }).trim()
+      : "";
+    if (localFileContent.length > 0) {
+      checkoutResultResponse.note = "Local file was synced from server. Any previous local edits have been overwritten — re-apply edits after checkout.";
+    }
+
+    return checkoutResultResponse;
   }
 
   private async executeRemoteItem(
@@ -934,7 +990,7 @@ export class StarlimsAutomationService {
       ? result.data
       : JSON.stringify(result.data, null, 2);
     const bounded = this.limitCode(outputText, maxCharacters);
-    return {
+    const executeResult: StarlimsAutomationResult = {
       ok: true,
       entryPoint: normalizedEntryPoint,
       item: item ? this.mapItem(item) : undefined,
@@ -947,6 +1003,12 @@ export class StarlimsAutomationService {
       truncated: bounded.truncated,
       uri: normalizedUri
     };
+
+    if (bounded.totalCharacters === 0) {
+      executeResult.note = "Empty output. SSL scripts must use :DECLARE + variable assignment instead of :RETURN \"literal\" to produce visible output.";
+    }
+
+    return executeResult;
   }
 
   private getExactItemMatch(items: EnterpriseItemRecord[], uri: string): EnterpriseItemRecord | undefined {
