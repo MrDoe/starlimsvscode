@@ -22,7 +22,7 @@ VS Code extension. TypeScript. SSL (`.ssl`, `.srvscr`) and SLSQL (`.slsql`) lang
 ## Lint
 
 `npm run lint` = `eslint src --ext ts` (includes `src/lsp/**` and `src/webview`).
-**Zero errors.** Warnings okay, **~341 baseline**: mostly `curly` (heaviest in `src/lsp/server/`: parser, definition, references, symbol-table) + `@typescript-eslint/naming-convention` (`finish_reason` in the opencode proxy). Do not introduce new ones without intent.
+**Zero errors.** Warnings okay, baseline ~341 (mostly `curly` in `src/lsp/server/`). Do not introduce new ones without intent.
 
 ## Tests
 
@@ -128,7 +128,7 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 | `src/services/enterpriseService.ts` | STARLIMS HTTP client |
 | `src/services/starlimsAutomationService.ts` | Backing impl for all MCP tools |
 | `src/services/starlimsMcpServer.ts` | MCP tool registration/handling |
-| `src/services/expressServer.ts` | Local loopback server (MCP + OpenCode proxy) |
+| `src/services/expressServer.ts` | Local loopback server (MCP + form callbacks) |
 | `src/services/gitService.ts` | Git integration for check-in |
 | `src/services/starlimsJsBridge.ts` | Bridge to the JS language server |
 | `src/services/ticketManagementTypes.ts` | Tickets data model |
@@ -147,7 +147,7 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 
 `STARLIMS.url`/`user`/`userPassword`/`rootPath`/`servers`/`selectedServer` — connections.
 `STARLIMS.mcp.*` — MCP on/off, port, max items, max code chars.
-`STARLIMS.opencode.*` — proxy, "Solve with OpenCode" command (`planModel: glm-5.1`, `buildModel: kimi-2.6`).
+`STARLIMS.opencode.*` — "Solve with OpenCode" command (`planModel: glm-5.1`, `buildModel: kimi-2.6`).
 `STARLIMS.git.*` — git on check-in (autoPush, remoteUrl, commit message generator).
 `starlimsJsLsp.enabled` — JS LSP (default true).
 
