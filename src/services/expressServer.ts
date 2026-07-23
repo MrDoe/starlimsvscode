@@ -17,10 +17,6 @@ export type ExpressServerOptions = {
     mcpHost?: string;
     mcpPort?: number;
     mcpServer?: StarlimsMcpServer;
-    opencodeProxyEnabled?: boolean;
-    opencodeProxyHost?: string;
-    opencodeProxyPort?: number;
-    opencodeProxyTargetUrl?: string;
     onOpenCodeBehind: (formId: string, functionName: string) => void | Thenable<unknown> | Promise<unknown>;
 };
 
@@ -33,17 +29,9 @@ export class ExpressServer {
     private mcpHttpServer: Server | undefined;
     private mcpPort: number;
     private readonly mcpServer: StarlimsMcpServer | undefined;
-    private opencodeApp: Express | undefined;
-    private opencodeHttpServer: Server | undefined;
-    private readonly opencodeProxyEnabled: boolean;
-    private readonly opencodeProxyHost: string;
-    private readonly opencodeProxyPort: number;
-    private readonly opencodeProxyTargetUrl: string;
     private readonly onOpenCodeBehind: (formId: string, functionName: string) => void | Thenable<unknown> | Promise<unknown>;
     private mcpWatchdogTimer: ReturnType<typeof setInterval> | undefined;
     private port: number;
-
-    private static readonly opencodeProxySessionTitle = 'STARLIMS Copilot Proxy';
 
     constructor(options: ExpressServerOptions) {
         this.host = options.host ?? '127.0.0.1';
@@ -54,11 +42,6 @@ export class ExpressServer {
         this.onOpenCodeBehind = options.onOpenCodeBehind;
         this.mcpPort = options.mcpPort ?? 3002;
         this.port = 0;
-        this.opencodeProxyEnabled = options.opencodeProxyEnabled ?? false;
-        this.opencodeProxyHost = options.opencodeProxyHost ?? '127.0.0.1';
-        this.opencodeProxyPort = options.opencodeProxyPort ?? 3005;
-        this.opencodeProxyTargetUrl = options.opencodeProxyTargetUrl ?? 'http://localhost:4096';
-        this.opencodeApp = this.opencodeProxyEnabled ? express() : undefined;
         this.registerRoutes();
     }
 
@@ -69,17 +52,6 @@ export class ExpressServer {
 
         await this.startMcpServer();
         this.startMcpWatchdog();
-
-        if (!this.opencodeHttpServer && this.opencodeApp) {
-            try {
-                this.opencodeHttpServer = await this.listen(this.opencodeApp, this.opencodeProxyPort, this.opencodeProxyHost);
-                vscode.window.showInformationMessage(
-                    `OpenCode proxy running on http://${this.opencodeProxyHost}:${this.opencodeProxyPort} → ${this.opencodeProxyTargetUrl}`
-                );
-            } catch (error) {
-                vscode.window.showErrorMessage(`Failed to start OpenCode proxy: ${error}`);
-            }
-        }
 
         return this.getPort();
     }
@@ -97,12 +69,8 @@ export class ExpressServer {
         const mcpServer = this.mcpHttpServer;
         this.mcpHttpServer = undefined;
 
-        const opencodeServer = this.opencodeHttpServer;
-        this.opencodeHttpServer = undefined;
-
         await this.closeServer(server);
         await this.closeServer(mcpServer);
-        await this.closeServer(opencodeServer);
     }
 
     public dispose(): void {
@@ -128,7 +96,6 @@ export class ExpressServer {
         });
 
         this.registerMcpRoutes();
-        this.registerOpencodeProxyRoutes();
     }
 
     private registerMcpRoutes(): void {
@@ -155,263 +122,6 @@ export class ExpressServer {
             }
             await this.mcpServer.handleRequest(req, res);
         });
-    }
-
-    private registerOpencodeProxyRoutes(): void {
-        if (!this.opencodeApp) {
-            return;
-        }
-
-        const modelRoutes = ['/models', '/v1/models'];
-        const chatCompletionRoutes = ['/chat/completions', '/v1/chat/completions'];
-        const completionRoutes = [
-            '/completions',
-            '/engines/*/completions',
-            '/v1/completions',
-            '/v1/engines/*/completions'
-        ];
-
-        // Increase limits for large Copilot context windows
-        this.opencodeApp.use(express.json({ limit: '50mb' }));
-
-        this.opencodeApp.get('/', (req: Request, res: Response) => {
-            res.send('Starlims VS Code OpenCode Proxy');
-        });
-
-        this.opencodeApp.get('/health', (req: Request, res: Response) => {
-            res.json({
-                ok: true,
-                service: 'starlims-vscode-opencode-proxy',
-                target: this.opencodeProxyTargetUrl
-            });
-        });
-
-        // Copilot will query for available models - proxy to OpenCode backend
-        this.opencodeApp.get(modelRoutes, async (req: Request, res: Response) => {
-            try {
-                const normalizedTargetUrl = this.normalizeOpenCodeTargetUrl();
-                const modelsUrl = this.buildOpenCodeApiUrl(normalizedTargetUrl, '/models');
-                const response = await fetch(modelsUrl);
-                const modelsData = await response.json();
-                res.json(modelsData);
-            } catch (err) {
-                const message = err instanceof Error ? err.message : String(err);
-                console.error('Failed to fetch models from OpenCode:', message);
-                res.status(500).json({ error: { message } });
-            }
-        });
-
-        // 1. CHAT COMPLETIONS (For the Copilot Chat panel)
-        this.opencodeApp.post(chatCompletionRoutes, async (req: Request, res: Response) => {
-            await this.handleOpenAIRequest(req, res, true);
-        });
-
-        // 2. INLINE COMPLETIONS (For Ghost Text in the editor)
-        // Copilot sometimes uses the engines endpoint for autocomplete
-        this.opencodeApp.post(completionRoutes, async (req: Request, res: Response) => {
-            await this.handleOpenAIRequest(req, res, false);
-        });
-    }
-
-    /**
-    * Unified handler to intercept Copilot requests, send to OpenCode, and stream responses back
-    */
-    private async handleOpenAIRequest(req: Request, res: Response, isChat: boolean): Promise<void> {
-        try {
-            const isStream = req.body.stream === true;
-            let prompt = '';
-
-            // Extract prompt depending on whether it's Chat (messages array) or Inline (prompt string)
-            if (isChat) {
-                const messages = req.body.messages || [];
-                prompt = messages.map((m: any) => `${m.role}: ${m.content}`).join('\n');
-            } else {
-                // Copilot often sends prefix and suffix in standard completions
-                prompt = req.body.prompt || '';
-            }
-
-            const responseText = await this.getOpenCodeResponseText(prompt);
-
-            if (isStream) {
-                // 🚀 VITAL FOR COPILOT: Fake an SSE stream
-                res.setHeader('Content-Type', 'text/event-stream');
-                res.setHeader('Cache-Control', 'no-cache');
-                res.setHeader('Connection', 'keep-alive');
-
-                const chunkId = `chatcmpl-${Math.floor(Date.now() / 1000)}`;
-                const created = Math.floor(Date.now() / 1000);
-                const model = req.body.model || 'opencode-go';
-
-                // 1. Send the text payload chunk
-                const dataChunk = {
-                    id: chunkId,
-                    object: isChat ? 'chat.completion.chunk' : 'text_completion',
-                    created: created,
-                    model: model,
-                    choices: isChat ? [
-                        { index: 0, delta: { content: responseText }, finish_reason: null }
-                    ] : [
-                        { text: responseText, index: 0, finish_reason: null }
-                    ]
-                };
-                res.write(`data: ${JSON.stringify(dataChunk)}\n\n`);
-
-                // 2. Send the stop signal chunk
-                const finishChunk = {
-                    id: chunkId,
-                    object: isChat ? 'chat.completion.chunk' : 'text_completion',
-                    created: created,
-                    model: model,
-                    choices: isChat ? [
-                        { index: 0, delta: {}, finish_reason: 'stop' }
-                    ] : [
-                        { text: '', index: 0, finish_reason: 'stop' }
-                    ]
-                };
-                res.write(`data: ${JSON.stringify(finishChunk)}\n\n`);
-
-                // 3. Send done signal
-                res.write(`data: [DONE]\n\n`);
-                res.end();
-            } else {
-                // Standard non-streaming fallback
-                res.json({
-                    id: `cmpl-${Math.floor(Date.now() / 1000)}`,
-                    object: isChat ? 'chat.completion' : 'text_completion',
-                    created: Math.floor(Date.now() / 1000),
-                    model: req.body.model || 'opencode-go',
-                    choices: [
-                        isChat ? {
-                            index: 0,
-                            message: { role: 'assistant', content: responseText },
-                            finish_reason: 'stop'
-                        } : {
-                            text: responseText,
-                            index: 0,
-                            logprobs: null,
-                            finish_reason: 'stop'
-                        }
-                    ]
-                });
-            }
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            console.error('OpenCode Proxy Error:', message);
-            res.status(500).json({ error: message });
-        }
-    }
-
-    private async getOpenCodeResponseText(prompt: string): Promise<string> {
-        const normalizedTargetUrl = this.normalizeOpenCodeTargetUrl();
-        if (normalizedTargetUrl.pathname.endsWith('/run')) {
-            return this.getLegacyOpenCodeResponseText(prompt, normalizedTargetUrl);
-        }
-
-        return this.getSessionApiOpenCodeResponseText(prompt, normalizedTargetUrl);
-    }
-
-    private normalizeOpenCodeTargetUrl(): URL {
-        const targetUrl = new URL(this.opencodeProxyTargetUrl);
-        if (!targetUrl.pathname || targetUrl.pathname === '') {
-            targetUrl.pathname = '/';
-        }
-
-        return targetUrl;
-    }
-
-    private buildOpenCodeApiUrl(baseUrl: URL, path: string): string {
-        const normalizedBaseUrl = new URL(baseUrl.toString());
-        normalizedBaseUrl.pathname = normalizedBaseUrl.pathname.endsWith('/')
-            ? normalizedBaseUrl.pathname
-            : `${normalizedBaseUrl.pathname}/`;
-
-        return new URL(path.replace(/^\//, ''), normalizedBaseUrl).toString();
-    }
-
-    private async getLegacyOpenCodeResponseText(prompt: string, targetUrl: URL): Promise<string> {
-        const headers: Record<string, string> = {};
-        headers['Content-Type'] = 'application/json';
-
-        const response = await fetch(targetUrl.toString(), {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ prompt })
-        });
-
-        const data = await this.readOpenCodeJsonResponse(response);
-        return this.extractOpenCodeResponseText(data);
-    }
-
-    private async getSessionApiOpenCodeResponseText(prompt: string, baseUrl: URL): Promise<string> {
-        const headers: Record<string, string> = {};
-        headers['Content-Type'] = 'application/json';
-
-        const createSessionResponse = await fetch(this.buildOpenCodeApiUrl(baseUrl, '/session'), {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ title: ExpressServer.opencodeProxySessionTitle })
-        });
-
-        const sessionData = await this.readOpenCodeJsonResponse(createSessionResponse);
-        const sessionId = typeof sessionData.id === 'string' ? sessionData.id : undefined;
-        if (!sessionId) {
-            throw new Error('OpenCode session creation did not return a session ID.');
-        }
-
-        try {
-            const messageResponse = await fetch(this.buildOpenCodeApiUrl(baseUrl, `/session/${sessionId}/message`), {
-                method: 'POST',
-                headers,
-                body: JSON.stringify({
-                    parts: [{ type: 'text', text: prompt }]
-                })
-            });
-
-            const messageData = await this.readOpenCodeJsonResponse(messageResponse);
-            return this.extractOpenCodeResponseText(messageData);
-        } finally {
-            await this.deleteOpenCodeSession(baseUrl, sessionId);
-        }
-    }
-
-    private async deleteOpenCodeSession(baseUrl: URL, sessionId: string): Promise<void> {
-        try {
-            await fetch(this.buildOpenCodeApiUrl(baseUrl, `/session/${sessionId}`), {
-                method: 'DELETE'
-            });
-        } catch {
-            // Ignore cleanup failures; the proxy request has already completed.
-        }
-    }
-
-    private async readOpenCodeJsonResponse(response: fetch.Response): Promise<any> {
-        const responseText = await response.text();
-        if (!response.ok) {
-            throw new Error(`OpenCode request failed with ${response.status}: ${responseText}`);
-        }
-
-        try {
-            return JSON.parse(responseText);
-        } catch {
-            throw new Error(`OpenCode returned a non-JSON response: ${responseText}`);
-        }
-    }
-
-    private extractOpenCodeResponseText(data: any): string {
-        if (typeof data?.output === 'string') {
-            return data.output;
-        }
-
-        if (Array.isArray(data?.parts)) {
-            const textParts = data.parts
-                .filter((part: any) => part?.type === 'text' && typeof part.text === 'string')
-                .map((part: any) => part.text);
-            if (textParts.length > 0) {
-                return textParts.join('');
-            }
-        }
-
-        return JSON.stringify(data);
     }
 
     private async startMcpServer(): Promise<void> {

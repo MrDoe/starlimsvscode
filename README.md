@@ -17,7 +17,7 @@ STARLIMS VS Code is an unofficial Visual Studio Code extension for working with 
 - Initialize a Git repository for the local SLVSCODE mirror, configure a remote, and optionally auto-commit and auto-push local STARLIMS changes during check-in
 - Optionally detect new Git commits in the SLVSCODE repository and check matching checked-out STARLIMS script and data source files in with the Git commit message
 - Manage STARLIMS tickets (BMBH only) from VS Code by filtering queues, selecting an active ticket, undertaking, releasing, solving, and renaming tickets, and creating ticket measures during check-in
-- Launch a selected STARLIMS ticket directly into an OpenCode terminal plan session with the ticket context preloaded
+- Launch a selected STARLIMS ticket into an OpenCode terminal — starts a new session or reuses a running instance with the ticket context preloaded
 - SSL and SLSQL language support with syntax highlighting, code completion, hover documentation, go-to-definition, find references, document symbols, and folding ranges
 - Use a local MCP endpoint and Copilot-facing workspace files to enable agents to use the STARLIMS MCP for browse, search, code retrieval, checkout/check-in, runtime execution, and table operations when working with STARLIMS assets
 
@@ -97,7 +97,7 @@ The Tickets view groups STARLIMS tickets by status and supports title filtering,
 
 When an active ticket is selected, STARLIMS check-in commands can reuse ticket-aware reasons and automatically create ticket measures. Ticket measure text can use the same fast local generator or Copilot-assisted generation that is used for Git and check-in messages.
 
-The ticket context menu also includes `Solve ticket with OpenCode`. This opens an OpenCode terminal session in plan mode, seeds it with the selected ticket details, and reminds the user to switch to the configured build model manually once the plan is approved. For reliable Windows terminal launching, the extension writes the ticket prompt to a temporary file under the extension storage folder and feeds that content into the OpenCode CLI.
+The ticket context menu also includes `Solve ticket with OpenCode`. When no OpenCode terminal is running, it opens a new terminal session in plan mode with the selected ticket details preloaded. If an OpenCode terminal is already open, it starts a fresh session there instead. The extension writes the ticket prompt to a temporary file under the extension storage folder and feeds that content into the OpenCode CLI.
 
 ## MCP Integration
 

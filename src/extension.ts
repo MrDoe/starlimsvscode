@@ -790,6 +790,12 @@ export async function activate(context: vscode.ExtensionContext) {
     return promptFilePath;
   }
 
+  function findRunningOpenCodeTerminal(): vscode.Terminal | undefined {
+    return vscode.window.terminals.find((t) =>
+      !t.exitStatus && (t.name === OPENCODE_STARTUP_TERMINAL_NAME || t.name.startsWith("OpenCode"))
+    );
+  }
+
   function getActiveTicketStorageKey(serverName: string = getCurrentStarlimsServerName()): string {
     return `${ACTIVE_TICKET_STATE_PREFIX}.${serverName}`;
   }
@@ -1080,42 +1086,6 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage(`Marked ticket #${ticketToSolve.id} as Fertig (solved).`);
   }
 
-  async function solveTicketWithCopilot(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
-    const selectedTreeItem = ticketsTreeView?.selection?.[0];
-    const selectedTicket = item instanceof TicketTreeItem
-      ? item.ticket
-      : item || selectedTreeItem?.ticket || (activeTicket ? { ...activeTicket } : undefined);
-
-    if (!selectedTicket) {
-      vscode.window.showInformationMessage("Select a ticket first.");
-      return;
-    }
-
-    const ticketToSolve = normalizeTicketReference(selectedTicket);
-
-    try {
-      // Gather ticket information
-      const ticketInfo = await enterpriseService.getTicketFullInfo(ticketToSolve.id);
-      
-      if (!ticketInfo) {
-        vscode.window.showErrorMessage(`Could not retrieve full information for ticket #${ticketToSolve.id}.`);
-        return;
-      }
-
-      // Build comprehensive prompt for Copilot
-      const prompt = buildTicketCopilotPrompt(ticketToSolve, ticketInfo);
-
-      // Open Copilot chat with the prompt
-      await vscode.commands.executeCommand('workbench.action.chat.open', prompt);
-
-      outputChannel.appendLine(`[TicketManagement] Opened Copilot chat for ticket #${ticketToSolve.id}`);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      outputChannel.appendLine(`[TicketManagement] Error opening Copilot chat: ${errorMessage}`);
-      vscode.window.showErrorMessage(`Failed to open Copilot chat: ${errorMessage}`);
-    }
-  }
-
   async function solveTicketWithOpenCode(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
     const selectedTreeItem = ticketsTreeView?.selection?.[0];
     const selectedTicket = item instanceof TicketTreeItem
@@ -1143,20 +1113,36 @@ export async function activate(context: vscode.ExtensionContext) {
 
       const prompt = buildTicketOpenCodePrompt(ticketToSolve, ticketInfo, launchOptions);
       const promptFilePath = await writeTicketOpenCodePromptFile(ticketToSolve, prompt);
-      const terminal = vscode.window.createTerminal({
-        name: `OpenCode Ticket #${ticketToSolve.id}`,
-        cwd: launchOptions.workingDirectory
-      });
+      const promptContent = await fs.promises.readFile(promptFilePath, "utf8");
 
-      terminal.show(true);
-      terminal.sendText(buildOpenCodeTerminalCommand(promptFilePath, launchOptions), true);
+      const runningTerminal = findRunningOpenCodeTerminal();
+      if (runningTerminal) {
+        runningTerminal.show(true);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        runningTerminal.sendText("/new", true);
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        runningTerminal.sendText(promptContent, true);
 
-      const buildModelMessage = launchOptions.buildModel
-        ? ` Switch to ${launchOptions.buildModel} for implementation after you approve the plan.`
-        : "";
+        const sessionInfo = `OpenCode session for ticket #${ticketToSolve.id}`;
+        outputChannel.appendLine(`[TicketManagement] Opened a new ${sessionInfo} in the running OpenCode terminal.`);
+        vscode.window.showInformationMessage(`Opened a new ${sessionInfo}.`);
+      }
+      else {
+        const terminal = vscode.window.createTerminal({
+          name: OPENCODE_STARTUP_TERMINAL_NAME,
+          cwd: launchOptions.workingDirectory
+        });
 
-      outputChannel.appendLine(`[TicketManagement] Opened OpenCode terminal for ticket #${ticketToSolve.id} using ${launchOptions.planModel}`);
-      vscode.window.showInformationMessage(`Opened OpenCode for ticket #${ticketToSolve.id} in plan mode with ${launchOptions.planModel}.${buildModelMessage}`);
+        terminal.show(true);
+        terminal.sendText(buildOpenCodeTerminalCommand(promptFilePath, launchOptions), true);
+
+        const buildModelMessage = launchOptions.buildModel
+          ? ` Switch to ${launchOptions.buildModel} for implementation after you approve the plan.`
+          : "";
+
+        outputChannel.appendLine(`[TicketManagement] Opened OpenCode terminal for ticket #${ticketToSolve.id} using ${launchOptions.planModel}`);
+        vscode.window.showInformationMessage(`Opened OpenCode for ticket #${ticketToSolve.id} in plan mode with ${launchOptions.planModel}.${buildModelMessage}`);
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       outputChannel.appendLine(`[TicketManagement] Error opening OpenCode: ${errorMessage}`);
@@ -1238,10 +1224,6 @@ Please provide:
 3. Code changes needed (if applicable)
 4. Testing recommendations
 5. Any STARLIMS items that need to be modified`;
-  }
-
-  function buildTicketCopilotPrompt(ticket: TicketReference, ticketInfo: TicketFullInfo): string {
-    return buildTicketSolutionPrompt(ticket, ticketInfo);
   }
 
   function buildTicketOpenCodePrompt(
@@ -2694,11 +2676,7 @@ Please provide:
   expressServer = new ExpressServer({
     mcpPort: getMcpConfig().get<number>("mcp.port", 3002),
     mcpServer: starlimsMcpServer,
-    opencodeProxyEnabled: getMcpConfig().get<boolean>("opencode.proxy.enabled", false),
-    opencodeProxyHost: getMcpConfig().get<string>("opencode.proxy.host", "127.0.0.1"),
-    opencodeProxyPort: getMcpConfig().get<number>("opencode.proxy.port", 3000),
-    opencodeProxyTargetUrl: getMcpConfig().get<string>("opencode.proxy.targetUrl", "http://localhost:4096"),
-    onOpenCodeBehind: async (formId: string, functionName: string) => {
+onOpenCodeBehind: async (formId: string, functionName: string) => {
       await vscode.commands.executeCommand("STARLIMS.OpenCodeBehind", formId, functionName);
     }
   });
@@ -2909,13 +2887,6 @@ Please provide:
     "STARLIMS.ViewTicketStackTrace",
     async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
       await showTicketStackTrace(item);
-    }
-  );
-
-  vscode.commands.registerCommand(
-    "STARLIMS.SolveTicketWithCopilot",
-    async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
-      await solveTicketWithCopilot(item);
     }
   );
 

@@ -3,11 +3,11 @@
     "displayName":  "STARLIMS VS Code Extension",
     "description":  "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license":  "SEE LICENSE IN LICENSE.md",
-    "version":  "1.6.20",
+    "version":  "1.6.22",
     "icon":  "resources/extension/starlimsvscode.png",
     "publisher":  "cdoellinger",
     "author":  {
-                   "name":  "Christoph DÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¶llinger, Marius Popovici, Jan Bouecke"
+                   "name":  "Christoph DÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¶llinger, Marius Popovici, Jan Bouecke"
                },
     "keywords":  [
                      "STARLIMS",
@@ -347,11 +347,6 @@
                                              "icon":  "$(output)"
                                          },
                                          {
-                                             "command":  "STARLIMS.SolveTicketWithCopilot",
-                                             "title":  "Solve ticket with Copilot",
-                                             "icon":  "$(copilot)"
-                                         },
-                                         {
                                              "command":  "STARLIMS.SolveTicketWithOpenCode",
                                              "title":  "Solve ticket with OpenCode",
                                              "icon":  "$(terminal)"
@@ -643,11 +638,6 @@
                                                                     "group":  "navigation"
                                                                 },
                                                                 {
-                                                                    "command":  "STARLIMS.SolveTicketWithCopilot",
-                                                                    "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == ticket || viewItem == activeTicket || viewItem == ticketInProgressByCurrentUser)",
-                                                                    "group":  "navigation"
-                                                                },
-                                                                {
                                                                     "command":  "STARLIMS.SolveTicketWithOpenCode",
                                                                     "when":  "view == STARLIMSTicketsTree \u0026\u0026 (viewItem == ticket || viewItem == activeTicket || viewItem == ticketInProgressByCurrentUser)",
                                                                     "group":  "navigation"
@@ -874,28 +864,6 @@
                                                                                                             "minimum":  100,
                                                                                                             "description":  "Maximum number of code characters returned by a single STARLIMS MCP read request."
                                                                                                         },
-                                                                     "STARLIMS.opencode.proxy.enabled":  {
-                                                                                                             "type":  "boolean",
-                                                                                                             "default":  false,
-                                                                                                             "description":  "Enable an OpenAI-compatible proxy that forwards chat completion requests to an opencode instance."
-                                                                                                         },
-                                                                     "STARLIMS.opencode.proxy.host":  {
-                                                                                                          "type":  "string",
-                                                                                                          "default":  "127.0.0.1",
-                                                                                                          "description":  "Host address the opencode proxy binds to. Use 127.0.0.1 for local-only access."
-                                                                                                      },
-                                                                     "STARLIMS.opencode.proxy.port":  {
-                                                                                                          "type":  "number",
-                                                                                                          "default":  3000,
-                                                                                                          "minimum":  1,
-                                                                                                          "maximum":  65535,
-                                                                                                          "description":  "TCP port used by the opencode proxy endpoint."
-                                                                                                      },
-                                                                     "STARLIMS.opencode.proxy.targetUrl":  {
-                                                                                                               "type":  "string",
-                                                                                                               "default":  "http://localhost:4096",
-                                                                                                               "description":  "Base URL of the OpenCode server that the proxy forwards requests to. The documented default is http://localhost:4096."
-                                                                                                           },
                                                                      "STARLIMS.opencode.command":  {
                                                                                                        "type":  "string",
                                                                                                        "default":  "opencode",
@@ -1174,14 +1142,13 @@
                          "@xmldom/xmldom":  "^0.9.9",
                          "jsdom":  "^29.0.1",
                          "node-fetch":  "^2.7.0",
-                         "opencode-llm-proxy":  "^1.6.1",
                          "react":  "^18.2.0",
+                         "typescript":  "^5.9.3",
                          "vscode-jsonrpc":  "^9.0.0",
                          "vscode-languageclient":  "^10.0.0",
                          "vscode-languageserver":  "^10.0.0",
                          "vscode-languageserver-textdocument":  "^1.0.12",
                          "vscode-languageserver-types":  "^3.18.0",
-                         "typescript":  "^5.9.3",
                          "zod":  "^4.3.6"
                      },
     "overrides":  {

@@ -31,9 +31,9 @@ function findBinops(ast: ProgramNode): any[] {
   return result;
 }
 
-// ─── Include tests ─────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Include tests Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
-describe('SSLParser — :INCLUDE', () => {
+describe('SSLParser Ã¢â‚¬â€ :INCLUDE', () => {
 
   it('single unqualified :INCLUDE at top level', () => {
     const { ast, errors } = parse(':INCLUDE FOO;');
@@ -95,9 +95,9 @@ describe('SSLParser — :INCLUDE', () => {
   });
 });
 
-// ─── <> operator tests ─────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ <> operator tests Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
-describe('SSLParser — <> operator', () => {
+describe('SSLParser Ã¢â‚¬â€ <> operator', () => {
 
   it('<> in :IF condition', () => {
     const { ast, errors } = parse(':IF sUsername <> GetSetting("x"); :ENDIF;');
@@ -131,9 +131,9 @@ describe('SSLParser — <> operator', () => {
   });
 });
 
-// ─── Regression: _CompareUsers.ssl ─────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Regression: _CompareUsers.ssl Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
-describe('SSLParser — real-world script regression', () => {
+describe('SSLParser Ã¢â‚¬â€ real-world script regression', () => {
 
   it('_CompareUsers.ssl parses with 0 errors (top-level script, no PROCEDURE wrapper)', () => {
     const srcPath = 'C:\\Daten\\SLVSCODE\\Production\\ServerScripts\\AdvancedAnalytics\\_CompareUsers.ssl';
@@ -145,4 +145,23 @@ describe('SSLParser — real-world script regression', () => {
     const { errors } = parse(src);
     assert.strictEqual(errors.length, 0, 'Real-world script should have 0 parse errors');
   });
+
+// �����? Regression: scOllamaService.ssl (class-based SSL with OOP features) �����?
+describe('SSLParser ��� scOllamaService.ssl', () => {
+
+  it('parses with 0 errors (regression test)', () => {
+    const srcPath = 'C:\\\\Daten\\\\SLVSCODE\\\\Production\\\\ServerScripts\\\\BMBH_AI\\\\scOllamaService.ssl';
+    if (!fs.existsSync(srcPath)) {
+      console.warn('SKIP: scOllamaService.ssl not found at ' + srcPath);
+      return;
+    }
+    const src = fs.readFileSync(srcPath, 'utf8');
+    const { errors } = parse(src);
+    if (errors.length > 0) {
+      const details = errors.map(e => `L${e.line+1}:${e.column+1} ${e.message}`).join("; ");
+      assert.strictEqual(errors.length, 0, `scOllamaService.ssl should have 0 parse errors. Errors: ${details}`);
+    }
+  });
+
+});
 });

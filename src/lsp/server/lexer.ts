@@ -56,6 +56,7 @@ export enum TokenType {
   NotEquals = 'NOT_EQUALS', // !=
   StrictEquals = 'STRICT_EQUALS', // :==
   PlusAssign = 'PLUS_ASSIGN', // +=
+  MinusAssign = 'MINUS_ASSIGN', // -=
   LessThan = 'LESS_THAN',
   GreaterThan = 'GREATER_THAN',
   LessEqual = 'LESS_EQUAL',
@@ -268,6 +269,12 @@ export class SSLLexer {
       this.addToken(TokenType.PlusAssign, '+=', startLine, startCol, startOffset, 2);
       return;
     }
+    if (ch === '-' && this.peek() === '=') {
+      this.advance();
+      this.advance();
+      this.addToken(TokenType.MinusAssign, '-=', startLine, startCol, startOffset, 2);
+      return;
+    }
     if (ch === '<' && this.peek() === '=') {
       this.advance();
       this.advance();
@@ -444,7 +451,8 @@ export class SSLLexer {
           const following = lookAhead < this.source.length ? this.source[lookAhead] : '\0';
           if (following === ';' || following === '+' || following === ')' ||
               following === ',' || following === '\r' || following === '\n' ||
-              following === '\0') {
+              following === '\0' || following === '.' || following === '<' ||
+              following === '>') {
             value += ch;
             this.advance();
           } else {
@@ -503,7 +511,8 @@ export class SSLLexer {
           const following = lookAhead < this.source.length ? this.source[lookAhead] : '\0';
           if (following === ';' || following === '+' || following === ')' ||
               following === ',' || following === '\r' || following === '\n' ||
-              following === '\0') {
+              following === '\0' || following === '.' || following === '<' ||
+              following === '>') {
             value += ch;
             this.advance();
           } else {

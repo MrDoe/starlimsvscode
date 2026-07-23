@@ -97,11 +97,14 @@ export class SSLParser {
     const members: ASTNode[] = [];
     while (!this.isAtEnd()) {
       this.skipComments();
+      if (this.isAtEnd()) break;
       if (this.check(TokenType.Class)) break;
       if (this.check(TokenType.Procedure)) {
         members.push(this.parseProcedureDecl());
       } else if (this.check(TokenType.Access) || this.check(TokenType.Assign)) {
         members.push(this.parseAccessorDecl());
+      } else if (this.check(TokenType.Declare)) {
+        members.push(this.parseDeclareStmt());
       } else {
         this.error('Expected :PROCEDURE, :ACCESS, or :ASSIGN in class');
         this.advance();
@@ -721,7 +724,7 @@ export class SSLParser {
       } as AssignmentStmtNode;
     }
 
-    if (this.check(TokenType.PlusAssign)) {
+    if (this.check(TokenType.PlusAssign) || this.check(TokenType.MinusAssign)) {
       this.advance();
       const value = this.parseExpression();
       this.expectSemicolon();
@@ -1070,6 +1073,31 @@ export class SSLParser {
         continue;
       }
 
+      // Object instantiation: Identifier {}
+      if (this.check(TokenType.LeftBrace)) {
+        this.advance(); // consume {
+        const ctorArgs: ASTNode[] = [];
+        if (!this.check(TokenType.RightBrace)) {
+          ctorArgs.push(this.parseExpression());
+          while (this.check(TokenType.Comma)) {
+            this.advance();
+            if (this.check(TokenType.RightBrace)) break;
+            ctorArgs.push(this.parseExpression());
+          }
+        }
+        this.consume(TokenType.RightBrace, 'Expected }');
+        expr = {
+          type: 'FunctionCall',
+          name: expr.type === 'Identifier' ? (expr as IdentifierNode).name : 'constructor',
+          nameNode: expr.type === 'Identifier' ? expr as IdentifierNode : (expr as MemberAccessNode).propertyNode,
+          args: ctorArgs,
+          startLine: expr.startLine,
+          startCol: expr.startCol,
+          endLine: this.previous().line,
+          endCol: this.previous().column + this.previous().length,
+        } as FunctionCallNode;
+        continue;
+      }
       // Postfix increment/decrement: expr++ / expr--
       if (this.check(TokenType.Plus) && !this.isAtEnd() && this.tokens[this.pos + 1]?.type === TokenType.Plus) {
         this.advance();
