@@ -282,13 +282,24 @@ export class StarlimsAutomationService {
       };
     }
 
-    const lines = result.data.code.split(/\r?\n/);
+    const rawCode = result.data.code ?? "";
+    if (/^There is no log file on \d{2}\.\d{2}\.\d{4} for user /.test(rawCode)) {
+      return {
+        ok: false,
+        error: `No log file exists on the server for user '${logUser}'.`,
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: logUri,
+        user: logUser
+      };
+    }
+
+    const lines = rawCode.split(/\r?\n/);
     const tail = lines.slice(-effectiveNumLines);
 
     return {
       ok: true,
       code: tail.join("\n"),
-      numLastLines: effectiveNumLines,
+      numLastLines: tail.length,
       serverName: this.enterpriseService.getCurrentServerName(),
       totalLines: lines.length,
       uri: logUri,
