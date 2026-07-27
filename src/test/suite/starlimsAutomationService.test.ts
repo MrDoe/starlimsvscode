@@ -344,4 +344,77 @@ suite('StarlimsAutomationService', () => {
     assert.strictEqual(result.ok, false);
     assert.strictEqual(result.requiresLanguage, true);
   });
+
+  test('readLog returns the last N lines and reports the actual tail length', async () => {
+    const allLines = ['a', 'b', 'c', 'd', 'e'];
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        getEnterpriseItemCodeResult: async () => ({
+          ok: true,
+          data: { code: allLines.join('\r\n'), language: '' }
+        })
+      }),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.readLog('DC', 2);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.totalLines, allLines.length);
+    assert.strictEqual(result.numLastLines, 2);
+    assert.strictEqual(result.code, 'd\ne');
+  });
+
+  test('readLog does not echo the requested cap when it exceeds total lines', async () => {
+    const logLines = ['line-a', 'line-b'];
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        getEnterpriseItemCodeResult: async () => ({
+          ok: true,
+          data: { code: logLines.join('\r\n'), language: '' }
+        })
+      }),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.readLog('DC', 100000);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.numLastLines, logLines.length);
+    assert.strictEqual(result.totalLines, logLines.length);
+  });
+
+  test('readLog surfaces the backend "no log file" message as a failure', async () => {
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        getEnterpriseItemCodeResult: async () => ({
+          ok: true,
+          data: { code: 'There is no log file on 07.27.2026 for user Nobody !\n', language: '' }
+        })
+      }),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.readLog('Nobody');
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /no log file exists/i);
+    assert.strictEqual(result.user, 'Nobody');
+    assert.strictEqual(result.uri, '/ServerLogs/Nobody.log');
+  });
 });
