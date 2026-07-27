@@ -106,7 +106,7 @@ When working with STARLIMS items from the SLVSCODE workspace, always use MCP too
 
 `/Applications/BMBH_Modules/CaseManagement/ServerScripts/scGetCases`
 
-Sandbox items use the `/_Sandbox` prefix:
+Sandbox items use the `/Applications/_Sandbox` prefix:
 `/Applications/_Sandbox/TestApp/HTMLForms/XML/frmTest`
 
 The URI is always returned in the `.uri` field of `search_by_name` results.
@@ -156,6 +156,8 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 - After code change: reload extension host (`Ctrl+Shift+P` → Reload Window).
 - `tsconfig.json` excludes `src/webview`, `src/lsp/server`, `src/lsp/js` — see Build table; `pretest` won't typecheck them.
 - `.vscode/*` and `.env` are gitignored — no shared launch configs/tasks.
+- `enterpriseService.ts` backend error messages dropped: ~13 `get*Result` methods call `getOperationErrorMessage(data, fallback)` but the backend puts errors in `result.error`, not `result.data`. Pass the full `result` object instead of `data` to surface real error messages (e.g., `getEnterpriseItemsResult` L1336 had this bug).
+- Backend `ParseURI` (Utils.srvscr) assigns Type purely from URI component count, not from DB lookup. `/ServerScripts/ssCat/realScript` (leaf) and `/ServerScripts/ssCat/nonexistent` (bogus) both return `success:true, items:[]`. No way for the client to distinguish leaf from empty from nonexistent folder without an extra `search_for_items_result` call.
 
 ## Wiki
 

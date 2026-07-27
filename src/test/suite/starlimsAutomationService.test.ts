@@ -66,6 +66,70 @@ suite('StarlimsAutomationService', () => {
     assert.strictEqual((result.items as unknown[]).length, 1);
     assert.strictEqual(result.totalItems, 2);
     assert.strictEqual(result.truncated, true);
+    assert.match(String(result.note), /limited/i);
+  });
+
+  test('browseTree emits leaf hint when no items and uri is non-empty', async () => {
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        getEnterpriseItemsResult: async () => ({
+          ok: true,
+          data: []
+        })
+      }),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.browseTree('/ServerScripts/nonexistent', undefined);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual((result.items as unknown[]).length, 0);
+    assert.match(String(result.note), /get_item_code/i);
+  });
+
+  test('browseTree does not emit leaf note for root uri', async () => {
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        getEnterpriseItemsResult: async () => ({
+          ok: true,
+          data: []
+        })
+      }),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.browseTree('', undefined);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual((result.items as unknown[]).length, 0);
+    assert.strictEqual(result.note, undefined);
+  });
+
+  test('browseTree rejects URI without leading slash', async () => {
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock(),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.browseTree('Applications', undefined);
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /must start with '\/'/i);
   });
 
   test('checkoutItem requires a language for form items without defaults', async () => {
