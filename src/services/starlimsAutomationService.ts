@@ -89,7 +89,7 @@ export class StarlimsAutomationService {
     if (bounded.truncated) {
       result.note = `Results limited to ${bounded.limit} of ${bounded.totalItems} items. Refine by passing maxItems or browsing a narrower URI.`;
     } else if (bounded.totalItems === 0 && normalizedUri.length > 0) {
-      result.note = `No items found under '${normalizedUri}'. This may be a leaf item Ã¢â‚¬â€ use get_item_code to retrieve its code Ã¢â‚¬â€ or the folder may not exist.`;
+      result.note = `No items found under '${normalizedUri}'. This may be a leaf item, use get_item_code to retrieve its code or the folder may not exist.`;
     }
 
     return result;
