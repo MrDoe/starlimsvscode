@@ -89,7 +89,7 @@ export class StarlimsAutomationService {
     if (bounded.truncated) {
       result.note = `Results limited to ${bounded.limit} of ${bounded.totalItems} items. Refine by passing maxItems or browsing a narrower URI.`;
     } else if (bounded.totalItems === 0 && normalizedUri.length > 0) {
-      result.note = `No items found under '${normalizedUri}'. This may be a leaf item — use get_item_code to retrieve its code — or the folder may not exist.`;
+      result.note = `No items found under '${normalizedUri}'. This may be a leaf item Ã¢â‚¬â€ use get_item_code to retrieve its code Ã¢â‚¬â€ or the folder may not exist.`;
     }
 
     return result;
@@ -556,7 +556,7 @@ export class StarlimsAutomationService {
     const itemLookup = await this.enterpriseService.getEnterpriseItemsResult(normalizedUri);
     const item = this.getExactItemMatch(itemLookup.data ?? [], normalizedUri);
     if (!item) {
-      // Guide/Resources are auto-saved when the form XML is checked in — no explicit save needed
+      // Guide/Resources are auto-saved when the form XML is checked in Ã¢â‚¬â€ no explicit save needed
       if (/\/Guide\/|\/Resources\//i.test(normalizedUri)) {
         return {
           ok: true,
@@ -855,7 +855,7 @@ export class StarlimsAutomationService {
 
     return {
       ok: true,
-      note: "Server checkout was released. Local file was NOT reverted — it still contains your changes but is no longer checked out. Use checkout_item to re-sync.",
+      note: "Server checkout was released. Local file was NOT reverted Ã¢â‚¬â€ it still contains your changes but is no longer checked out. Use checkout_item to re-sync.",
       serverName: this.enterpriseService.getCurrentServerName(),
       uri: normalizedUri
     };
@@ -942,7 +942,7 @@ export class StarlimsAutomationService {
       ? fs.readFileSync(localCopyResult.data.localFilePath, { encoding: "utf8" }).trim()
       : "";
     if (localFileContent.length > 0) {
-      checkoutResultResponse.note = "Local file was synced from server. Any previous local edits have been overwritten — re-apply edits after checkout.";
+      checkoutResultResponse.note = "Local file was synced from server. Any previous local edits have been overwritten Ã¢â‚¬â€ re-apply edits after checkout.";
     }
 
     return checkoutResultResponse;
@@ -1097,13 +1097,21 @@ export class StarlimsAutomationService {
     totalCharacters: number;
     truncated: boolean;
   } {
-    const configuredMax = this.options.getMaxCodeCharacters();
-    const effectiveMax = this.normalizeRequestedLimit(maxCharacters, configuredMax, 100);
+    const totalCharacters = code.length;
+    if (maxCharacters === undefined || !Number.isFinite(maxCharacters)) {
+      return {
+        code,
+        maxCharacters: totalCharacters,
+        totalCharacters,
+        truncated: false
+      };
+    }
 
+    const effectiveMax = Math.max(100, Math.floor(maxCharacters));
     return {
       code: code.length > effectiveMax ? code.slice(0, effectiveMax) : code,
       maxCharacters: effectiveMax,
-      totalCharacters: code.length,
+      totalCharacters,
       truncated: code.length > effectiveMax
     };
   }

@@ -41,7 +41,7 @@ const globalCodeSearchInputSchema = z.object({
 const getItemCodeInputSchema = z.object({
   uri: z.string().describe("STARLIMS item URI."),
   language: z.string().optional().describe("Optional form language identifier when reading form code. Defaults to GER for form items when omitted."),
-  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return from the code body.")
+  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return. Omit to return the full output without truncation")
 });
 
 const checkoutItemInputSchema = z.object({
@@ -67,14 +67,14 @@ const executeServerScriptInputSchema = z.object({
   parameters: z.array(z.unknown()).optional().describe("Optional positional parameters passed to the server script."),
   outputType: z.enum(["ARRAY", "JSON", "XML"]).optional().describe("Requested output type. Defaults to ARRAY."),
   entryPoint: z.string().optional().describe("Optional procedure or entry point to invoke within the server script."),
-  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return from the execution output.")
+  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return. Omit to return the full output without truncation")
 });
 
 const executeDataSourceInputSchema = z.object({
   uri: z.string().describe("STARLIMS data source URI."),
   parameters: z.array(z.unknown()).optional().describe("Optional positional parameters passed to the data source."),
   outputType: z.enum(["ARRAY", "JSON", "XML"]).optional().describe("Requested output type. Defaults to ARRAY."),
-  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return from the execution output.")
+  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return. Omit to return the full output without truncation")
 });
 
 const checkinItemInputSchema = z.object({
@@ -89,7 +89,7 @@ const undoCheckoutInputSchema = z.object({
 
 const getTableDefinitionInputSchema = z.object({
   uri: z.string().describe("STARLIMS table URI."),
-  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return from the table XML.")
+  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return. Omit to return the full output without truncation")
 });
 
 const checkoutTableInputSchema = z.object({
@@ -121,7 +121,7 @@ const createItemInputSchema = z.object({
 
 const runIntegrationTestsInputSchema = z.object({
   reason: z.string().optional().describe("Optional explanation shown to the user when asking permission to run integration tests."),
-  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return from the test output.")
+  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return. Omit to return the full output without truncation")
 });
 
 const readLogInputSchema = z.object({
@@ -673,14 +673,21 @@ export class StarlimsMcpServer {
     totalCharacters: number;
     truncated: boolean;
   } {
-    const safeMax = typeof maxCharacters === "number" && Number.isFinite(maxCharacters)
-      ? Math.max(100, Math.floor(maxCharacters))
-      : 20000;
+    const totalCharacters = text.length;
+    if (maxCharacters === undefined || !Number.isFinite(maxCharacters)) {
+      return {
+        maxCharacters: totalCharacters,
+        text,
+        totalCharacters,
+        truncated: false
+      };
+    }
 
+    const safeMax = Math.max(100, Math.floor(maxCharacters));
     return {
       maxCharacters: safeMax,
       text: text.length > safeMax ? text.slice(0, safeMax) : text,
-      totalCharacters: text.length,
+      totalCharacters,
       truncated: text.length > safeMax
     };
   }
