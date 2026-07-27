@@ -532,7 +532,7 @@ export class EnterpriseService implements IEnterpriseService {
       case "zurueckgestellt":
       case "deferred":
       case "on hold":
-        return "Zurückgestellt";
+        return "ZurÃ¼ckgestellt";
       case "in bearbeitung":
       case "in progress":
       case "processing":
@@ -542,7 +542,7 @@ export class EnterpriseService implements IEnterpriseService {
       case "in review":
       case "review":
       case "qa":
-        return "In Prüfung";
+        return "In PrÃ¼fung";
       default:
         return undefined;
     }
@@ -1384,6 +1384,19 @@ export class EnterpriseService implements IEnterpriseService {
           normalizedData.code = normalizedData.code.replace(/^#include/gm, "//#include");
         }
 
+        // Fix double-encoded non-ASCII characters from Latin-1→UTF-8 round-trip issues
+        if (normalizedData.code) {
+          normalizedData.code = normalizedData.code
+            .replace(/Ã¼/g, '\u00FC')   // ü
+            .replace(/Ã¤/g, '\u00E4')   // ä
+            .replace(/Ã¶/g, '\u00F6')   // ö
+            .replace(/Ãœ/g, '\u00DC')   // Ü
+            .replace(/Ã„/g, '\u00C4')   // Ä
+            .replace(/Ã–/g, '\u00D6')   // Ö
+            .replace(/ÃŸ/g, '\u00DF')   // ß
+            .replace(/Â/g, '');          // stray Â from double-encoding
+        }
+
         return { ok: true, data: normalizedData };
       }
 
@@ -1606,7 +1619,7 @@ export class EnterpriseService implements IEnterpriseService {
       headers,
       body: JSON.stringify({
         URI: uri,
-        Code: code,
+        Code: code.replace(/[^\x00-\x7F]/g, (char: string) => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0')),
         UserLang: language
       })
     };
@@ -1725,8 +1738,8 @@ export class EnterpriseService implements IEnterpriseService {
     return [
       ["STARLIMSUser", this.currentUser],
       ["STARLIMSPass", authPassword],
-      ["Content-Type", "application/json"],
-      ["Accept", "*/*"]
+      ["Content-Type", "application/json; charset=utf-8"],
+      ["Accept", "application/json"]
     ];
   }
 
