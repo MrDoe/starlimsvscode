@@ -213,7 +213,13 @@ export class StarlimsMcpServer {
         "browse_tree",
         { maxItems, uri },
         () => this.automationService.browseTree(uri, maxItems),
-        (result) => `Retrieved ${this.toCount(result.totalItems)} item(s) from ${this.toUriLabel(result.uri)}.`
+        (result) => {
+        const actual = Array.isArray(result.items) ? result.items.length : 0;
+        const total = this.toCount(result.totalItems);
+        return actual < total
+          ? `Retrieved ${actual} of ${total} item(s) from ${this.toUriLabel(result.uri)}.`
+          : `Retrieved ${actual} item(s) from ${this.toUriLabel(result.uri)}.`;
+      }
       )
     );
 

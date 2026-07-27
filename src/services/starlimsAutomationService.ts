@@ -58,6 +58,14 @@ export class StarlimsAutomationService {
 
   public async browseTree(uri: string | undefined, maxItems?: number): Promise<StarlimsAutomationResult> {
     const normalizedUri = (uri || "").trim();
+    if (normalizedUri.length > 0 && !normalizedUri.startsWith("/")) {
+      return {
+        ok: false,
+        error: `Invalid URI '${normalizedUri}'. STARLIMS URIs must start with '/'.`,
+        serverName: this.enterpriseService.getCurrentServerName()
+      };
+    }
+
     const itemsResult = await this.enterpriseService.getEnterpriseItemsResult(normalizedUri);
     if (!itemsResult.ok) {
       return {
@@ -68,7 +76,7 @@ export class StarlimsAutomationService {
     }
 
     const bounded = this.limitItems((itemsResult.data ?? []).map((item) => this.mapItem(item)), maxItems);
-    return {
+    const result: StarlimsAutomationResult = {
       ok: true,
       items: bounded.items,
       limit: bounded.limit,
@@ -77,6 +85,14 @@ export class StarlimsAutomationService {
       truncated: bounded.truncated,
       uri: normalizedUri
     };
+
+    if (bounded.truncated) {
+      result.note = `Results limited to ${bounded.limit} of ${bounded.totalItems} items. Refine by passing maxItems or browsing a narrower URI.`;
+    } else if (bounded.totalItems === 0 && normalizedUri.length > 0) {
+      result.note = `No items found under '${normalizedUri}'. This may be a leaf item — use get_item_code to retrieve its code — or the folder may not exist.`;
+    }
+
+    return result;
   }
 
   public async refreshCheckoutTree(includeAllUsers: boolean = false): Promise<StarlimsAutomationResult> {

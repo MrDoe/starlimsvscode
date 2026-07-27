@@ -1331,7 +1331,7 @@ export class EnterpriseService implements IEnterpriseService {
       console.warn(`[EnterpriseService] getEnterpriseItemsResult: server returned success=false for ${url}`);
       return {
         ok: false,
-        error: this.getOperationErrorMessage(data, "Could not retrieve enterprise items.")
+        error: this.getOperationErrorMessage(result, "Could not retrieve enterprise items.")
       };
     } catch (e: any) {
       console.error(`[EnterpriseService] getEnterpriseItemsResult exception for ${url}:`, e);
