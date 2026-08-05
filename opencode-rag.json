@@ -1,12 +1,9 @@
 {
   "embedding": {
     "provider": "ollama",
-    "baseUrl": "http://localhost:11434/api",
+    "baseUrl": "http://127.0.0.1:11434/api",
     "model": "qwen3-embedding:0.6b",
-    "timeoutMs": 60000,
-    "documentPrefix": "",
-    "queryPrefix": "",
-    "vectorDimension": 1024
+    "timeoutMs": 120000
   },
   "indexing": {
     "includeExtensions": [
@@ -50,8 +47,31 @@
       ".doc",
       ".xls",
       ".xlsx",
+      ".sh",
+      ".bash",
+      ".zsh",
+      ".png",
+      ".php",
+      ".ps1",
+      ".psm1",
+      ".psd1",
+      ".ini",
+      ".cfg",
+      ".yaml",
+      ".yml",
+      ".toml",
+      ".sql",
       ".ssl",
-      ".sql"
+      ".jpg",
+      ".jpeg",
+      ".gif",
+      ".bmp",
+      ".svg",
+      ".webp",
+      "dockerfile",
+      "containerfile",
+      ".dockerfile",
+      ".containerfile"
     ],
     "excludeDirs": [
       "node_modules",
@@ -63,18 +83,47 @@
       ".venv",
       ".claude",
       ".github",
+      "memory:",
+      "wasm",
+      ".commandcode",
       ".agents",
-      ".vscode-test"
+      "graphify-out",
+      ".vscode",
+      ".vs",
+      ".idea",
+      ".next",
+      ".nuxt",
+      ".turbo",
+      ".angular",
+      ".svelte-kit",
+      ".gradle",
+      ".dart_tool",
+      ".cache",
+      ".vscode-test",
+      ".vscode",
+      "opt",
+      "dist",
+      "out",
+      "build",
+      "bin",
+      "obj",
+      "target",
+      "public",
+      "tmp",
+      "temp",
+      "logs"
     ],
     "chunkOverlap": 0,
-    "minFileSizeBytes": 0
+    "minFileSizeBytes": 0,
+    "concurrency": 8,
+    "embedBatchSize": 100
   },
   "vectorStore": {
     "path": "./.opencode/rag_db"
   },
   "retrieval": {
-    "topK": 10,
-    "minScore": 0.1,
+    "topK": 20,
+    "minScore": 0.35,
     "hybridSearch": {
       "enabled": true,
       "keywordWeight": 0.4
@@ -82,33 +131,42 @@
   },
   "openCode": {
     "enabled": true,
-    "maxContextChunks": 20,
+    "maxContextChunks": 10,
     "readOverride": true,
     "autoIndex": {
       "enabled": false,
       "debounceMs": 2000,
-      "intervalMs": 300000
-    },
-    "autoInject": {
-      "enabled": true,
-      "minScore": 0.85,
-      "maxChunks": 10,
-      "maxTokens": 2000
+      "intervalMs": 300000,
+      "watcher": "chokidar"
     }
+  },
+  "imageDescription": {
+    "enabled": true,
+    "provider": "ollama",
+    "model": "minicpm-v4.6:latest",
+    "baseUrl": "http://127.0.0.1:11434/api",
+    "timeoutMs": 60000,
+    "think": false,
+    "numCtx": 2048
   },
   "description": {
     "enabled": true,
     "provider": "ollama",
-    "baseUrl": "http://localhost:11434/api",
+    "baseUrl": "http://127.0.0.1:11434/api",
     "model": "qwen2.5:3b",
+    "think": false,
+    "numCtx": 4096,
     "timeoutMs": 60000,
-    "systemPrompt": "Describe chunk precise and concise in 2 sentences. Maximum 20 words. Focus on functionality and purpose."
-  },
-  "logging": {
-    "level": "none",
-    "logFilePath": "./.opencode/opencode-rag.log"
+    "maxContentChars": 4000
   },
   "wikiMode": {
     "enabled": true
+  },
+  "mcp": {
+    "enabled": false
+  },
+  "logging": {
+    "level": "info",
+    "logFilePath": "./.opencode/opencode-rag.log"
   }
 }
