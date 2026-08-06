@@ -1178,52 +1178,43 @@ ${ticketInfo.comments || 'No comments available'}
 
 ---
 
-## 🛠️ Task: Help Solve This Ticket
+## Task: Help Solve This Ticket
 
-Please analyze this ticket and provide a solution. When you need to:
+Please analyze this STARLIMS ticket and provide a solution. Follow these steps to investigate and resolve the issue:
 
-### 1. **Search for STARLIMS Items**
-- Use the STARLIMS MCP tools to search for scripts, forms, data sources, or server items
+### 1. **General Investigation**
+- Use the STARLIMS MCP tools to search for scripts, forms, data sources, tables or other items
 - Search by name, pattern, or application
+- Read the local wiki for additional context if needed
+- Use MSSQL MCP to query the STARLIMS database for additional information if needed
 
-### 2. **Access Item Code** 
-- Use STARLIMS MCP to read the authoritative code for any STARLIMS item
-- This ensures you're viewing the most current version from STARLIMS Enterprise Designer
 
 ### 3. **Make Changes**
-- **CRITICAL**: Always use the STARLIMS MCP tool to **check out** items BEFORE editing
-- This ensures your local workspace is synchronized with the remote STARLIMS items
-- After checking out, edit the synced local file in the workspace
-- Follow this workflow:
-  1. Search for the item using STARLIMS MCP
-  2. Read it through STARLIMS MCP to confirm current state
-  3. Check it out using STARLIMS MCP
-  4. Edit the local synced file
-  5. Stop after the local edit unless the user explicitly asks you to perform check-in
+You primarily work in the STARLIMS MCP workspace.
+Follow these steps:
+1. For investigating the issue, use search_by_name, global_code_search or browse_tree to find items
+2. Read the item code using get_item_code to understand the current implementation
+3. If necessary, read also the log using read_log to gather more context about the issue
+4. CRITICAL: If you need to make changes, check out the item using checkout_item BEFORE editing
+5. Edit the local synced file in your workspace
+6. Stop after the local edit unless the user explicitly asks you to perform check-in
 
-### 4. **STARLIMS MCP Tool Usage**
-- The STARLIMS MCP server is available and provides:
-  - Search/browse STARLIMS items
-  - Read authoritative item code
-  - Check out items to workspace
-  - Execute server scripts and data sources for runtime verification when needed
-  - Run extension integration tests, but only after asking the user for permission
-
-### 5. **mssql MCP Tool Usage**
-- Use the mssql MCP tool to query the STARLIMS database for data verification or to retrieve additional information
+### 4. **MSSQL MCP Tool Usage**
+- Use the MSSQL MCP tool to query the STARLIMS database for data verification or to retrieve additional information.
 
 **Remember**: Always prefer STARLIMS MCP tools over local workspace search when working with STARLIMS items to ensure you have the correct, checked-out version.
-**Do not** use STARLIMS check-in tools unless the user explicitly requests check-in, and never use Linux or Bash commands when suggesting terminal steps.
+**Do not** use STARLIMS check-in tools unless the user explicitly requests check-in
+**Do not** use Linux or Bash commands when suggesting terminal steps. We are using Windows PowerShell for all terminal commands.
 
 ---
 
-## ✅ Expected Outcome
+## Expected Outcome
 Please provide:
 1. Root cause analysis
 2. Detailed solution steps
 3. Code changes needed (if applicable)
 4. Testing recommendations
-5. Any STARLIMS items that need to be modified`;
+5. Any STARLIMS items that you checked out and modified during your investigation.`;
   }
 
   function buildTicketOpenCodePrompt(
