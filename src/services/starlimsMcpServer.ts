@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import type { Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -8,11 +9,17 @@ import { RemoteScriptOutputType } from "./ticketManagementTypes";
 
 type StarlimsMcpOptions = {
   getEnabled: () => boolean;
+  getIncludeStructuredDataInText: () => boolean;
   getVersion: () => string;
   logError: (message: string, error?: unknown) => void;
   logInfo: (message: string) => void;
   requestIntegrationTestPermission: (reason?: string) => Promise<{ granted: boolean; reason: string }>;
   runIntegrationTests: () => Promise<StarlimsAutomationResult>;
+};
+
+type McpSession = {
+  server: McpServer;
+  transport: StreamableHTTPServerTransport;
 };
 
 const toolResultSchema = z.object({
@@ -130,6 +137,8 @@ const readLogInputSchema = z.object({
 });
 
 export class StarlimsMcpServer {
+  private readonly sessions = new Map<string, McpSession>();
+
   constructor(
     private readonly automationService: StarlimsAutomationService,
     private readonly options: StarlimsMcpOptions
@@ -141,50 +150,69 @@ export class StarlimsMcpServer {
       return;
     }
 
-    if (req.method !== "POST") {
+    if (req.method !== "POST" && req.method !== "GET" && req.method !== "DELETE") {
       this.respondWithError(res, 405, -32000, "Method not allowed.", req.body);
       return;
     }
 
-    const server = this.createServer();
-    const transport = new StreamableHTTPServerTransport({
-      enableJsonResponse: true,
-      sessionIdGenerator: undefined
-    });
+    const sessionId = req.header("Mcp-Session-Id");
+    let session: McpSession | undefined = sessionId ? this.sessions.get(sessionId) : undefined;
 
-    let cleanedUp = false;
-    const cleanup = async () => {
-      if (cleanedUp) {
+    if (!session) {
+      if (sessionId) {
+        this.options.logInfo(`Rejected request for unknown MCP session '${sessionId}'.`);
+        this.respondWithError(res, 404, -32001, `Session not found: ${sessionId}`, req.body);
         return;
       }
 
-      cleanedUp = true;
-      await transport.close().catch((error) => {
-        this.options.logError("Failed to close STARLIMS MCP transport.", error);
-      });
-      await server.close().catch((error) => {
-        this.options.logError("Failed to close STARLIMS MCP server.", error);
-      });
-    };
+      if (!isInitializeRequest(req.body)) {
+        this.respondWithError(
+          res,
+          400,
+          -32000,
+          "Bad Request: Mcp-Session-Id header is required. Initialize a session first with an initialize request.",
+          req.body
+        );
+        return;
+      }
 
-    res.once("close", () => {
-      void cleanup();
-    });
+      session = await this.createSession();
+    }
 
     try {
       if (isInitializeRequest(req.body)) {
         this.options.logInfo("STARLIMS MCP client initialized.");
       }
 
-      await server.connect(transport);
-      await transport.handleRequest(req, res, req.body);
+      await session.transport.handleRequest(req, res, req.body);
     } catch (error) {
       this.options.logError("Failed to handle STARLIMS MCP request.", error);
       if (!res.headersSent) {
         this.respondWithError(res, 500, -32603, "Internal MCP server error.", req.body);
       }
-      await cleanup();
     }
+  }
+
+  private async createSession(): Promise<McpSession> {
+    const server = this.createServer();
+    const transport = new StreamableHTTPServerTransport({
+      enableJsonResponse: true,
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (generatedSessionId) => {
+        this.sessions.set(generatedSessionId, { server, transport });
+        this.options.logInfo(`STARLIMS MCP session ${generatedSessionId} initialized.`);
+      },
+      onsessionclosed: (closedSessionId) => {
+        this.sessions.delete(closedSessionId);
+        this.options.logInfo(`STARLIMS MCP session ${closedSessionId} closed.`);
+        void server.close().catch((error) => {
+          this.options.logError("Failed to close STARLIMS MCP server.", error);
+        });
+      }
+    });
+
+    await server.connect(transport);
+    return { server, transport };
   }
 
   private createServer(): McpServer {
@@ -599,6 +627,19 @@ export class StarlimsMcpServer {
     } else if (result.note) {
       text += `\nNote: ${result.note}`;
     }
+    // Make truncation visible — a cut-off result must not look complete
+    if (result.truncated === true) {
+      text += `\n${this.formatTruncationNote(result)}`;
+    }
+    // Include the full payload in the visible text so clients that only read
+    // content[].text (opencode, Claude Desktop, generic aggregators) receive
+    // the actual items/code/output instead of just a summary.
+    if (result.ok && this.options.getIncludeStructuredDataInText()) {
+      const serialized = this.serializeResultForText(result);
+      if (serialized) {
+        text += `\n\n--- Structured result ---\n${serialized}`;
+      }
+    }
 
     return {
       content: [
@@ -610,6 +651,28 @@ export class StarlimsMcpServer {
       isError: !result.ok,
       structuredContent: result
     };
+  }
+
+  private serializeResultForText(result: StarlimsAutomationResult): string {
+    try {
+      return JSON.stringify(result);
+    } catch (error) {
+      this.options.logError("Failed to serialize STARLIMS MCP tool result for text content.", error);
+      return "";
+    }
+  }
+
+  private formatTruncationNote(result: StarlimsAutomationResult): string {
+    const limit = this.toCount(result.maxCharacters) || this.toCount(result.limit) || this.toCount(result.maxLines);
+    const total = this.toCount(result.totalCharacters) || this.toCount(result.totalItems) || this.toCount(result.totalLines);
+    const range = limit > 0 && total > 0
+      ? `${limit} of ${total}`
+      : limit > 0
+        ? String(limit)
+        : total > 0
+          ? String(total)
+          : undefined;
+    return `TRUNCATED: the result was cut off${range ? ` (${range})` : ""}. Omit maxCharacters/maxItems or increase the limit to receive the full result.`;
   }
 
   private async runIntegrationTestsTool(reason: string | undefined, maxCharacters?: number) {
@@ -683,7 +746,7 @@ export class StarlimsMcpServer {
       };
     }
 
-    const safeMax = Math.max(100, Math.floor(maxCharacters));
+    const safeMax = Math.max(1, Math.floor(maxCharacters));
     return {
       maxCharacters: safeMax,
       text: text.length > safeMax ? text.slice(0, safeMax) : text,

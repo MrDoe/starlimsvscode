@@ -1118,7 +1118,7 @@ export class StarlimsAutomationService {
       };
     }
 
-    const effectiveMax = Math.max(100, Math.floor(maxCharacters));
+    const effectiveMax = Math.max(1, Math.floor(maxCharacters));
     return {
       code: code.length > effectiveMax ? code.slice(0, effectiveMax) : code,
       maxCharacters: effectiveMax,

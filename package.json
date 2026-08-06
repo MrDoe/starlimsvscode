@@ -864,6 +864,11 @@
                                                                                                             "minimum":  100,
                                                                                                             "description":  "Maximum number of code characters returned by a single STARLIMS MCP read request."
                                                                                                         },
+                                                                     "STARLIMS.mcp.includeStructuredDataInText":  {
+                                                                                                                     "type":  "boolean",
+                                                                                                                     "default":  true,
+                                                                                                                     "description":  "Include the full structured tool payload (items, code, output) as JSON in the visible text content of every STARLIMS MCP tool result. Required for clients that ignore structuredContent and only render content[].text."
+                                                                                                                 },
                                                                      "STARLIMS.opencode.command":  {
                                                                                                        "type":  "string",
                                                                                                        "default":  "opencode",
