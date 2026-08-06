@@ -2603,6 +2603,7 @@ Please provide:
   });
   const starlimsMcpServer = new StarlimsMcpServer(automationService, {
     getEnabled: () => getMcpConfig().get<boolean>("mcp.enabled", true),
+    getIncludeStructuredDataInText: () => getMcpConfig().get<boolean>("mcp.includeStructuredDataInText", true),
     getVersion: () => version,
     logError: (message: string, error?: unknown) => {
       outputChannel.appendLine(`[MCP] ${message}`);
