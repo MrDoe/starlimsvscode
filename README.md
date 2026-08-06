@@ -119,6 +119,9 @@ Related settings:
 - `STARLIMS.mcp.port`: Changes the loopback port used by MCP
 - `STARLIMS.mcp.maxItems`: Limits browse and search result sizes
 - `STARLIMS.mcp.maxCodeCharacters`: Limits code returned by read requests
+- `STARLIMS.mcp.includeStructuredDataInText`: Includes the full structured tool payload (items, code, output) as JSON in the visible text of every MCP tool result (default `true`) — required for clients that render only `content[].text` and ignore `structuredContent`
+
+The MCP endpoint is sessionful: the server returns an `Mcp-Session-Id` header on `initialize` and expects it on all subsequent requests (non-initialize requests without it are rejected with 400, unknown sessions with 404, and `DELETE /mcp` terminates a session). Tool results mark cut-off responses with a `TRUNCATED:` note in the text, and per-request `maxCharacters` values below 100 are honored rather than silently raised.
 
 When the local `SLVSCODE` workspace is created, the extension also seeds Copilot-facing helper files so agents can discover the STARLIMS MCP endpoint and prefer STARLIMS-native browse, search, code retrieval, checkout/check-in, runtime execution, and table management operations. Those instructions also tell agents to default STARLIMS form work to `GER` and to ask the user before running extension integration tests.
 

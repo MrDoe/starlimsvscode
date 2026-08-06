@@ -51,13 +51,16 @@ Endpoint: `http://127.0.0.1:3002/mcp`. JSON-RPC 2.0 over HTTP POST. Port via `ST
 
 ```powershell
 $h = @{ "Accept" = "application/json, text/event-stream"; "Content-Type" = "application/json" }
-# Step 1: init (once per session)
-Invoke-RestMethod -Uri "http://127.0.0.1:3002/mcp" -Method Post -Headers $h -Body '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}'
-# Step 2: call tool
-$resp = Invoke-RestMethod -Uri "http://127.0.0.1:3002/mcp" -Method Post -Headers $h -Body '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_by_name","arguments":{"query":"scGetCases"}}}'
+# Step 1: init (once per session) — response header Mcp-Session-Id must be sent on all follow-up requests
+$init = Invoke-WebRequest -Uri "http://127.0.0.1:3002/mcp" -Method Post -Headers $h -Body '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}'
+$sessionId = $init.Headers["Mcp-Session-Id"]
+# Step 2: call tool (sessionful server — missing Mcp-Session-Id header => 400)
+$h2 = @{ "Accept" = "application/json, text/event-stream"; "Content-Type" = "application/json"; "Mcp-Session-Id" = $sessionId; "Mcp-Protocol-Version" = "2024-11-05" }
+$resp = Invoke-WebRequest -Uri "http://127.0.0.1:3002/mcp" -Method Post -Headers $h2 -Body '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_by_name","arguments":{"query":"scGetCases"}}}'
+$result = $resp.Content | ConvertFrom-Json
 ```
 
-**Use `$resp.structuredContent`** for data. `$resp.content` is just a summary string.
+The server is **sessionful**: `initialize` creates a session and returns `Mcp-Session-Id`; keep sending it on every request (`DELETE /mcp` ends the session). `content[0].text` now carries the full result as JSON (when `STARLIMS.mcp.includeStructuredDataInText` is on, default) plus a `TRUNCATED:` note when data was cut off. `$result.result.structuredContent` is still available for the raw structure.
 
 ### Tools
 
@@ -99,7 +102,7 @@ When working with STARLIMS items from the SLVSCODE workspace, always use MCP too
 7. **Never check in** unless the user explicitly asks.
 
 **Important:** Every MCP tool response has two parts:
-- `content`: human-readable summary string (DO NOT use for data)
+- `content`: summary string plus the full payload as JSON under `--- Structured result ---` (when `STARLIMS.mcp.includeStructuredDataInText` is on, default) and a `TRUNCATED:` note when the result was cut off
 - `structuredContent`: the full structured result with all fields (`uri`, `localPath`, `items`, `code`, etc.)
 
 ### URI format
