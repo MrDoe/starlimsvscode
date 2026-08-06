@@ -1619,7 +1619,7 @@ export class EnterpriseService implements IEnterpriseService {
       headers,
       body: JSON.stringify({
         URI: uri,
-        Code: code.replace(/[^\x00-\x7F]/g, (char: string) => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0')),
+        Code: code,
         UserLang: language
       })
     };
