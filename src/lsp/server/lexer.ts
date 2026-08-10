@@ -40,6 +40,7 @@ export enum TokenType {
   EndInlineCode = 'ENDINLINECODE',
   Resume = 'RESUME',
   ExitFor = 'EXITFOR',
+  ExitWhile = 'EXITWHILE',
 
   // Literals
   BooleanTrue = 'BOOLEAN_TRUE',
@@ -147,6 +148,7 @@ const KEYWORDS: Record<string, TokenType> = {
   ':ENDINLINECODE': TokenType.EndInlineCode,
   ':RESUME': TokenType.Resume,
   ':EXITFOR': TokenType.ExitFor,
+  ':EXITWHILE': TokenType.ExitWhile,
 };
 
 export class SSLLexer {

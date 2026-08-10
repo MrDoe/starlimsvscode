@@ -139,7 +139,7 @@ connection.onCompletion((params: CompletionParams): CompletionItem[] => {
     ':ENDTRY', ':CLASS', ':INHERIT', ':INCLUDE', ':DSN',
     ':ACCESS', ':ASSIGN', ':TO', ':STEP', ':PUBLIC', ':ERROR',
     ':REGION', ':ENDREGION', ':BEGININLINECODE', ':ENDINLINECODE',
-    ':RESUME', ':EXITFOR',
+    ':RESUME', ':EXITFOR', ':EXITWHILE',
   ];
 
   for (const kw of keywords) {

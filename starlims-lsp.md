@@ -23,7 +23,7 @@ SSL is a dynamic, procedural scripting language with OOP support, SQL embedding,
 Structure:    :PROCEDURE / :ENDPROC, :CLASS, :INHERIT, :INCLUDE, :DSN
 Parameters:   :PARAMETERS, :DECLARE, :DEFAULT
 Control:      :IF / :ELSE / :ENDIF, :BEGINCASE / :CASE / :EXITCASE / :OTHERWISE / :ENDCASE
-Loops:        :FOR / :NEXT, :WHILE / :ENDWHILE, :LOOP
+Loops:        :FOR / :NEXT / :EXITFOR, :WHILE / :ENDWHILE / :EXITWHILE, :LOOP
 Errors:       :TRY / :CATCH / :FINALLY / :ENDTRY
 Return:       :RETURN
 Accessors:    :ACCESS / :ASSIGN
@@ -172,9 +172,10 @@ Keywords:
   :PROCEDURE  :ENDPROC    :PARAMETERS  :DECLARE    :DEFAULT
   :RETURN     :IF         :ELSE        :ENDIF      :BEGINCASE
   :CASE       :EXITCASE   :OTHERWISE   :ENDCASE    :FOR
-  :NEXT       :WHILE      :ENDWHILE    :LOOP       :EXIT
-  :TRY        :CATCH      :FINALLY     :ENDTRY     :CLASS
-  :INHERIT    :INCLUDE    :DSN         :ACCESS     :ASSIGN
+  :NEXT       :WHILE      :ENDWHILE    :EXITWHILE  :LOOP
+  :EXIT       :TRY        :CATCH       :FINALLY    :ENDTRY
+  :CLASS      :INHERIT    :INCLUDE     :DSN        :ACCESS
+  :ASSIGN     :TO         :STEP        :PUBLIC     :ERROR
 
 Booleans:     .T.   .F.
 Null:         NIL

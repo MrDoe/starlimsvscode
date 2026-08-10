@@ -300,6 +300,7 @@ export class SSLParser {
     if (this.check(TokenType.Loop)) return this.parseLoopStmt();
     if (this.check(TokenType.Exit)) return this.parseSimpleKeywordStmt();
     if (this.check(TokenType.ExitFor)) return this.parseSimpleKeywordStmt();
+    if (this.check(TokenType.ExitWhile)) return this.parseSimpleKeywordStmt();
     if (this.check(TokenType.ExitCase)) return this.parseSimpleKeywordStmt();
     if (this.check(TokenType.Error)) return this.parseSimpleKeywordStmt();
     if (this.check(TokenType.Resume)) return this.parseSimpleKeywordStmt();
@@ -969,6 +970,22 @@ export class SSLParser {
     if (this.check(TokenType.LeftParen)) {
       this.advance();
       const expr = this.parseExpression();
+      // Assignment expressions inside parens: (i+=1), (i:=v), (i-=1)
+      if (this.check(TokenType.AssignOp) || this.check(TokenType.PlusAssign) ||
+          this.check(TokenType.MinusAssign)) {
+        const op = this.advance();
+        const value = this.parseExpression();
+        this.consume(TokenType.RightParen, 'Expected )');
+        return {
+          type: 'AssignmentStmt',
+          target: expr,
+          value,
+          startLine: expr.startLine,
+          startCol: expr.startCol,
+          endLine: this.previous().line,
+          endCol: this.previous().column + this.previous().length,
+        } as AssignmentStmtNode;
+      }
       this.consume(TokenType.RightParen, 'Expected )');
       return expr;
     }
