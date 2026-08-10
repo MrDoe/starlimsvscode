@@ -131,6 +131,40 @@ describe('SSLParser Ã¢â‚¬â€ <> operator', () => {
   });
 });
 
+// ─── :EXITWHILE and assignment inside expressions ────────────────────────
+
+describe('SSLParser — :EXITWHILE and assignments in expressions', () => {
+
+  it(':EXITWHILE as statement inside :WHILE body', () => {
+    const { errors } = parse([
+      ':DECLARE i;',
+      ':WHILE i < 10;',
+      ':EXITWHILE;',
+      ':ENDWHILE;',
+    ].join('\n'));
+    assert.strictEqual(errors.length, 0);
+  });
+
+  it(':WHILE condition with (i+=1) assignment', () => {
+    const src = ':DECLARE i, aParams; :WHILE (i+=1) <= Len(aParams); :ENDWHILE;';
+    const { ast, errors } = parse(src);
+    assert.strictEqual(errors.length, 0);
+    const binops = findBinops(ast);
+    const hasLe = binops.some((b: any) => b.operator === '<=');
+    assert.ok(hasLe, 'expected a <= binary operator in the AST');
+  });
+
+  it(':WHILE condition with (i:=i+1) assignment', () => {
+    const { errors } = parse(':DECLARE i; :WHILE (i:=i+1) < 5; :ENDWHILE;');
+    assert.strictEqual(errors.length, 0);
+  });
+
+  it(':WHILE condition with (i-=1) assignment', () => {
+    const { errors } = parse(':DECLARE i; :WHILE (i-=1) > 0; :ENDWHILE;');
+    assert.strictEqual(errors.length, 0);
+  });
+});
+
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Regression: _CompareUsers.ssl Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 describe('SSLParser Ã¢â‚¬â€ real-world script regression', () => {

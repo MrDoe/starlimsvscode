@@ -128,6 +128,7 @@ const KEYWORDS: Record<string, string> = {
   ':NEXT': 'Ends a for loop.',
   ':WHILE': 'While loop.\n\n```ssl\n:WHILE condition;\n  /* body */\n:ENDWHILE;\n```',
   ':ENDWHILE': 'Ends a while loop.',
+  ':EXITWHILE': 'Exits the current while loop.',
   ':BEGINCASE': 'Starts a case statement.\n\n```ssl\n:BEGINCASE;\n  :CASE expr1;\n    /* ... */\n  :EXITCASE;\n  :OTHERWISE;\n    /* ... */\n:ENDCASE;\n```',
   ':CASE': 'A branch in a case statement.',
   ':EXITCASE': 'Exits the current case branch.',
