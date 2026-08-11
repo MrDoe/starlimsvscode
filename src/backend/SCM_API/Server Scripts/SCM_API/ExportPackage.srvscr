@@ -268,7 +268,7 @@ oResponse := CreateUDObject({
 		sImageName := SubStr(sImageName, 1, Len(sImageName) - 4);
 	:ENDIF;
 
-	nLayerId := LSearch("select LAYERID from limsIMAGES where IMAGEID = ?", "300", "DICTIONARY", {sImageId});
+	nLayerId := LSearch("select ISNULL(LAYERID, 300) from limsIMAGES where IMAGEID = ?", "300", "DICTIONARY", {sImageId});
 	:IF Empty(nLayerId);
 		nLayerId := "300";
 	:ENDIF;
@@ -276,7 +276,7 @@ oResponse := CreateUDObject({
 	imageDTO := CreateUDObject("DEI_ManifestDTO.Image");
 	imageDTO:ItemID := sImageId;
 	imageDTO:ItemName := sImageName;
-	imageDTO:LayerId := Val(nLayerId);
+	imageDTO:LayerId := Val(LimsString(nLayerId));
 	imageDTO:ItemDescription := sImageName + ".img";
 	imageDTO:ItemCategory := sImageCategory;
 	imageDTO:ItemContent := sItemContent;
