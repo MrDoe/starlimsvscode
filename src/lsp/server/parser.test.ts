@@ -31,9 +31,9 @@ function findBinops(ast: ProgramNode): any[] {
   return result;
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Include tests Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// --- Include tests ---
 
-describe('SSLParser Ã¢â‚¬â€ :INCLUDE', () => {
+describe('SSLParser - :INCLUDE', () => {
 
   it('single unqualified :INCLUDE at top level', () => {
     const { ast, errors } = parse(':INCLUDE FOO;');
@@ -95,9 +95,9 @@ describe('SSLParser Ã¢â‚¬â€ :INCLUDE', () => {
   });
 });
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ <> operator tests Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// --- <> operator tests ---
 
-describe('SSLParser Ã¢â‚¬â€ <> operator', () => {
+describe('SSLParser - <> operator', () => {
 
   it('<> in :IF condition', () => {
     const { ast, errors } = parse(':IF sUsername <> GetSetting("x"); :ENDIF;');
@@ -131,9 +131,9 @@ describe('SSLParser Ã¢â‚¬â€ <> operator', () => {
   });
 });
 
-// ─── :EXITWHILE and assignment inside expressions ────────────────────────
+// --- :EXITWHILE and assignment inside expressions ---
 
-describe('SSLParser — :EXITWHILE and assignments in expressions', () => {
+describe('SSLParser - :EXITWHILE and assignments in expressions', () => {
 
   it(':EXITWHILE as statement inside :WHILE body', () => {
     const { errors } = parse([
@@ -165,9 +165,9 @@ describe('SSLParser — :EXITWHILE and assignments in expressions', () => {
   });
 });
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Regression: _CompareUsers.ssl Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// --- Regression: _CompareUsers.ssl ---
 
-describe('SSLParser Ã¢â‚¬â€ real-world script regression', () => {
+describe('SSLParser - real-world script regression', () => {
 
   it('_CompareUsers.ssl parses with 0 errors (top-level script, no PROCEDURE wrapper)', () => {
     const srcPath = 'C:\\Daten\\SLVSCODE\\Production\\ServerScripts\\AdvancedAnalytics\\_CompareUsers.ssl';
@@ -180,8 +180,8 @@ describe('SSLParser Ã¢â‚¬â€ real-world script regression', () => {
     assert.strictEqual(errors.length, 0, 'Real-world script should have 0 parse errors');
   });
 
-// �����? Regression: scOllamaService.ssl (class-based SSL with OOP features) �����?
-describe('SSLParser ��� scOllamaService.ssl', () => {
+// --- Regression: scOllamaService.ssl (class-based SSL with OOP features) ---
+describe('SSLParser - scOllamaService.ssl', () => {
 
   it('parses with 0 errors (regression test)', () => {
     const srcPath = 'C:\\\\Daten\\\\SLVSCODE\\\\Production\\\\ServerScripts\\\\BMBH_AI\\\\scOllamaService.ssl';

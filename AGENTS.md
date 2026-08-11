@@ -164,7 +164,16 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 
 ## Wiki
 
-`.opencode/wiki/` — structured knowledge base with entity pages per module and concept pages for patterns/workflows. Read `index.md` first to find relevant pages. Always consult the wiki before reading source files directly.
+`.opencode/wiki/` — structured knowledge base (gitignored, not in git). Read `index.md` (page catalog) first, then the page, before reading source files directly.
+
+- `index.md` — catalog of all pages with one-line summaries; `log.md` — append-only timeline of wiki updates
+- `entities/` — one page per module/service/component (e.g. `ssl-parser.md`, `enterprise-service.md`)
+- `concepts/` — patterns, workflows, gotchas (e.g. `ssl-keyword-registration.md`, `unicode-roundtrip.md`)
+- Consult before source reading; file new knowledge back as new/updated pages with `[[wiki/...]]` cross-links
+
+**Style rule:** ASCII only. NEVER use em-dashes (`—`), en-dashes, or box-drawing chars (`─`) in code, comments, or docs — they double-UTF-8-encode into unreadable mojibake (`Ã¢â‚¬â€œ`); use a plain ASCII hyphen (`-`). (History: `parser.test.ts` separators and `starlimsAutomationService.ts` notes were corrupted this way; the wiki page `unicode-roundtrip.md` documents the encoding failure mode.)
+
+**LSP note:** when changing SSL keywords/tokens, touch lexer.ts + parser.ts + `syntaxes/ssl.tmLanguage.json` + hover.ts + server.ts completion + `starlims-lsp.md` design doc (see wiki `ssl-keyword-registration.md`).
 
 <!-- BEGIN opencode-rag -->
 ## Code Navigation
