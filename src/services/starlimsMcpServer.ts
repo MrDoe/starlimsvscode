@@ -136,6 +136,11 @@ const readLogInputSchema = z.object({
   maxLines: z.number().int().positive().optional().describe("Optional maximum number of lines to return from the log.")
 });
 
+const transferItemInputSchema = z.object({
+  targetServer: z.string().describe("Name of the configured STARLIMS target server (STARLIMS.servers) to transfer the checked out items to."),
+  saveLocalEdits: z.boolean().optional().describe("Set to true to push local working copy edits of the checked out items to the source server before exporting. Defaults to true.")
+});
+
 export class StarlimsMcpServer {
   private readonly sessions = new Map<string, McpSession>();
 
@@ -546,6 +551,29 @@ export class StarlimsMcpServer {
         outputSchema: toolResultSchema
       },
       async ({ reason, maxCharacters }) => this.runIntegrationTestsTool(reason, maxCharacters)
+    );
+
+    server.registerTool(
+      "transfer_item_to_server",
+      {
+        description: "Transfer all checked out items of the current user to another configured STARLIMS server. Exports an SDP package from the source server and imports it on the target server, automatically generating a new version of each item on the target. Optionally pushes local working copy edits to the source server first. Items on the source server remain checked out.",
+        inputSchema: transferItemInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ targetServer, saveLocalEdits }) => this.executeTool(
+        "transfer_item_to_server",
+        { saveLocalEdits, targetServer },
+        () => this.automationService.transferItems(targetServer, saveLocalEdits),
+        (result) => {
+          const targetLabel = typeof result.targetServer === "string" && result.targetServer.length > 0
+            ? result.targetServer
+            : "the target server";
+          const itemCount = this.toCount(result.totalItems);
+          return itemCount > 0
+            ? `Transferred ${itemCount} checked-out item(s) to '${targetLabel}'. New versions were created on the target server.`
+            : `Transferred the checked out items to '${targetLabel}'. New versions were created on the target server.`;
+        }
+      )
     );
 
     return server;

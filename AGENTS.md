@@ -3,6 +3,8 @@
 VS Code extension. TypeScript. SSL (`.ssl`, `.srvscr`) and SLSQL (`.slsql`) languages.
 **Node 20.19+ or 22.13+. Node 18 dead.**
 
+**Encoding:** always use UTF-8 for all files (no BOM). Non-ASCII characters are fine as long as the file stays UTF-8; never let tools rewrite files with another encoding.
+
 ## Commands
 
 | What | Command |
@@ -13,6 +15,7 @@ VS Code extension. TypeScript. SSL (`.ssl`, `.srvscr`) and SLSQL (`.slsql`) lang
 | Lint | `npm run lint` |
 | Typecheck main ext | `npm run compile-tests` |
 | All checks (typecheck + compile + lint) | `npm run pretest` |
+| Validate backend SSL syntax (LSP parser over all `.srvscr`) | `npm run check:ssl` |
 | Windows VSIX | `npm run build-windows` |
 | Generate STARLIMS typings | `npm run generate-typings` (needs `STARLIMS_ROOT` env) |
 | Publish to share | `npm run publish` (copies to `\\BMBH02\SL_Connector\VSCode\`) |
@@ -88,6 +91,7 @@ All tools are defined in `src/services/starlimsMcpServer.ts` and implemented in 
 | `create_table` | `tableName`, `dsn` | Create table |
 | `edit_table` | `uri`, `tableXml` | Save table XML |
 | `run_integration_tests` | `reason?`, `maxCharacters?` | Run `npm test` (prompts user) |
+| `transfer_item_to_server` | `targetServer`, `saveLocalEdits?` | Transfer all checked out items to another configured server (new versions on target) |
 
 ## Workflow for OpenCode agents
 
@@ -161,6 +165,7 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 - `.vscode/*` and `.env` are gitignored — no shared launch configs/tasks.
 - `enterpriseService.ts` backend error messages dropped: ~13 `get*Result` methods call `getOperationErrorMessage(data, fallback)` but the backend puts errors in `result.error`, not `result.data`. Pass the full `result` object instead of `data` to surface real error messages (e.g., `getEnterpriseItemsResult` L1336 had this bug).
 - Backend `ParseURI` (Utils.srvscr) assigns Type purely from URI component count, not from DB lookup. `/ServerScripts/ssCat/realScript` (leaf) and `/ServerScripts/ssCat/nonexistent` (bogus) both return `success:true, items:[]`. No way for the client to distinguish leaf from empty from nonexistent folder without an extra `search_for_items_result` call.
+- SSL comments are terminated by the first `;` — `; */` is NOT valid. A comment written as `/* ... ; */` closes at the `;` and the leftover `*/` becomes a parse error ("Unexpected token in expression"). Always end comments with just `;` (the file header keeps its original `***/;` form). Run `npm run check:ssl` after editing any `.srvscr`.
 
 ## Wiki
 
@@ -171,9 +176,7 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 - `concepts/` — patterns, workflows, gotchas (e.g. `ssl-keyword-registration.md`, `unicode-roundtrip.md`)
 - Consult before source reading; file new knowledge back as new/updated pages with `[[wiki/...]]` cross-links
 
-**Style rule:** ASCII only. NEVER use em-dashes (`—`), en-dashes, or box-drawing chars (`─`) in code, comments, or docs — they double-UTF-8-encode into unreadable mojibake (`Ã¢â‚¬â€œ`); use a plain ASCII hyphen (`-`). (History: `parser.test.ts` separators and `starlimsAutomationService.ts` notes were corrupted this way; the wiki page `unicode-roundtrip.md` documents the encoding failure mode.)
-
-**LSP note:** when changing SSL keywords/tokens, touch lexer.ts + parser.ts + `syntaxes/ssl.tmLanguage.json` + hover.ts + server.ts completion + `starlims-lsp.md` design doc (see wiki `ssl-keyword-registration.md`).
+**LSP note:** when changing SSL keywords/tokens, touch lexer.ts + parser.ts + `syntaxes/ssl.tmLanguage.json` + hover.ts + server.ts completion + `starlims-lsp.md` design doc (see wiki `ssl-keyword-registration.md`). After editing any `.srvscr` under `src/backend/`, run `npm run check:ssl` (parses all backend scripts with the SSL LSP parser) and rebuild `SCM_API.sdp` via `src/backend/create-packages.ps1` (bumps the version; use `create-packages.sh` on non-Windows).
 
 <!-- BEGIN opencode-rag -->
 ## Code Navigation

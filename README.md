@@ -9,6 +9,7 @@ STARLIMS VS Code is an unofficial Visual Studio Code extension for working with 
 - Check out items to a local workspace, compare local files with the server version, and see checked out items of other users
 - Check in, undo checkout, rename, move, add, and delete supported items
 - Export your checked out items to an SDP package
+- Transfer all checked out items to another configured STARLIMS server; the target server imports the package and automatically generates a new version of each item (items remain checked out on the source server)
 - Run server scripts and data sources, capture script output, stream STARLIMS server logs, and clear logs from VS Code
 - Open HTML forms, debug them in Chrome or Edge, launch XFD forms through STARLIMS Bridge
 - HTML Form designer for creating or editing forms in a WYSIWYG environment with live preview, drag-and-drop controls, and property editing
@@ -19,7 +20,7 @@ STARLIMS VS Code is an unofficial Visual Studio Code extension for working with 
 - Manage STARLIMS tickets (BMBH only) from VS Code by filtering queues, selecting an active ticket, undertaking, releasing, solving, and renaming tickets, and creating ticket measures during check-in
 - Launch a selected STARLIMS ticket into an OpenCode terminal — starts a new session or reuses a running instance with the ticket context preloaded
 - SSL and SLSQL language support with syntax highlighting, code completion, hover documentation, go-to-definition, find references, document symbols, and folding ranges
-- Use a local MCP endpoint and Copilot-facing workspace files to enable agents to use the STARLIMS MCP for browse, search, code retrieval, checkout/check-in, runtime execution, and table operations when working with STARLIMS assets
+- Use a local MCP endpoint and Copilot-facing workspace files to enable agents to use the STARLIMS MCP for browse, search, code retrieval, checkout/check-in, transfer to another server, runtime execution, and table operations when working with STARLIMS assets
 
 ## Requirements
 

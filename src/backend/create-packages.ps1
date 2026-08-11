@@ -6,11 +6,13 @@ $jsonData = Get-Content -Raw -Path "..\..\package.json" | ConvertFrom-Json
 $new_version = [version]$jsonData.version
 $new_version = [version]::new($new_version.Major, $new_version.Minor, $new_version.Build + 1)
 
-# patch package.json with the new version
+# patch only the version line in package.json - never rewrite the whole file,
+# because ConvertTo-Json round-trips mangle non-ASCII characters (e.g. the
+# author name "Döllinger" gets double-UTF-8-encoded into mojibake)
 Write-Host "Patching package.json with version $new_version ..."
-$jsonData.version = $new_version.ToString()
-$json = $jsonData | ConvertTo-Json -Depth 10
-[System.IO.File]::WriteAllText((Resolve-Path "..\..\package.json").Path, $json, [System.Text.UTF8Encoding]::new($false))
+$pkgContent = Get-Content -Raw -Path "..\..\package.json"
+$pkgContent = $pkgContent -replace '("version"\s*:\s*")[^"]*(")', "`${1}$new_version`$2"
+[System.IO.File]::WriteAllText((Resolve-Path "..\..\package.json").Path, $pkgContent, [System.Text.UTF8Encoding]::new($false))
 
 # patch the version endpoint script to return the same value
 Write-Host "Patching Version.srvscr with version $new_version from package.json ..."
