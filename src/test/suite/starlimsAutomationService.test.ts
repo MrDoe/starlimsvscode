@@ -417,4 +417,93 @@ suite('StarlimsAutomationService', () => {
     assert.strictEqual(result.user, 'Nobody');
     assert.strictEqual(result.uri, '/ServerLogs/Nobody.log');
   });
+
+  test('transferItems rejects an empty target server name', async () => {
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock(),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined,
+        transferToServer: async () => ({ ok: true, targetServer: 'PROD' })
+      }
+    );
+
+    const result = await automationService.transferItems('   ', true);
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /cannot be empty/i);
+  });
+
+  test('transferItems reports when transfer is unavailable', async () => {
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock(),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.transferItems('PROD', true);
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /not available/i);
+    assert.strictEqual(result.targetServer, 'PROD');
+  });
+
+  test('transferItems delegates to the configured transfer callback', async () => {
+    let receivedSaveLocalEdits: boolean | undefined;
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock(),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined,
+        transferToServer: async (targetServer: string, saveLocalEdits: boolean) => {
+          receivedSaveLocalEdits = saveLocalEdits;
+          return {
+            ok: true,
+            targetServer,
+            sourceServer: 'QA',
+            totalItems: 3,
+            importLog: 'Import finished successfully.'
+          };
+        }
+      }
+    );
+
+    const result = await automationService.transferItems('PROD', false);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.targetServer, 'PROD');
+    assert.strictEqual(result.totalItems, 3);
+    assert.strictEqual(receivedSaveLocalEdits, false);
+  });
+
+  test('transferItems defaults saveLocalEdits to false when omitted', async () => {
+    let receivedSaveLocalEdits: boolean | undefined;
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock(),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined,
+        transferToServer: async (targetServer: string, saveLocalEdits: boolean) => {
+          receivedSaveLocalEdits = saveLocalEdits;
+          return { ok: true, targetServer, sourceServer: 'QA', totalItems: 1 };
+        }
+      }
+    );
+
+    const result = await automationService.transferItems('PROD', undefined);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.targetServer, 'PROD');
+    assert.strictEqual(receivedSaveLocalEdits, false);
+  });
 });

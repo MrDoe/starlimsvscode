@@ -10,6 +10,7 @@ import { EnterpriseService } from "./services/enterpriseService";
 import { ExpressServer } from "./services/expressServer";
 import { StarlimsAutomationService } from "./services/starlimsAutomationService";
 import { StarlimsMcpServer } from "./services/starlimsMcpServer";
+import { ItemTransferService } from "./services/itemTransferService";
 import { EnterpriseTextDocumentContentProvider } from "./providers/enterpriseTextContentProvider";
 import path = require("path");
 import { ResourcesDataViewPanel } from "./panels/ResourcesDataViewPanel";
@@ -384,26 +385,7 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      serverConfig = selectedServer;
-      activeUser = selectedServer.user || activeUser;
-
-      try {
-        enterpriseService.updateServerConfig(serverConfig, serverConfig.name);
-        await publishFormCallbackPortToScm();
-        await loadStoredActiveTicketForCurrentServer();
-        if (enterpriseTreeProvider) {
-          enterpriseTreeProvider.refresh();
-        }
-        if (checkedOutTreeDataProvider) {
-          await refreshCheckedOutItems(false);
-        }
-        if (ticketsTreeDataProvider) {
-          ticketsTreeDataProvider.refresh();
-        }
-      } catch (error) {
-        console.error('Error switching to server:', error);
-        vscode.window.showErrorMessage(`Failed to connect to server: ${serverConfig.name}`);
-      }
+      await switchToServer(selectedServer);
     })();
   });
 
@@ -2583,6 +2565,78 @@ Please provide:
   ensureSLVSCODEMcpConfig(rootPath, getMcpConfig().get<number>("mcp.port", 3002));
   ensureSLVSCODEStarlimsAgent(rootPath);
   ensureSLVSCODECopilotInstructions(rootPath);
+
+  // Switches the active enterprise service and refreshes all views to the given server.
+  async function switchToServer(selectedServer: ServerConfig): Promise<void> {
+    serverConfig = selectedServer;
+    activeUser = selectedServer.user || activeUser;
+
+    try {
+      enterpriseService.updateServerConfig(selectedServer, selectedServer.name);
+      await publishFormCallbackPortToScm();
+      await loadStoredActiveTicketForCurrentServer();
+      if (enterpriseTreeProvider) {
+        enterpriseTreeProvider.refresh();
+      }
+      if (checkedOutTreeDataProvider) {
+        await refreshCheckedOutItems(false);
+      }
+      if (ticketsTreeDataProvider) {
+        ticketsTreeDataProvider.refresh();
+      }
+    } catch (error) {
+      console.error("Error switching to server:", error);
+      vscode.window.showErrorMessage(`Failed to connect to server: ${selectedServer.name}`);
+    }
+  }
+
+  // Checked out leaves of the current user (transfers are limited to the user's own checkouts).
+  function getCurrentUserCheckedOutItems(): TreeEnterpriseItem[] {
+    const currentUser = getCurrentStarlimsUser();
+    return (checkedOutTreeDataProvider?.getLeafItems() ?? []).filter(
+      (item) => !item.checkedOutBy || item.checkedOutBy === currentUser
+    );
+  }
+
+  // Pushes local working copy edits of all checked out items to the source server before exporting.
+  async function saveLocalEditsForTransfer(): Promise<void> {
+    const leafItems = getCurrentUserCheckedOutItems();
+    for (const item of leafItems) {
+      const itemLanguage = item.language || item.scriptLanguage;
+      const localPath = getSavedLocalPath(item, itemLanguage);
+      if (!localPath) {
+        continue;
+      }
+
+      await saveActiveDocumentBeforeCheckIn(localPath);
+
+      let code: string;
+      try {
+        code = fs.readFileSync(localPath, "utf8");
+      } catch (error) {
+        console.error(`Could not read local working copy for transfer: ${localPath}`, error);
+        continue;
+      }
+
+      if (item.type === EnterpriseItemType.Table) {
+        await enterpriseService.saveTableDefinition(item.uri, code);
+      } else {
+        await enterpriseService.saveEnterpriseItemCode(item.uri, code, itemLanguage || "");
+      }
+    }
+  }
+
+  // Transfers all checked out items to another configured STARLIMS server by exporting an
+  // SDP package on the source and importing it on the target (new versions on the target).
+  const itemTransferService = new ItemTransferService(enterpriseService, {
+    getServerConfigs: () => vscode.workspace.getConfiguration("STARLIMS").get<ServerConfig[]>("servers", []),
+    createTargetService: (targetServer) => {
+      const targetService = new EnterpriseService(config, secretStorage, context.workspaceState);
+      targetService.updateServerConfig(targetServer, targetServer.name);
+      return targetService;
+    }
+  });
+
   const automationService = new StarlimsAutomationService(enterpriseService, {
     getDefaultFormLanguage: resolveDefaultFormLanguage,
     getMaxCodeCharacters: () => getMcpConfig().get<number>("mcp.maxCodeCharacters", 20000),
@@ -2590,6 +2644,14 @@ Please provide:
     getWorkspaceRoot: () => rootPath,
     refreshCheckoutTree: async (includeAllUsers: boolean = false) => {
       await refreshCheckedOutItems(includeAllUsers);
+    },
+    transferToServer: async (targetServer: string, saveLocalEdits: boolean) => {
+      const result = await itemTransferService.transferAllCheckouts(
+        targetServer,
+        saveLocalEdits ? saveLocalEditsForTransfer : undefined,
+        () => getCurrentUserCheckedOutItems().length
+      );
+      return { ...result };
     }
   });
   const starlimsMcpServer = new StarlimsMcpServer(automationService, {
@@ -3066,6 +3128,88 @@ onOpenCodeBehind: async (formId: string, functionName: string) => {
               } catch (error: any) {
                 vscode.window.showErrorMessage(`Failed to save file: ${error.message}`);
               }
+            }
+          }
+        }
+      );
+    }
+  );
+
+  // register the TransferCheckoutsToServer command
+  vscode.commands.registerCommand(
+    "STARLIMS.TransferCheckoutsToServer",
+    async () => {
+      const servers = vscode.workspace.getConfiguration("STARLIMS").get<ServerConfig[]>("servers", []);
+      const currentServer = getCurrentStarlimsServerName();
+      const candidates = servers.filter((server) => server.name !== currentServer);
+
+      if (candidates.length === 0) {
+        vscode.window.showErrorMessage(
+          "Transfer to server requires at least two servers configured in STARLIMS.servers."
+        );
+        return;
+      }
+
+      // ask for confirmation
+      const confirm = await vscode.window.showWarningMessage(
+        "Are you sure you want to transfer all checked out items to another server?",
+        { modal: true },
+        "Transfer"
+      );
+      if (confirm !== "Transfer") {
+        return;
+      }
+
+      const targetServer = await vscode.window.showQuickPick(
+        candidates.map((server) => ({
+          label: server.name,
+          description: server.url,
+          detail: server.user ? `User: ${server.user}` : undefined
+        })),
+        {
+          title: "Transfer Checked Out Items",
+          placeHolder: "Select the target server",
+          ignoreFocusOut: true
+        }
+      );
+      if (!targetServer) {
+        return;
+      }
+
+      // execute the transfer with progress
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          cancellable: false,
+          title: "STARLIMS"
+        },
+        async (progress) => {
+          progress.report({ increment: 0, message: "Saving local edits..." });
+          const result = await itemTransferService.transferAllCheckouts(
+            targetServer.label,
+            saveLocalEditsForTransfer,
+            () => getCurrentUserCheckedOutItems().length
+          );
+          progress.report({ increment: 100, message: "Done." });
+
+          if (!result.ok) {
+            if (result.importLog) {
+              outputChannel.appendLine(`[Transfer] ${result.importLog}`);
+              outputChannel.show();
+            }
+            vscode.window.showErrorMessage(result.error ?? "Transfer failed.");
+            return;
+          }
+
+          const itemCount = result.totalItems ?? getCurrentUserCheckedOutItems().length;
+          const action = await vscode.window.showInformationMessage(
+            `Transferred ${itemCount} checked out item(s) to '${result.targetServer}'. New versions were created on the target server.`,
+            "Switch to target server"
+          );
+          if (action === "Switch to target server") {
+            const targetConfig = servers.find((server) => server.name === result.targetServer);
+            if (targetConfig) {
+              await switchToServer(targetConfig);
             }
           }
         }

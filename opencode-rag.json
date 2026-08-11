@@ -124,7 +124,7 @@
   },
   "retrieval": {
     "topK": 20,
-    "minScore": 0.75,
+    "minScore": 0.6,
     "hybridSearch": {
       "enabled": true,
       "keywordWeight": 0.4

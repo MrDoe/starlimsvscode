@@ -16,6 +16,7 @@ export type StarlimsAutomationOptions = {
   getMaxItems: () => number;
   getWorkspaceRoot: () => string | undefined;
   refreshCheckoutTree: (includeAllUsers: boolean) => Promise<void>;
+  transferToServer?: (targetServer: string, saveLocalEdits: boolean) => Promise<StarlimsAutomationResult>;
 };
 
 export type StarlimsAutomationResult = {
@@ -109,6 +110,33 @@ export class StarlimsAutomationService {
         error: error instanceof Error ? error.message : "Could not refresh the checked-out tree."
       };
     }
+  }
+
+  /**
+   * Transfers all checked out items of the current user to another configured
+   * STARLIMS server. The source server exports the items to an SDP package and
+   * the target server imports it, generating a new version of each item there.
+   * @param targetServer name of the configured target server (STARLIMS.servers)
+   * @param saveLocalEdits true to push local working copy edits to the source server before exporting
+   */
+  public async transferItems(targetServer: string, saveLocalEdits: boolean | undefined): Promise<StarlimsAutomationResult> {
+    const normalizedTargetServer = targetServer.trim();
+    if (!normalizedTargetServer) {
+      return {
+        ok: false,
+        error: "The target server name cannot be empty."
+      };
+    }
+
+    if (!this.options.transferToServer) {
+      return {
+        ok: false,
+        error: "Transfer to server is not available in this extension configuration.",
+        targetServer: normalizedTargetServer
+      };
+    }
+
+    return this.options.transferToServer(normalizedTargetServer, saveLocalEdits === true);
   }
 
   public async searchByName(
