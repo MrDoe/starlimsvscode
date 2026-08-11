@@ -124,7 +124,7 @@
   },
   "retrieval": {
     "topK": 20,
-    "minScore": 0.35,
+    "minScore": 0.75,
     "hybridSearch": {
       "enabled": true,
       "keywordWeight": 0.4
@@ -135,7 +135,7 @@
     "maxContextChunks": 10,
     "readOverride": true,
     "autoIndex": {
-      "enabled": false,
+      "enabled": true,
       "debounceMs": 2000,
       "intervalMs": 300000,
       "watcher": "chokidar"
