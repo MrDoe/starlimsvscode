@@ -203,6 +203,175 @@ suite('StarlimsAutomationService', () => {
     assert.strictEqual(result.language, 'GER');
   });
 
+  test('executeServerScript applies default character limit', async () => {
+    const bigOutput = 'x'.repeat(120000);
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        getEnterpriseItemsResult: async () => ({
+          ok: true,
+          data: [
+            {
+              name: 'scBigOutput',
+              type: EnterpriseItemType.ServerScript,
+              uri: '/ServerScripts/BMBH/scBigOutput'
+            }
+          ]
+        }),
+        runScript: async () => ({ success: true, data: bigOutput })
+      }),
+      {
+        getDefaultFormLanguage: () => 'GER',
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.executeServerScript('/ServerScripts/BMBH/scBigOutput', undefined, 'ARRAY', undefined);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.maxCharacters, 50000);
+    assert.strictEqual(result.totalCharacters, bigOutput.length);
+    assert.strictEqual(String(result.output).length, 50000);
+    assert.strictEqual(result.truncated, true);
+  });
+
+  test('executeServerScript respects explicit maxCharacters override', async () => {
+    const bigOutput = 'y'.repeat(8000);
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        getEnterpriseItemsResult: async () => ({
+          ok: true,
+          data: [
+            {
+              name: 'scBigOutput',
+              type: EnterpriseItemType.ServerScript,
+              uri: '/ServerScripts/BMBH/scBigOutput'
+            }
+          ]
+        }),
+        runScript: async () => ({ success: true, data: bigOutput })
+      }),
+      {
+        getDefaultFormLanguage: () => 'GER',
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.executeServerScript('/ServerScripts/BMBH/scBigOutput', undefined, 'ARRAY', undefined, 1000);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.maxCharacters, 1000);
+    assert.strictEqual(String(result.output).length, 1000);
+    assert.strictEqual(result.truncated, true);
+  });
+
+  test('executeDataSource caps rows with default row limit', async () => {
+    const headerRow = ['ID', 'NAME'];
+    const rows = [headerRow, ...Array.from({ length: 50 }, (_, i) => [`ID${i}`, `NAME${i}`])];
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        getEnterpriseItemsResult: async () => ({
+          ok: true,
+          data: [
+            {
+              name: 'dsInventory',
+              type: EnterpriseItemType.DataSource,
+              uri: '/DataSources/dsInventory'
+            }
+          ]
+        }),
+        runScript: async () => ({ success: true, data: rows })
+      }),
+      {
+        getDefaultFormLanguage: () => 'GER',
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.executeDataSource('/DataSources/dsInventory', undefined, 'ARRAY', undefined);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.totalRows, 50);
+    assert.strictEqual(result.rowLimit, 500);
+    assert.strictEqual(result.truncatedRows, false);
+  });
+
+  test('executeDataSource caps rows when explicit maxRows is lower', async () => {
+    const headerRow = ['ID', 'NAME'];
+    const rows = [headerRow, ...Array.from({ length: 50 }, (_, i) => [`ID${i}`, `NAME${i}`])];
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        getEnterpriseItemsResult: async () => ({
+          ok: true,
+          data: [
+            {
+              name: 'dsInventory',
+              type: EnterpriseItemType.DataSource,
+              uri: '/DataSources/dsInventory'
+            }
+          ]
+        }),
+        runScript: async () => ({ success: true, data: rows })
+      }),
+      {
+        getDefaultFormLanguage: () => 'GER',
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.executeDataSource('/DataSources/dsInventory', undefined, 'ARRAY', undefined, 10);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.totalRows, 50);
+    assert.strictEqual(result.rowLimit, 10);
+    assert.strictEqual(result.truncatedRows, true);
+    assert.match(String(result.note), /limited/i);
+
+    const parsed = JSON.parse(String(result.output));
+    assert.strictEqual(parsed.length, 11);
+    assert.strictEqual(parsed[0][0], 'ID');
+  });
+
+  test('executeDataSource uses configured maxDataSourceRows option', async () => {
+    const headerRow = ['ID', 'NAME'];
+    const rows = [headerRow, ...Array.from({ length: 30 }, (_, i) => [`ID${i}`, `NAME${i}`])];
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        getEnterpriseItemsResult: async () => ({
+          ok: true,
+          data: [
+            {
+              name: 'dsInventory',
+              type: EnterpriseItemType.DataSource,
+              uri: '/DataSources/dsInventory'
+            }
+          ]
+        }),
+        runScript: async () => ({ success: true, data: rows })
+      }),
+      {
+        getDefaultFormLanguage: () => 'GER',
+        getMaxCodeCharacters: () => 20000,
+        getMaxDataSourceRows: () => 5,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.executeDataSource('/DataSources/dsInventory', undefined, 'ARRAY', undefined);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.totalRows, 30);
+    assert.strictEqual(result.rowLimit, 5);
+    assert.strictEqual(result.truncatedRows, true);
+  });
   test('executeServerScript rejects data source items', async () => {
     const automationService = new StarlimsAutomationService(
       createEnterpriseServiceMock({

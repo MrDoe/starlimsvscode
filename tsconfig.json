@@ -11,7 +11,8 @@
     "skipLibCheck": true,
     "paths": {
       "vscode-languageclient/node": ["./node_modules/vscode-languageclient/lib/node/main.d.ts"],
-      "vscode-languageclient": ["./node_modules/vscode-languageclient/lib/common/api.d.ts"]
+      "vscode-languageclient": ["./node_modules/vscode-languageclient/lib/common/api.d.ts"],
+      "@opencode-ai/sdk/client": ["./node_modules/@opencode-ai/sdk/dist/client.d.ts"]
     }
   },
   "include": ["src/**/*"],

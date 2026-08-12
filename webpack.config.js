@@ -18,7 +18,12 @@ const extensionConfig = {
     vscode: "commonjs vscode",
   },
   resolve: {
-    extensions: [".ts", ".js", ".css"]
+    extensions: [".ts", ".js", ".css"],
+    alias: {
+      // The SDK is ESM-only and exports only the "import" condition, which
+      // cannot be matched under the node "require" target. Alias to the file.
+      "@opencode-ai/sdk/client": _resolve(__dirname, "node_modules/@opencode-ai/sdk/dist/client.js")
+    }
   },
   devtool: "source-map",
   infrastructureLogging: {
