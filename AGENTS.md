@@ -83,7 +83,7 @@ All tools are defined in `src/services/starlimsMcpServer.ts` and implemented in 
 | `undo_checkout` | `uri` | Discard checkout |
 | `refresh_checkout_tree` | `includeAllUsers?` | Refresh VS Code checked-out tree |
 | `execute_server_script` | `uri`, `parameters?`, `outputType?`, `entryPoint?`, `maxCharacters?` | Run script |
-| `execute_data_source` | `uri`, `parameters?`, `outputType?`, `maxCharacters?` | Run data source |
+| `execute_data_source` | `uri`, `parameters?`, `outputType?`, `maxCharacters?`, `maxRows?` | Run data source (ARRAY output capped at `STARLIMS.mcp.maxDataSourceRows`, default 500) |
 | `create_item` | `itemName`, `itemType`, `language`, `categoryName`, `appName` | Create item |
 | `get_table_definition` | `uri`, `maxCharacters?` | Read table XML |
 | `checkout_table` | `uri` | Check out table |
@@ -137,6 +137,7 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 | `src/services/starlimsMcpServer.ts` | MCP tool registration/handling |
 | `src/services/expressServer.ts` | Local loopback server (MCP + form callbacks) |
 | `src/services/gitService.ts` | Git integration for check-in |
+| `src/services/opencodeServerService.ts` | OpenCode server API client (spawns/reuses `opencode web`, sessions, plan→build flow) |
 | `src/services/starlimsJsBridge.ts` | Bridge to the JS language server |
 | `src/services/ticketManagementTypes.ts` | Tickets data model |
 | `src/lsp/server/` | SSL language server (lexer, parser, diagnostics, refs, hover). Design: `starlims-lsp.md` |
@@ -154,7 +155,7 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 
 `STARLIMS.url`/`user`/`userPassword`/`rootPath`/`servers`/`selectedServer` — connections.
 `STARLIMS.mcp.*` — MCP on/off, port, max items, max code chars.
-`STARLIMS.opencode.*` — "Solve with OpenCode" command (`planModel: glm-5.1`, `buildModel: kimi-2.6`).
+`STARLIMS.opencode.*` — "Solve with OpenCode" (`integration: server|terminal`, `planModel: glm-5.1`, `buildModel: kimi-2.6`, `serverPort: 4096`; password in secret storage via `STARLIMS.SetOpenCodeServerPassword`).
 `STARLIMS.git.*` — git on check-in (autoPush, remoteUrl, commit message generator).
 `starlimsJsLsp.enabled` — JS LSP (default true).
 

@@ -81,7 +81,8 @@ const executeDataSourceInputSchema = z.object({
   uri: z.string().describe("STARLIMS data source URI."),
   parameters: z.array(z.unknown()).optional().describe("Optional positional parameters passed to the data source."),
   outputType: z.enum(["ARRAY", "JSON", "XML"]).optional().describe("Requested output type. Defaults to ARRAY."),
-  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return. Omit to return the full output without truncation")
+  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return. Defaults to the STARLIMS.mcp.maxScriptCharacters setting for server scripts and is unlimited for data sources unless maxRows applies."),
+  maxRows: z.number().int().positive().optional().describe("Optional maximum number of data rows to return (excluding the header row). Defaults to the STARLIMS.mcp.maxDataSourceRows setting. Only applies to ARRAY output.")
 });
 
 const checkinItemInputSchema = z.object({
@@ -439,14 +440,15 @@ export class StarlimsMcpServer {
         inputSchema: executeDataSourceInputSchema,
         outputSchema: toolResultSchema
       },
-      async ({ uri, parameters, outputType, maxCharacters }) => this.executeTool(
+      async ({ uri, parameters, outputType, maxCharacters, maxRows }) => this.executeTool(
         "execute_data_source",
-        { maxCharacters, outputType, parameters, uri },
+        { maxCharacters, maxRows, outputType, parameters, uri },
         () => this.automationService.executeDataSource(
           uri,
           parameters,
           outputType as RemoteScriptOutputType | undefined,
-          maxCharacters
+          maxCharacters,
+          maxRows
         ),
         (result) => `Executed ${this.toUriLabel(result.uri)} and captured ${this.toCount(result.totalCharacters)} character(s) of output.`
       )

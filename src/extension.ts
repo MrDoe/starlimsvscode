@@ -21,6 +21,7 @@ import { CheckedOutTreeDataProvider } from "./providers/checkedOutTreeDataProvid
 import { TicketTreeItem, TicketsTreeDataProvider } from "./providers/ticketsTreeDataProvider";
 import { ServerSelectorWebviewProvider, ServerConfig } from "./providers/serverSelectorWebviewProvider";
 import { GitService } from "./services/gitService";
+import { OpenCodeServerService } from "./services/opencodeServerService";
 import { TicketFullInfo, TicketMeasureDraft, TicketOverview, TicketReference, TicketStatusGroupName } from "./services/ticketManagementTypes";
 import { TicketStackTraceContentProvider } from "./providers/ticketStackTraceContentProvider";
 import * as crypto from 'crypto';
@@ -47,6 +48,7 @@ const MAX_TICKET_MEASURE_TITLE_LENGTH = 120;
 const OPENCODE_STARTUP_LAST_LAUNCH_KEY = "starlims.opencode.autoOpenStartup.lastLaunchAt";
 const OPENCODE_STARTUP_SUPPRESSION_WINDOW_MS = 60_000;
 const OPENCODE_STARTUP_TERMINAL_NAME = "OpenCode";
+const OPENCODE_SERVER_PASSWORD_SECRET_KEY = "starlims.opencode.serverPassword";
 const DEFAULT_COPILOT_COMMIT_MESSAGE_SYSTEM_PROMPT = [
   "You write STARLIMS check-in and git commit messages.",
   "Return plain text only.",
@@ -124,6 +126,9 @@ const DEFAULT_SLVSCODE_COPILOT_INSTRUCTIONS = [
   ""
 ].join("\n");
 const execFile = promisify(execFileCallback);
+
+let openCodeServerService: OpenCodeServerService | undefined;
+let openCodeServerServiceSignature = "";
 
 type CommitMessageDetailLevel = "short" | "standard" | "detailed";
 
@@ -1072,6 +1077,15 @@ export async function activate(context: vscode.ExtensionContext) {
       }
 
       async function solveTicketWithOpenCode(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
+        const integration = vscode.workspace.getConfiguration("STARLIMS").get<string>("opencode.integration", "server");
+        if (integration === "terminal") {
+          await solveTicketWithOpenCodeTerminal(item);
+          return;
+        }
+        await solveTicketWithOpenCodeServer(item);
+      }
+
+      async function solveTicketWithOpenCodeTerminal(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
         const selectedTreeItem = ticketsTreeView?.selection?.[0];
         const selectedTicket = item instanceof TicketTreeItem
           ? item.ticket
@@ -1096,7 +1110,7 @@ export async function activate(context: vscode.ExtensionContext) {
             return;
           }
 
-          const prompt = buildTicketOpenCodePrompt(ticketToSolve, ticketInfo, launchOptions);
+          const prompt = buildTicketOpenCodePrompt(ticketToSolve, ticketInfo, "terminal", launchOptions.planModel, launchOptions.buildModel);
           const promptFilePath = await writeTicketOpenCodePromptFile(ticketToSolve, prompt);
           const promptContent = await fs.promises.readFile(promptFilePath, "utf8");
 
@@ -1133,6 +1147,267 @@ export async function activate(context: vscode.ExtensionContext) {
           outputChannel.appendLine(`[TicketManagement] Error opening OpenCode: ${errorMessage}`);
           vscode.window.showErrorMessage(`Failed to open OpenCode: ${errorMessage}`);
         }
+      }
+
+      type OpenCodeTicketRun = {
+        sessionId: string;
+        cancelled: boolean;
+        approved: boolean;
+      };
+
+      const ticketOpenCodeRuns = new Map<number, OpenCodeTicketRun>();
+
+      function getOpenCodePlanModel(): string {
+        return (vscode.workspace.getConfiguration("STARLIMS").get<string>("opencode.planModel", "glm-5.1") || "").trim() || "glm-5.1";
+      }
+
+      function getOpenCodeBuildModel(): string {
+        return (vscode.workspace.getConfiguration("STARLIMS").get<string>("opencode.buildModel", "kimi-2.6") || "").trim() || "kimi-2.6";
+      }
+
+      async function resolveOpenCodeServerServiceOptions(): Promise<import("./services/opencodeServerService").OpenCodeServerServiceOptions | undefined> {
+        const currentConfig = vscode.workspace.getConfiguration("STARLIMS");
+        const command = (currentConfig.get<string>("opencode.command", "opencode") || "").trim();
+        const commandArgs = currentConfig.get<string[]>("opencode.commandArgs", []) || [];
+        const hostname = (currentConfig.get<string>("opencode.serverHostname", "127.0.0.1") || "").trim() || "127.0.0.1";
+        const port = currentConfig.get<number>("opencode.serverPort", 4096);
+        const configuredWorkingDirectory = (currentConfig.get<string>("opencode.workingDirectory", "") || "").trim();
+        const defaultWorkingDirectory = getDefaultOpenCodeWorkingDirectory();
+        const workingDirectory = configuredWorkingDirectory
+          ? path.isAbsolute(configuredWorkingDirectory)
+            ? configuredWorkingDirectory
+            : path.resolve(defaultWorkingDirectory || rootPath || process.cwd(), configuredWorkingDirectory)
+          : defaultWorkingDirectory;
+
+        if (!command) {
+          vscode.window.showErrorMessage("Set STARLIMS.opencode.command before using Solve with OpenCode.");
+          return undefined;
+        }
+
+        if (path.isAbsolute(command) && !fs.existsSync(command)) {
+          vscode.window.showErrorMessage(`The configured OpenCode command does not exist: ${command}`);
+          return undefined;
+        }
+
+        if (hostname !== "127.0.0.1" && hostname !== "localhost") {
+          vscode.window.showErrorMessage("STARLIMS.opencode.serverHostname must be a loopback address.");
+          return undefined;
+        }
+
+        if (!workingDirectory || !fs.existsSync(workingDirectory)) {
+          vscode.window.showErrorMessage("Configure a valid STARLIMS.opencode.workingDirectory or open the SLVSCODE workspace before using Solve with OpenCode.");
+          return undefined;
+        }
+
+        const password = await context.secrets.get(OPENCODE_SERVER_PASSWORD_SECRET_KEY);
+        return {
+          hostname,
+          port,
+          command,
+          commandArgs,
+          workingDirectory,
+          password: password || undefined,
+          log: (message) => outputChannel.appendLine(`[OpenCode Server] ${message}`)
+        };
+      }
+
+      async function ensureOpenCodeServerService(): Promise<OpenCodeServerService | undefined> {
+        const options = await resolveOpenCodeServerServiceOptions();
+        if (!options) {
+          return undefined;
+        }
+
+        const signature = JSON.stringify({
+          hostname: options.hostname,
+          port: options.port,
+          command: options.command,
+          commandArgs: options.commandArgs,
+          workingDirectory: options.workingDirectory,
+          hasPassword: !!options.password
+        });
+
+        if (!openCodeServerService || signature !== openCodeServerServiceSignature) {
+          openCodeServerService?.dispose();
+          openCodeServerService = new OpenCodeServerService(options);
+          openCodeServerServiceSignature = signature;
+        }
+
+        try {
+          await openCodeServerService.ensureServer();
+          return openCodeServerService;
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          outputChannel.appendLine(`[OpenCode Server] Could not start the OpenCode server: ${errorMessage}`);
+          vscode.window.showErrorMessage(`Could not start the OpenCode server: ${errorMessage}`);
+          return undefined;
+        }
+      }
+
+      async function solveTicketWithOpenCodeServer(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
+        const selectedTreeItem = ticketsTreeView?.selection?.[0];
+        const selectedTicket = item instanceof TicketTreeItem
+          ? item.ticket
+          : item || selectedTreeItem?.ticket || (activeTicket ? { ...activeTicket } : undefined);
+
+        if (!selectedTicket) {
+          vscode.window.showInformationMessage("Select a ticket first.");
+          return;
+        }
+
+        const ticketToSolve = normalizeTicketReference(selectedTicket);
+        const service = await ensureOpenCodeServerService();
+        if (!service) {
+          return;
+        }
+
+        try {
+          const ticketInfo = await enterpriseService.getTicketFullInfo(ticketToSolve.id);
+          if (!ticketInfo) {
+            vscode.window.showErrorMessage(`Could not retrieve full information for ticket #${ticketToSolve.id}.`);
+            return;
+          }
+
+          const planModel = getOpenCodePlanModel();
+          const prompt = buildTicketOpenCodePrompt(ticketToSolve, ticketInfo, "server", planModel, getOpenCodeBuildModel());
+          const title = `Ticket #${ticketToSolve.id}${ticketToSolve.title ? ` - ${ticketToSolve.title}` : ""}`.slice(0, MAX_TICKET_REFERENCE_TITLE_LENGTH);
+          const sessionId = await service.createSession(title);
+
+          const previousRun = ticketOpenCodeRuns.get(ticketToSolve.id);
+          if (previousRun) {
+            await service.abortSession(previousRun.sessionId).catch(() => undefined);
+          }
+          ticketOpenCodeRuns.set(ticketToSolve.id, { sessionId, cancelled: false, approved: false });
+
+          const planAgentAvailable = (await service.getAgentIds()).includes("plan");
+          await service.sendMessage(sessionId, prompt, {
+            agent: planAgentAvailable ? "plan" : undefined,
+            model: planAgentAvailable ? planModel : undefined
+          });
+
+          outputChannel.appendLine(`[TicketManagement] Started OpenCode session ${sessionId} for ticket #${ticketToSolve.id} (plan agent: ${planAgentAvailable ? "plan" : "default"}).`);
+          vscode.window.showInformationMessage(
+            `OpenCode is analyzing ticket #${ticketToSolve.id} in plan mode. Watch the session in the OpenCode Web UI.`,
+            "Open Web UI"
+          ).then((selection) => {
+            if (selection === "Open Web UI") {
+              void openTicketOpenCodeWebUi();
+            }
+          });
+
+          void (async () => {
+            try {
+              await service.waitUntilIdle(sessionId, { isCancelled: () => ticketOpenCodeRuns.get(ticketToSolve.id)?.cancelled ?? true });
+
+              const run = ticketOpenCodeRuns.get(ticketToSolve.id);
+              if (!run || run.cancelled || run.sessionId !== sessionId) {
+                return;
+              }
+
+              const planText = await service.getLastAssistantText(sessionId);
+              outputChannel.appendLine(`[TicketManagement] Plan phase finished for ticket #${ticketToSolve.id} in session ${sessionId}.`);
+              if (planText) {
+                outputChannel.appendLine(`[TicketManagement] Plan excerpt: ${planText.slice(0, 500)}${planText.length > 500 ? "..." : ""}`);
+              }
+
+              const selection = await vscode.window.showInformationMessage(
+                `OpenCode finished the plan for ticket #${ticketToSolve.id}.`,
+                "Approve & Implement",
+                "Open Web UI",
+                "Abort"
+              );
+              if (selection === "Abort") {
+                await abortTicketOpenCodeSession(ticketToSolve);
+                return;
+              }
+              if (selection === "Open Web UI") {
+                void openTicketOpenCodeWebUi();
+                return;
+              }
+              if (selection === "Approve & Implement") {
+                await approveTicketPlanAndBuild(ticketToSolve);
+              }
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              outputChannel.appendLine(`[TicketManagement] Error after the plan phase for ticket #${ticketToSolve.id}: ${errorMessage}`);
+            }
+          })();
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          outputChannel.appendLine(`[TicketManagement] Error solving ticket #${ticketToSolve.id} with OpenCode: ${errorMessage}`);
+          vscode.window.showErrorMessage(`Failed to start OpenCode for ticket #${ticketToSolve.id}: ${errorMessage}`);
+        }
+      }
+
+      async function approveTicketPlanAndBuild(ticket: TicketReference | TicketOverview): Promise<void> {
+        const ticketToBuild = normalizeTicketReference(ticket);
+        const run = ticketOpenCodeRuns.get(ticketToBuild.id);
+        if (!run || run.cancelled) {
+          vscode.window.showWarningMessage(`No active OpenCode session found for ticket #${ticketToBuild.id}.`);
+          return;
+        }
+        if (run.approved) {
+          vscode.window.showWarningMessage(`The plan for ticket #${ticketToBuild.id} was already approved and implementation is running.`);
+          return;
+        }
+
+        const service = openCodeServerService;
+        if (!service) {
+          vscode.window.showWarningMessage("The OpenCode server is not running.");
+          return;
+        }
+
+        run.approved = true;
+        try {
+          await service.sendMessage(
+            run.sessionId,
+            "The plan is approved. Implement it now exactly as described in the plan.",
+            { model: getOpenCodeBuildModel() }
+          );
+          outputChannel.appendLine(`[TicketManagement] Approved the plan for ticket #${ticketToBuild.id}; implementation started in session ${run.sessionId}.`);
+          vscode.window.showInformationMessage(
+            `Implementation started for ticket #${ticketToBuild.id}. Watch progress in the OpenCode Web UI.`,
+            "Open Web UI"
+          ).then((selection) => {
+            if (selection === "Open Web UI") {
+              void openTicketOpenCodeWebUi();
+            }
+          });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          outputChannel.appendLine(`[TicketManagement] Error starting the implementation for ticket #${ticketToBuild.id}: ${errorMessage}`);
+          vscode.window.showErrorMessage(`Could not start the implementation for ticket #${ticketToBuild.id}: ${errorMessage}`);
+        }
+      }
+
+      async function abortTicketOpenCodeSession(ticket: TicketReference | TicketOverview): Promise<void> {
+        const ticketToAbort = normalizeTicketReference(ticket);
+        const run = ticketOpenCodeRuns.get(ticketToAbort.id);
+        if (!run) {
+          vscode.window.showWarningMessage(`No OpenCode session found for ticket #${ticketToAbort.id}.`);
+          return;
+        }
+
+        run.cancelled = true;
+        const service = openCodeServerService;
+        if (!service) {
+          return;
+        }
+
+        try {
+          await service.abortSession(run.sessionId);
+          vscode.window.showInformationMessage(`Aborted the OpenCode session for ticket #${ticketToAbort.id}.`);
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          vscode.window.showWarningMessage(errorMessage);
+        }
+      }
+
+      async function openTicketOpenCodeWebUi(): Promise<void> {
+        const service = openCodeServerService ?? await ensureOpenCodeServerService();
+        if (!service) {
+          return;
+        }
+        await vscode.env.openExternal(vscode.Uri.parse(service.serverUrl));
       }
 
       function buildTicketSolutionPrompt(ticket: TicketReference, ticketInfo: TicketFullInfo): string {
@@ -1205,18 +1480,31 @@ Please provide:
       function buildTicketOpenCodePrompt(
         ticket: TicketReference,
         ticketInfo: TicketFullInfo,
-        launchOptions: OpenCodeLaunchOptions
+        mode: "terminal" | "server",
+        planModel: string,
+        buildModel: string
       ): string {
-        const buildModelLine = launchOptions.buildModel
-          ? `After the plan is approved, switch to ${launchOptions.buildModel} for implementation.`
+        const buildModelLine = buildModel
+          ? `After the plan is approved, switch to ${buildModel} for implementation.`
           : "After the plan is approved, switch to your preferred build model for implementation.";
 
+        const headerLines = mode === "server"
+          ? [
+              "You are analyzing a STARLIMS ticket in plan mode. Produce a concrete, actionable implementation plan and do not edit any files in this phase.",
+              "Focus on understanding the ticket, identifying the relevant STARLIMS items, and investigating the root cause before proposing changes.",
+              `The user will approve your plan; after approval the implementation continues with the ${buildModel || "preferred build"} model.`,
+              ""
+            ]
+          : [
+              `Start this session in plan mode with ${planModel}.`,
+              "Focus on understanding the ticket, identifying the relevant STARLIMS items, and producing a concrete implementation plan before editing files.",
+              buildModelLine,
+              "Stay in the current OpenCode terminal session for the full plan-to-build workflow.",
+              ""
+            ];
+
         return [
-          `Start this session in plan mode with ${launchOptions.planModel}.`,
-          "Focus on understanding the ticket, identifying the relevant STARLIMS items, and producing a concrete implementation plan before editing files.",
-          buildModelLine,
-          "Stay in the current OpenCode terminal session for the full plan-to-build workflow.",
-          "",
+          ...headerLines,
           buildTicketSolutionPrompt(ticket, ticketInfo)
         ].join("\n\n");
       }
@@ -2643,6 +2931,8 @@ Please provide:
       const automationService = new StarlimsAutomationService(enterpriseService, {
         getDefaultFormLanguage: resolveDefaultFormLanguage,
         getMaxCodeCharacters: () => getMcpConfig().get<number>("mcp.maxCodeCharacters", 20000),
+        getMaxDataSourceRows: () => getMcpConfig().get<number>("mcp.maxDataSourceRows", 500),
+        getMaxScriptCharacters: () => getMcpConfig().get<number>("mcp.maxScriptCharacters", 50000),
         getMaxItems: () => getMcpConfig().get<number>("mcp.maxItems", 100),
         getWorkspaceRoot: () => rootPath,
         refreshCheckoutTree: async (includeAllUsers: boolean = false) => {
@@ -2951,6 +3241,68 @@ Please provide:
         "STARLIMS.SolveTicketWithOpenCode",
         async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
           await solveTicketWithOpenCode(item);
+        }
+      );
+
+      vscode.commands.registerCommand(
+        "STARLIMS.ApproveTicketPlanAndBuild",
+        async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
+          const selectedTreeItem = ticketsTreeView?.selection?.[0];
+          const ticket = item instanceof TicketTreeItem
+            ? item.ticket
+            : item || selectedTreeItem?.ticket || (activeTicket ? { ...activeTicket } : undefined);
+          if (!ticket) {
+            vscode.window.showInformationMessage("Select a ticket first.");
+            return;
+          }
+          await approveTicketPlanAndBuild(ticket);
+        }
+      );
+
+      vscode.commands.registerCommand(
+        "STARLIMS.AbortTicketOpenCodeSession",
+        async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
+          const selectedTreeItem = ticketsTreeView?.selection?.[0];
+          const ticket = item instanceof TicketTreeItem
+            ? item.ticket
+            : item || selectedTreeItem?.ticket || (activeTicket ? { ...activeTicket } : undefined);
+          if (!ticket) {
+            vscode.window.showInformationMessage("Select a ticket first.");
+            return;
+          }
+          await abortTicketOpenCodeSession(ticket);
+        }
+      );
+
+      vscode.commands.registerCommand(
+        "STARLIMS.OpenTicketOpenCodeWebUi",
+        async () => {
+          await openTicketOpenCodeWebUi();
+        }
+      );
+
+      vscode.commands.registerCommand(
+        "STARLIMS.SetOpenCodeServerPassword",
+        async () => {
+          const currentPassword = await context.secrets.get(OPENCODE_SERVER_PASSWORD_SECRET_KEY);
+          const password = await vscode.window.showInputBox({
+            title: "OpenCode server password",
+            prompt: currentPassword
+              ? "Enter a new password or leave empty to remove it."
+              : "Optional password protecting the local OpenCode server.",
+            password: true,
+            ignoreFocusOut: true
+          });
+          if (password === undefined) {
+            return;
+          }
+          if (password) {
+            await context.secrets.store(OPENCODE_SERVER_PASSWORD_SECRET_KEY, password);
+            vscode.window.showInformationMessage("OpenCode server password set.");
+          } else {
+            await context.secrets.delete(OPENCODE_SERVER_PASSWORD_SECRET_KEY);
+            vscode.window.showInformationMessage("OpenCode server password removed.");
+          }
         }
       );
 
@@ -5268,6 +5620,8 @@ async function setupGitIntegration(
 // this method is called when your extension is deactivated
 export function deactivate() {
   void stopJsLanguageClient();
+  openCodeServerService?.dispose();
+  openCodeServerService = undefined;
   return stopLanguageClient();
 }
 

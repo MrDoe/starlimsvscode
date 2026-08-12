@@ -13,6 +13,8 @@ type StarlimsLanguageOption = {
 export type StarlimsAutomationOptions = {
   getDefaultFormLanguage: () => string | undefined;
   getMaxCodeCharacters: () => number;
+  getMaxDataSourceRows?: () => number;
+  getMaxScriptCharacters?: () => number;
   getMaxItems: () => number;
   getWorkspaceRoot: () => string | undefined;
   refreshCheckoutTree: (includeAllUsers: boolean) => Promise<void>;
@@ -341,6 +343,7 @@ export class StarlimsAutomationService {
     entryPoint: string | undefined,
     maxCharacters?: number
   ): Promise<StarlimsAutomationResult> {
+    const effectiveMaxCharacters = maxCharacters ?? this.options.getMaxScriptCharacters?.() ?? 50000;
     return this.executeRemoteItem(
       uri,
       SERVER_SCRIPT_ITEM_TYPES,
@@ -348,7 +351,7 @@ export class StarlimsAutomationService {
       parameters,
       outputType,
       entryPoint,
-      maxCharacters
+      effectiveMaxCharacters
     );
   }
 
@@ -356,8 +359,10 @@ export class StarlimsAutomationService {
     uri: string,
     parameters: unknown[] | undefined,
     outputType: RemoteScriptOutputType | undefined,
-    maxCharacters?: number
+    maxCharacters?: number,
+    maxRows?: number
   ): Promise<StarlimsAutomationResult> {
+    const effectiveMaxRows = maxRows ?? this.options.getMaxDataSourceRows?.() ?? 500;
     return this.executeRemoteItem(
       uri,
       DATA_SOURCE_ITEM_TYPES,
@@ -365,7 +370,8 @@ export class StarlimsAutomationService {
       parameters,
       outputType,
       undefined,
-      maxCharacters
+      maxCharacters,
+      effectiveMaxRows
     );
   }
 
@@ -994,7 +1000,8 @@ export class StarlimsAutomationService {
     parameters: unknown[] | undefined,
     outputType: RemoteScriptOutputType | undefined,
     entryPoint: string | undefined,
-    maxCharacters?: number
+    maxCharacters?: number,
+    maxRows?: number
   ): Promise<StarlimsAutomationResult> {
     const normalizedUri = uri.trim();
     if (!normalizedUri) {
@@ -1041,9 +1048,10 @@ export class StarlimsAutomationService {
       };
     }
 
-    const outputText = typeof result.data === "string"
-      ? result.data
-      : JSON.stringify(result.data, null, 2);
+    const boundedRows = this.limitRows(result.data, maxRows);
+    const outputText = typeof boundedRows.data === "string"
+      ? boundedRows.data
+      : JSON.stringify(boundedRows.data, null, 2);
     const bounded = this.limitCode(outputText, maxCharacters);
     const executeResult: StarlimsAutomationResult = {
       ok: true,
@@ -1059,7 +1067,18 @@ export class StarlimsAutomationService {
       uri: normalizedUri
     };
 
-    if (bounded.totalCharacters === 0) {
+    if (maxRows !== undefined) {
+      executeResult.rowLimit = boundedRows.rowLimit;
+      executeResult.totalRows = boundedRows.totalRows;
+      executeResult.truncatedRows = boundedRows.truncated;
+      executeResult.truncated = executeResult.truncated || boundedRows.truncated;
+    }
+
+    if (boundedRows.truncated) {
+      executeResult.note = "Results limited to " + boundedRows.rowLimit + " of " + boundedRows.totalRows + " rows. Pass maxRows to raise or lower the limit.";
+    }
+
+    if (bounded.totalCharacters === 0 && !boundedRows.truncated) {
       executeResult.note = "Empty output. SSL scripts must use :DECLARE + variable assignment instead of :RETURN \"literal\" to produce visible output.";
     }
 
@@ -1152,6 +1171,51 @@ export class StarlimsAutomationService {
       maxCharacters: effectiveMax,
       totalCharacters,
       truncated: code.length > effectiveMax
+    };
+  }
+
+  private limitRows(data: unknown, maxRows?: number): {
+    data: unknown;
+    rowLimit: number;
+    totalRows: number;
+    truncated: boolean;
+  } {
+    if (maxRows === undefined || !Number.isFinite(maxRows)) {
+      return {
+        data,
+        rowLimit: 0,
+        totalRows: 0,
+        truncated: false
+      };
+    }
+
+    const effectiveMax = Math.max(1, Math.floor(maxRows));
+    if (!Array.isArray(data) || data.length === 0) {
+      return {
+        data,
+        rowLimit: effectiveMax,
+        totalRows: 0,
+        truncated: false
+      };
+    }
+
+    const hasHeaderRow = Array.isArray(data[0]);
+    const totalRows = hasHeaderRow ? Math.max(0, data.length - 1) : data.length;
+    if (totalRows <= effectiveMax) {
+      return {
+        data,
+        rowLimit: effectiveMax,
+        totalRows,
+        truncated: false
+      };
+    }
+
+    const sliceEnd = hasHeaderRow ? effectiveMax + 1 : effectiveMax;
+    return {
+      data: data.slice(0, sliceEnd),
+      rowLimit: effectiveMax,
+      totalRows,
+      truncated: true
     };
   }
 
