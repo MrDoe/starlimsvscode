@@ -1040,24 +1040,36 @@
                         "type": "string",
                         "enum": [
                             "fast",
-                            "copilot"
+                            "copilot",
+                            "ollama"
                         ],
                         "enumDescriptions": [
-                            "Use a fast local fallback message such as 'Update frmTest [Code Behind]' without calling Copilot.",
-                            "Use Copilot to generate the message, with a short timeout fallback to the fast local message."
+                            "Use a fast local fallback message such as 'Update frmTest [Code Behind]' without calling an AI model.",
+                            "Use Copilot to generate the message, with a short timeout fallback to the fast local message.",
+                            "Use a local Ollama instance to generate the message, with a short timeout fallback to the fast local message."
                         ],
                         "default": "fast",
-                        "description": "How Copilot generates check-in and Git commit messages."
+                        "description": "How AI generates check-in and Git commit messages."
                     },
                     "STARLIMS.git.copilotCommitMessageModel": {
                         "type": "string",
                         "default": "",
                         "description": "Optional exact Copilot chat model name to use for generated check-in and Git commit messages, for example 'Raptor Mini (Preview)'. Leave empty to use the default available Copilot model."
                     },
-                    "STARLIMS.git.copilotCommitMessageSystemPrompt": {
+                    "STARLIMS.git.aiCommitMessageSystemPrompt": {
                         "type": "string",
                         "default": "You write STARLIMS commit messages. Describe the changes in detail. Mention the main item or items based on the diffs. Use bullets where applicable. ",
-                        "markdownDescription": "Top-level instruction text sent to Copilot before the STARLIMS item context when generating check-in and Git commit messages."
+                        "markdownDescription": "Top-level instruction text sent to Copilot or Ollama before the STARLIMS item context when generating check-in and Git commit messages."
+                    },
+                    "STARLIMS.git.ollamaCommitMessageBaseUrl": {
+                        "type": "string",
+                        "default": "http://127.0.0.1:11434",
+                        "description": "Base URL of the local Ollama server used when STARLIMS.git.commitMessageGenerator is set to 'ollama'."
+                    },
+                    "STARLIMS.git.ollamaCommitMessageModel": {
+                        "type": "string",
+                        "default": "gemma4",
+                        "description": "Ollama model name used when STARLIMS.git.commitMessageGenerator is set to 'ollama'."
                     },
                     "STARLIMS.git.commitMessageDetailLevel": {
                         "type": "string",
@@ -1100,11 +1112,11 @@
                         "default": false,
                         "description": "Include the local file name in generated commit messages when available."
                     },
-                    "STARLIMS.git.copilotCommitMessageTimeoutMs": {
+                    "STARLIMS.git.aiCommitMessageTimeoutMs": {
                         "type": "number",
                         "default": 4000,
                         "minimum": 500,
-                        "description": "Maximum time in milliseconds to wait for Copilot commit message generation before falling back to the fast local message."
+                        "description": "Maximum time in milliseconds to wait for Copilot or Ollama commit message generation before falling back to the fast local message."
                     },
                     "starlimsJsLsp.enabled": {
                         "type": "boolean",

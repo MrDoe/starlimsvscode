@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Ollama support for generated check-in and Git commit messages (`STARLIMS.git.commitMessageGenerator` now accepts `ollama`, configured through `STARLIMS.git.ollamaCommitMessageBaseUrl` and `STARLIMS.git.ollamaCommitMessageModel`)
+- Renamed Copilot message settings to provider-neutral names (`STARLIMS.git.aiCommitMessageSystemPrompt`, `STARLIMS.git.aiCommitMessageTimeoutMs`); old setting names still work as fallback
+- Removed unused legacy Copilot commit message generation from the Git service
+
 ## [1.0.0] - 2018-11-09
 
 - Initial release

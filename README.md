@@ -92,10 +92,14 @@ Git automation settings:
 - `STARLIMS.git.autoPush`: Automatically pushes Git commits after STARLIMS check-in
 - `STARLIMS.git.remoteUrl`: Optional remote URL used by the configure-remote command
 - `STARLIMS.git.remoteName`: Git remote name, defaulting to `origin`
-- `STARLIMS.git.commitMessageGenerator`: Uses either a fast local message or Copilot-assisted message generation
+- `STARLIMS.git.commitMessageGenerator`: Uses a fast local message or AI-assisted message generation (`fast`, `copilot`, or `ollama`)
 - `STARLIMS.git.copilotCommitMessageModel`: Optional exact Copilot model name for message generation
+- `STARLIMS.git.aiCommitMessageSystemPrompt`: Custom system prompt sent to Copilot or Ollama for message generation
+- `STARLIMS.git.aiCommitMessageTimeoutMs`: Maximum time to wait for AI message generation before falling back to the fast local message
+- `STARLIMS.git.ollamaCommitMessageBaseUrl`: Base URL of the local Ollama server (`http://127.0.0.1:11434` by default)
+- `STARLIMS.git.ollamaCommitMessageModel`: Ollama model used for message generation (`gemma4` by default)
 
-Additional Git message settings are available to control detail level, prefixes, maximum length, whether item type or language is included, custom system prompts, and Copilot timeout behavior.
+Additional Git message settings are available to control detail level, prefixes, maximum length, and whether item type or language is included.
 
 ## Ticket Workflows
 

@@ -4,6 +4,7 @@
 import * as vscode from "vscode";
 import { execFile as execFileCallback } from "child_process";
 import * as fs from "fs";
+import fetch, { Headers } from "node-fetch";
 import { EnterpriseFileDecorationProvider } from "./providers/enterpriseFileDecorationProvider";
 import { EnterpriseItemType, EnterpriseTreeDataProvider, TreeEnterpriseItem } from "./providers/enterpriseTreeDataProvider";
 import { EnterpriseService } from "./services/enterpriseService";
@@ -49,14 +50,14 @@ const OPENCODE_STARTUP_LAST_LAUNCH_KEY = "starlims.opencode.autoOpenStartup.last
 const OPENCODE_STARTUP_SUPPRESSION_WINDOW_MS = 60_000;
 const OPENCODE_STARTUP_TERMINAL_NAME = "OpenCode";
 const OPENCODE_SERVER_PASSWORD_SECRET_KEY = "starlims.opencode.serverPassword";
-const DEFAULT_COPILOT_COMMIT_MESSAGE_SYSTEM_PROMPT = [
+const DEFAULT_AI_COMMIT_MESSAGE_SYSTEM_PROMPT = [
   "You write STARLIMS check-in and git commit messages.",
   "Return plain text only.",
   "Use exactly one sentence.",
   "Mention the main item or items and the intent of the change.",
   "Do not use bullets, quotes, markdown, or prefixes."
 ].join("\n");
-const DEFAULT_COPILOT_TICKET_MEASURE_SYSTEM_PROMPT = [
+const DEFAULT_AI_TICKET_MEASURE_SYSTEM_PROMPT = [
   "You write STARLIMS ticket measures for completed development work.",
   "Return valid JSON only.",
   "Use the exact schema {\"title\":\"...\",\"description\":\"...\"}.",
@@ -133,7 +134,7 @@ let openCodeServerServiceSignature = "";
 type CommitMessageDetailLevel = "short" | "standard" | "detailed";
 
 type CommitMessageOptions = {
-  generatorMode: "fast" | "copilot";
+  generatorMode: "fast" | "copilot" | "ollama";
   detailLevel: CommitMessageDetailLevel;
   maxLength: number;
   prefix: string;
@@ -143,6 +144,8 @@ type CommitMessageOptions = {
   timeoutMs: number;
   modelName?: string;
   systemPrompt: string;
+  ollamaBaseUrl: string;
+  ollamaModel: string;
 };
 
 type OpenCodeLaunchOptions = {
@@ -1756,9 +1759,17 @@ Please provide:
         return contextLines;
       }
 
-      function getCommitMessageGeneratorMode(): "fast" | "copilot" {
+      function getCommitMessageGeneratorMode(): "fast" | "copilot" | "ollama" {
         const configuredMode = config.get<string>("git.commitMessageGenerator", "fast");
-        return configuredMode === "copilot" ? "copilot" : "fast";
+        if (configuredMode === "copilot" || configuredMode === "ollama") {
+          return configuredMode;
+        }
+
+        return "fast";
+      }
+
+      function getAIGeneratorLabel(options: CommitMessageOptions): string {
+        return options.generatorMode === "ollama" ? "Ollama" : "Copilot";
       }
 
       function getCommitMessageDetailLevel(): CommitMessageDetailLevel {
@@ -1784,13 +1795,13 @@ Please provide:
         return configuredModelName || undefined;
       }
 
-      function getCopilotCommitMessageSystemPrompt(): string {
+      function getAICommitMessageSystemPrompt(): string {
         const configuredPrompt = config.get<string>(
-          "git.copilotCommitMessageSystemPrompt",
-          DEFAULT_COPILOT_COMMIT_MESSAGE_SYSTEM_PROMPT
+          "git.aiCommitMessageSystemPrompt",
+          config.get<string>("git.copilotCommitMessageSystemPrompt", DEFAULT_AI_COMMIT_MESSAGE_SYSTEM_PROMPT)
         );
         const trimmedPrompt = (configuredPrompt || "").trim();
-        return trimmedPrompt || DEFAULT_COPILOT_COMMIT_MESSAGE_SYSTEM_PROMPT;
+        return trimmedPrompt || DEFAULT_AI_COMMIT_MESSAGE_SYSTEM_PROMPT;
       }
 
       function getCommitMessageOptions(): CommitMessageOptions {
@@ -1802,14 +1813,19 @@ Please provide:
           includeItemType: config.get<boolean>("git.includeItemTypeInCommitMessage", true) ?? true,
           includeLanguage: config.get<boolean>("git.includeLanguageInCommitMessage", true) ?? true,
           includeFileName: config.get<boolean>("git.includeFileNameInCommitMessage", false) ?? false,
-          timeoutMs: getCopilotCommitMessageTimeoutMs(),
+          timeoutMs: getAICommitMessageTimeoutMs(),
           modelName: getCopilotCommitMessageModelName(),
-          systemPrompt: getCopilotCommitMessageSystemPrompt()
+          systemPrompt: getAICommitMessageSystemPrompt(),
+          ollamaBaseUrl: (config.get<string>("git.ollamaCommitMessageBaseUrl", "http://127.0.0.1:11434") || "").trim() || "http://127.0.0.1:11434",
+          ollamaModel: (config.get<string>("git.ollamaCommitMessageModel", "gemma4") || "").trim() || "gemma4"
         };
       }
 
-      function getCopilotCommitMessageTimeoutMs(): number {
-        const configuredTimeout = config.get<number>("git.copilotCommitMessageTimeoutMs", DEFAULT_COMMIT_MESSAGE_TIMEOUT_MS);
+      function getAICommitMessageTimeoutMs(): number {
+        const configuredTimeout = config.get<number>(
+          "git.aiCommitMessageTimeoutMs",
+          config.get<number>("git.copilotCommitMessageTimeoutMs", DEFAULT_COMMIT_MESSAGE_TIMEOUT_MS)
+        );
         return configuredTimeout && configuredTimeout > 0 ? configuredTimeout : DEFAULT_COMMIT_MESSAGE_TIMEOUT_MS;
       }
 
@@ -2121,7 +2137,7 @@ Please provide:
         return availableModels[0];
       }
 
-      function buildCopilotCommitMessagePrompt(changeContext: string, options: CommitMessageOptions): string {
+      function buildAICommitMessagePrompt(changeContext: string, options: CommitMessageOptions): string {
         const instructionLines = [options.systemPrompt.trim()];
 
         if (activeTicket) {
@@ -2153,6 +2169,54 @@ Please provide:
         return promptSections.join("\n");
       }
 
+      async function generateCheckInReasonWithOllama(
+        changeContext: string,
+        fallbackReason: string,
+        options: CommitMessageOptions
+      ): Promise<string> {
+        try {
+          const prompt = buildAICommitMessagePrompt(changeContext, options);
+          const requestBody = {
+            model: options.ollamaModel,
+            messages: [
+              { role: "user", content: prompt }
+            ],
+            stream: false
+          };
+
+          const controller = new AbortController();
+          const timeoutHandle = setTimeout(() => controller.abort(), options.timeoutMs);
+          let responseText: string;
+
+          try {
+            const response = await fetch(
+              `${options.ollamaBaseUrl.replace(/\/+$/, "")}/api/chat`,
+              {
+                method: "POST",
+                headers: new Headers([["Content-Type", "application/json"]]),
+                body: JSON.stringify(requestBody),
+                signal: controller.signal
+              }
+            );
+
+            if (!response.ok) {
+              console.warn(`Ollama commit message generation failed with HTTP ${response.status}.`);
+              return fallbackReason;
+            }
+
+            const responseJson: any = await response.json();
+            responseText = responseJson?.message?.content ?? "";
+          } finally {
+            clearTimeout(timeoutHandle);
+          }
+
+          return sanitizeGeneratedReason(responseText, fallbackReason, options);
+        } catch (error) {
+          console.warn("Falling back to default STARLIMS check-in reason.", error);
+          return fallbackReason;
+        }
+      }
+
       async function generateCheckInReasonWithCopilot(
         changeContext: string,
         fallbackReason: string,
@@ -2174,7 +2238,7 @@ Please provide:
           }
 
           const messages = [
-            vscode.LanguageModelChatMessage.User(buildCopilotCommitMessagePrompt(changeContext, options))
+            vscode.LanguageModelChatMessage.User(buildAICommitMessagePrompt(changeContext, options))
           ];
 
           const cancellationSource = new vscode.CancellationTokenSource();
@@ -2199,6 +2263,18 @@ Please provide:
         }
       }
 
+      async function generateCheckInReasonWithAI(
+        changeContext: string,
+        fallbackReason: string,
+        options: CommitMessageOptions
+      ): Promise<string> {
+        if (options.generatorMode === "ollama") {
+          return generateCheckInReasonWithOllama(changeContext, fallbackReason, options);
+        }
+
+        return generateCheckInReasonWithCopilot(changeContext, fallbackReason, options);
+      }
+
       async function buildSingleItemCheckInReason(item: TreeEnterpriseItem): Promise<string> {
         const options = getCommitMessageOptions();
         const fallbackReason = buildSingleItemFallbackReason(item, options);
@@ -2214,8 +2290,8 @@ Please provide:
             title: "STARLIMS"
           },
           async (progress) => {
-            progress.report({ message: "Generating check-in description with Copilot..." });
-            return generateCheckInReasonWithCopilot(changeContext, fallbackReason, options);
+            progress.report({ message: `Generating check-in description with ${getAIGeneratorLabel(options)}...` });
+            return generateCheckInReasonWithAI(changeContext, fallbackReason, options);
           }
         );
       }
@@ -2280,8 +2356,8 @@ Please provide:
             title: "STARLIMS"
           },
           async (progress) => {
-            progress.report({ message: "Generating check-in description with Copilot..." });
-            return generateCheckInReasonWithCopilot(changeContext, fallbackReason, options);
+            progress.report({ message: `Generating check-in description with ${getAIGeneratorLabel(options)}...` });
+            return generateCheckInReasonWithAI(changeContext, fallbackReason, options);
           }
         );
       }
@@ -2321,12 +2397,12 @@ Please provide:
         };
       }
 
-      function buildCopilotTicketMeasurePrompt(ticket: TicketReference, checkinReason: string, changeContext: string): string {
+      function buildAITicketMeasurePrompt(ticket: TicketReference, checkinReason: string, changeContext: string): string {
         const now = new Date();
         const dateTimeLine = `${now.toLocaleDateString("de-DE")} ${now.toLocaleTimeString("de-DE")}`;
 
         const sections = [
-          DEFAULT_COPILOT_TICKET_MEASURE_SYSTEM_PROMPT,
+          DEFAULT_AI_TICKET_MEASURE_SYSTEM_PROMPT,
           "",
           `Current date/time: ${dateTimeLine}`,
           "",
@@ -2387,13 +2463,63 @@ Please provide:
         }
       }
 
+      async function generateTicketMeasureWithOllama(
+        ticket: TicketReference,
+        checkinReason: string,
+        changeContext: string,
+        options: CommitMessageOptions,
+        fallbackMeasure: TicketMeasureDraft
+      ): Promise<TicketMeasureDraft> {
+        try {
+          const prompt = buildAITicketMeasurePrompt(ticket, checkinReason, changeContext);
+          const requestBody = {
+            model: options.ollamaModel,
+            messages: [
+              { role: "user", content: prompt }
+            ],
+            stream: false
+          };
+
+          const controller = new AbortController();
+          const timeoutHandle = setTimeout(() => controller.abort(), options.timeoutMs);
+          let responseText: string;
+
+          try {
+            const response = await fetch(
+              `${options.ollamaBaseUrl.replace(/\/+$/, "")}/api/chat`,
+              {
+                method: "POST",
+                headers: new Headers([["Content-Type", "application/json"]]),
+                body: JSON.stringify(requestBody),
+                signal: controller.signal
+              }
+            );
+
+            if (!response.ok) {
+              console.warn(`Ollama ticket measure generation failed with HTTP ${response.status}.`);
+              return fallbackMeasure;
+            }
+
+            const responseJson: any = await response.json();
+            responseText = responseJson?.message?.content ?? "";
+          } finally {
+            clearTimeout(timeoutHandle);
+          }
+
+          return parseTicketMeasureResponse(responseText, fallbackMeasure);
+        } catch (error) {
+          console.warn("Falling back to default STARLIMS ticket measure text.", error);
+          return fallbackMeasure;
+        }
+      }
+
       async function generateTicketMeasureWithCopilot(
         ticket: TicketReference,
         checkinReason: string,
-        changeContext: string
+        changeContext: string,
+        options: CommitMessageOptions,
+        fallbackMeasure: TicketMeasureDraft
       ): Promise<TicketMeasureDraft> {
-        const options = getCommitMessageOptions();
-        const fallbackMeasure = buildTicketMeasureFallback(ticket, checkinReason, changeContext);
         if (options.generatorMode !== "copilot") {
           return fallbackMeasure;
         }
@@ -2410,7 +2536,7 @@ Please provide:
           }
 
           const messages = [
-            vscode.LanguageModelChatMessage.User(buildCopilotTicketMeasurePrompt(ticket, checkinReason, changeContext))
+            vscode.LanguageModelChatMessage.User(buildAITicketMeasurePrompt(ticket, checkinReason, changeContext))
           ];
 
           const cancellationSource = new vscode.CancellationTokenSource();
@@ -2434,6 +2560,21 @@ Please provide:
         }
       }
 
+      async function generateTicketMeasureWithAI(
+        ticket: TicketReference,
+        checkinReason: string,
+        changeContext: string
+      ): Promise<TicketMeasureDraft> {
+        const options = getCommitMessageOptions();
+        const fallbackMeasure = buildTicketMeasureFallback(ticket, checkinReason, changeContext);
+
+        if (options.generatorMode === "ollama") {
+          return generateTicketMeasureWithOllama(ticket, checkinReason, changeContext, options, fallbackMeasure);
+        }
+
+        return generateTicketMeasureWithCopilot(ticket, checkinReason, changeContext, options, fallbackMeasure);
+      }
+
       async function createTicketMeasureForCheckIn(
         ticket: TicketReference | undefined,
         checkinReason: string,
@@ -2443,7 +2584,7 @@ Please provide:
           return undefined;
         }
 
-        const measureDraft = await generateTicketMeasureWithCopilot(ticket, checkinReason, changeContext);
+        const measureDraft = await generateTicketMeasureWithAI(ticket, checkinReason, changeContext);
         const result = await enterpriseService.addTicketMeasureResult(ticket.id, measureDraft.title, measureDraft.description);
         if (!result.ok) {
           return result.error ?? `Could not create a ticket measure for ticket #${ticket.id}.`;
