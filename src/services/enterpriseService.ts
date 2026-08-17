@@ -1215,7 +1215,7 @@ export class EnterpriseService implements IEnterpriseService {
    * @param itemType the type of the new item
    * @param language the language of the new item
    */
-  async addItem(itemName: string, itemType: string, language: string, categoryName: string, appName: string) {
+  async addItem(itemName: string, itemType: string, language: string, categoryName: string, appName: string): Promise<string | undefined> {
     const url = `${this.baseUrl}/SCM_API.Add.${this.urlSuffix}`;
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
@@ -1240,14 +1240,14 @@ export class EnterpriseService implements IEnterpriseService {
       const { success, data }: { success: boolean; data: any } = result;
       if (success) {
         vscode.window.showInformationMessage("Item added successfully.");
-      } else {
-        vscode.window.showErrorMessage(data);
+        return data instanceof Object ? JSON.stringify(data) : data;
       }
-      return data instanceof Object ? JSON.stringify(data) : data;
+      vscode.window.showErrorMessage(data);
+      return undefined;
     } catch (e: any) {
       vscode.window.showErrorMessage("Failed to execute HTTP call to remote service.");
       console.error(e);
-      return;
+      return undefined;
     }
   }
 

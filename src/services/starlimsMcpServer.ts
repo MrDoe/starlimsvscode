@@ -121,10 +121,26 @@ const editTableInputSchema = z.object({
 
 const createItemInputSchema = z.object({
   itemName: z.string().describe("New item name."),
-  itemType: z.string().describe("STARLIMS item type, for example SS, APPSS, HTMLFORMXML, APPDS, or CS."),
-  language: z.string().describe("Item language, for example SSL, JS, XML, or SQL."),
-  categoryName: z.string().describe("Category or application category name, depending on the item type."),
-  appName: z.string().describe("Application name or N/A, depending on the item type.")
+  itemType: z
+    .string()
+    .describe(
+      "STARLIMS item type, for example SS, APPSS, HTMLFORMXML, APPDS, or CS. Application item types (APP, APPSS, APPDS, APPCS, forms) require a valid categoryName/appName; global types (SS, DS, CS) require a categoryName and appName=N/A."
+    ),
+  language: z
+    .string()
+    .describe(
+      "Item language. Use SQL for data sources (DS/APPDS), SSL for STARLIMS server scripts (SS/APPSS), JS for client scripts (CS/APPCS), and a form language like GER for forms. Never pass N/A for code items - the backend falls back to the correct default (SQL for data sources) but the local sync depends on a valid language."
+    ),
+  categoryName: z
+    .string()
+    .describe(
+      "For application items: the APPLICATION CATEGORY (the parent folder of the app under /Applications, e.g. BMBH_Modules - NOT the literal string 'app'). For global items (SS/DS/CS): the category folder name (e.g. BMBH). Browse /Applications or search_by_name to get the real category. A wrong category silently aborts creation."
+    ),
+  appName: z
+    .string()
+    .describe(
+      "For application items: the application name under the category (e.g. BMBH_Ticketmanagement, from the URI /Applications/<category>/<appName>/...). Use N/A for global items and categories."
+    )
 });
 
 const runIntegrationTestsInputSchema = z.object({
@@ -457,7 +473,8 @@ export class StarlimsMcpServer {
     server.registerTool(
       "create_item",
       {
-        description: "Create a STARLIMS enterprise item using the existing add workflow.",
+        description:
+          "Create a STARLIMS enterprise item. For application items (APP, APPSS, APPDS, APPCS, forms) pass the APPLICATION CATEGORY as categoryName (parent of the app under /Applications, e.g. BMBH_Modules - never the literal 'app') and the app name as appName. For global items (SS, DS, CS) pass the category and appName=N/A. Language: SQL for data sources, SSL for STARLIMS server scripts, JS for client scripts, GER/ENG for forms.",
         inputSchema: createItemInputSchema,
         outputSchema: toolResultSchema
       },
