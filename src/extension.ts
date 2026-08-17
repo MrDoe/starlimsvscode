@@ -4771,7 +4771,7 @@ Please provide:
 
           // create the item
           var sReturn = await enterpriseService.addItem(itemName, itemType, itemLanguage, categoryName, appName);
-          if (sReturn.length === 0) {
+          if (!sReturn) {
             return;
           }
 

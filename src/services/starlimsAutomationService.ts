@@ -697,9 +697,25 @@ export class StarlimsAutomationService {
 
     let effectiveLanguage = normalizedLanguage;
     let languageAdjusted = false;
-    if (FORM_ITEM_TYPES.has(normalizedItemType.toUpperCase())) {
+    const upperItemType = normalizedItemType.toUpperCase();
+    if (FORM_ITEM_TYPES.has(upperItemType)) {
       if (!effectiveLanguage || effectiveLanguage.toUpperCase() === "N/A") {
         effectiveLanguage = this.options.getDefaultFormLanguage() || "GER";
+        languageAdjusted = true;
+      }
+    } else if (SERVER_SCRIPT_ITEM_TYPES.has(upperItemType)) {
+      if (!effectiveLanguage || effectiveLanguage.toUpperCase() === "N/A") {
+        effectiveLanguage = "SSL";
+        languageAdjusted = true;
+      }
+    } else if (DATA_SOURCE_ITEM_TYPES.has(upperItemType)) {
+      if (!effectiveLanguage || effectiveLanguage.toUpperCase() === "N/A") {
+        effectiveLanguage = "SQL";
+        languageAdjusted = true;
+      }
+    } else if (upperItemType === EnterpriseItemType.ClientScript || upperItemType === EnterpriseItemType.AppClientScript) {
+      if (!effectiveLanguage || effectiveLanguage.toUpperCase() === "N/A") {
+        effectiveLanguage = "JS";
         languageAdjusted = true;
       }
     }
@@ -722,7 +738,8 @@ export class StarlimsAutomationService {
     if (!result) {
       return {
         ok: false,
-        error: "Could not create enterprise item."
+        error:
+          "Could not create enterprise item. Check that the category (for application items: the app category, e.g. BMBH_Modules) and app name exist on the server."
       };
     }
 
