@@ -97,8 +97,8 @@ g_Sys_IsSourceControlEnabled := .F.;
 :DECLARE oUtils, sCategoryID, sAppID;
 oUtils := CreateUDObject("SCM_API.Utils", {});
 
-/* resolve parent IDs and validate them before adding; a bogus category or app name
-   would otherwise fail deep inside the provider with an unhelpful generic error;
+/* resolve parent IDs and validate them before adding (a bogus category or app name
+   would otherwise fail deep inside the provider with an unhelpful generic error);
 :BEGINCASE;
 	:CASE sItemType == "APP";
 		sCategoryID := oUtils:GetItemGUID(sCategory, "APPCATEGORY");

@@ -675,4 +675,76 @@ suite('StarlimsAutomationService', () => {
     assert.strictEqual(result.targetServer, 'PROD');
     assert.strictEqual(receivedSaveLocalEdits, false);
   });
+
+  test('createItem aborts when addItem fails instead of continuing to checkout', async () => {
+    let checkoutCalled = false;
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        addItem: async () => undefined,
+        checkOutItemResult: async () => {
+          checkoutCalled = true;
+          return { ok: true, data: true };
+        }
+      }),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.createItem('dsBroken', 'APPDS', 'SQL', 'app', 'BMBH_Ticketmanagement');
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /could not create enterprise item/i);
+    assert.strictEqual(checkoutCalled, false);
+  });
+
+  test('createItem defaults data source language to SQL when N/A is passed', async () => {
+    let receivedLanguage: string | undefined;
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        addItem: async (_name, _type, language) => {
+          receivedLanguage = language;
+          return JSON.stringify({ success: true });
+        }
+      }),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.createItem('dsNew', 'APPDS', 'N/A', 'BMBH_Modules', 'BMBH_Ticketmanagement');
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(receivedLanguage, 'SQL');
+    assert.match(String(result.note), /SQL/);
+  });
+
+  test('createItem defaults server script language to SSL when N/A is passed', async () => {
+    let receivedLanguage: string | undefined;
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        addItem: async (_name, _type, language) => {
+          receivedLanguage = language;
+          return JSON.stringify({ success: true });
+        }
+      }),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.createItem('scNew', 'APPSS', 'N/A', 'BMBH_Modules', 'BMBH_Ticketmanagement');
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(receivedLanguage, 'SSL');
+  });
 });

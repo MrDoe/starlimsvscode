@@ -840,7 +840,7 @@ export class StarlimsAutomationService {
     };
 
     if (languageAdjusted) {
-      createResult.note = `Language was overridden from "${normalizedLanguage}" to "${effectiveLanguage}" for form item. Form items require a valid language (GER/ENG).`;
+      createResult.note = `Language was overridden from "${normalizedLanguage}" to "${effectiveLanguage}" for ${normalizedItemType}. Code items require a valid language (SSL/JS/SQL), forms require GER/ENG.`;
     }
 
     return createResult;
