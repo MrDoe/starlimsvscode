@@ -24,6 +24,6 @@
       "vscode-languageserver-types": ["./node_modules/vscode-languageserver-types/lib/umd/main.d.ts"]
     }
   },
-  "include": ["src/lsp/server/parser.test.ts"],
+  "include": ["src/lsp/server/*.ts"],
   "exclude": ["node_modules"]
 }

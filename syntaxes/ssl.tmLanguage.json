@@ -48,6 +48,12 @@
           "include": "#function"
         },
         {
+          "include": "#methodCall"
+        },
+        {
+          "include": "#propertyAccess"
+        },
+        {
           "include": "#identifier_accessed"
         },
         {
@@ -272,6 +278,12 @@
           "include": "#function"
         },
         {
+          "include": "#methodCall"
+        },
+        {
+          "include": "#propertyAccess"
+        },
+        {
           "include": "#identifier_accessed"
         },
         {
@@ -290,6 +302,58 @@
           "include": "#langConstants"
         }
       ]
+    },
+    "methodCall": {
+      "begin": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(:)\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(\\()",
+      "beginCaptures": {
+        "1": {
+          "name": "variable.other.object.ssl"
+        },
+        "2": {
+          "name": "punctuation.accessor.colon.ssl"
+        },
+        "3": {
+          "name": "support.function.method.ssl"
+        },
+        "4": {
+          "name": "punctuation.section.arguments.begin.ssl"
+        }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.arguments.end.ssl"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#expression"
+        },
+        {
+          "begin": ",",
+          "end": "(?=,)|(?=\\))",
+          "patterns": [
+            {
+              "include": "#expression"
+            }
+          ]
+        }
+      ]
+    },
+    "propertyAccess": {
+      "begin": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(:)\\s*([A-Za-z_][A-Za-z0-9_]*)",
+      "beginCaptures": {
+        "1": {
+          "name": "variable.other.object.ssl"
+        },
+        "2": {
+          "name": "punctuation.accessor.colon.ssl"
+        },
+        "3": {
+          "name": "variable.other.property.ssl"
+        }
+      },
+      "end": "(?=\\s|;|,|\\)|\\]|\\})"
     },
     "embeddedSqlStringsDouble": {
       "name": "meta.embedded.block.sql",

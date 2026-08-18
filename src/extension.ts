@@ -25,6 +25,9 @@ import { GitService } from "./services/gitService";
 import { OpenCodeServerService } from "./services/opencodeServerService";
 import { TicketFullInfo, TicketMeasureDraft, TicketOverview, TicketReference, TicketStatusGroupName } from "./services/ticketManagementTypes";
 import { TicketStackTraceContentProvider } from "./providers/ticketStackTraceContentProvider";
+import { registerSSLBlockCloser } from "./providers/sslBlockCloser";
+import { registerSSLDefinitionProvider } from "./providers/sslDefinitionProvider";
+import { registerSSLStatusBar } from "./providers/sslStatusBar";
 import * as crypto from 'crypto';
 import { promisify } from "util";
 import { startLanguageClient, stopLanguageClient } from "./lsp/client";
@@ -314,6 +317,17 @@ export async function activate(context: vscode.ExtensionContext) {
   // Start SSL Language Server
   const languageClient = startLanguageClient(context);
   context.subscriptions.push({ dispose: () => { void stopLanguageClient(); } });
+
+  // Auto-insert SSL block closers (:IF -> :ENDIF; etc.) on Enter
+  registerSSLBlockCloser(context);
+
+  // No-op command used as the CodeLens title carrier from the SSL LSP
+  context.subscriptions.push(
+    vscode.commands.registerCommand("starlimsSslLsp.noop", () => undefined)
+  );
+
+  // SSL status bar item (shown while an SSL file is active)
+  registerSSLStatusBar(context);
 
   // Start JS Language Server if a SLVSCODE workspace is open
   const jsLspConfig = vscode.workspace.getConfiguration("starlimsJsLsp");
@@ -5002,6 +5016,30 @@ Please provide:
         async (item: TreeEnterpriseItem | any) => {
           editorInsert(item.label);
         }
+      );
+
+      // register the SSL definition provider (DoProc/ExecFunction string targets)
+      registerSSLDefinitionProvider(
+        context,
+        {
+          search: async (scriptName, itemType) =>
+            enterpriseTreeProvider.search(scriptName, itemType, true, false, true),
+          getLocalCopy: async (uri) => {
+            const resolved = await enterpriseTreeProvider.getTreeItemByUri(uri);
+            if (!resolved) {
+              return undefined;
+            }
+            const serverWorkspacePath = enterpriseService.getServerWorkspacePath(rootPath!);
+            const localPath = await enterpriseService.getLocalCopy(
+              resolved.uri,
+              serverWorkspacePath,
+              false,
+              getEnterpriseItemLanguage(resolved)
+            );
+            return localPath ?? undefined;
+          },
+        },
+        () => undefined
       );
 
       // register the GoToServerScript command

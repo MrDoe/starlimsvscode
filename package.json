@@ -3,7 +3,7 @@
     "displayName": "STARLIMS VS Code Extension",
     "description": "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license": "SEE LICENSE IN LICENSE.md",
-    "version": "1.7.26",
+    "version": "1.8.1",
     "icon": "resources/extension/starlimsvscode.png",
     "publisher": "cdoellinger",
     "author": "Christoph Döllinger <christoph.doellinger@med.uni-heidelberg.de>",
@@ -1124,6 +1124,189 @@
                         "description": "Enable the STARLIMS JavaScript Language Server for JS IntelliSense in SLVSCODE workspaces."
                     }
                 }
+            },
+            {
+                "type": "object",
+                "title": "STARLIMS SSL Language Server",
+                "properties": {
+                    "starlimsSslLsp.enabled": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Enable the STARLIMS SSL Language Server (diagnostics, navigation, IntelliSense, formatting)."
+                    },
+                    "starlimsSslLsp.format.indentStyle": {
+                        "type": "string",
+                        "enum": [
+                            "tab",
+                            "space"
+                        ],
+                        "default": "tab",
+                        "description": "Indentation style used by the SSL formatter."
+                    },
+                    "starlimsSslLsp.format.indentWidth": {
+                        "type": "number",
+                        "default": 4,
+                        "minimum": 1,
+                        "description": "Number of spaces per indent level when starlimsSslLsp.format.indentStyle is 'space'."
+                    },
+                    "starlimsSslLsp.format.operatorSpacing": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Insert spaces around operators when formatting."
+                    },
+                    "starlimsSslLsp.format.commaSpacing": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Insert a space after commas when formatting."
+                    },
+                    "starlimsSslLsp.format.builtinFunctionCase": {
+                        "type": "string",
+                        "enum": [
+                            "PascalCase",
+                            "preserve"
+                        ],
+                        "enumDescriptions": [
+                            "Normalize all STARLIMS built-in functions to their canonical PascalCase form (SQLExecute, GetDataSet, AllTrim, ...).",
+                            "Preserve the casing the user typed."
+                        ],
+                        "default": "PascalCase",
+                        "description": "Casing applied to STARLIMS built-in function names by the formatter."
+                    },
+                    "starlimsSslLsp.format.wrapLength": {
+                        "type": "number",
+                        "default": 90,
+                        "minimum": 0,
+                        "description": "Maximum line length before the formatter wraps long argument lists at commas. 0 disables wrapping."
+                    },
+                    "starlimsSslLsp.format.semicolonEnforcement": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Ensure statements end with a semicolon when formatting."
+                    },
+                    "starlimsSslLsp.format.blankLinesBetweenProcs": {
+                        "type": "number",
+                        "default": 1,
+                        "minimum": 0,
+                        "description": "Blank lines inserted between :PROCEDURE blocks by the formatter."
+                    },
+                    "starlimsSslLsp.format.trimTrailingWhitespace": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Remove trailing whitespace from every line when formatting."
+                    },
+                    "starlimsSslLsp.format.maxConsecutiveBlankLines": {
+                        "type": "number",
+                        "default": 2,
+                        "minimum": 0,
+                        "description": "Maximum consecutive blank lines preserved by the formatter. 0 disables the cap."
+                    },
+                    "starlimsSslLsp.format.sql.enabled": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Format inline SQL string literals passed to SQLExecute / RunSQL / GetDataSet and friends."
+                    },
+                    "starlimsSslLsp.format.sql.keywordCase": {
+                        "type": "string",
+                        "enum": [
+                            "upper",
+                            "lower",
+                            "preserve"
+                        ],
+                        "default": "upper",
+                        "description": "Casing applied to SQL keywords inside formatted inline SQL."
+                    },
+                    "starlimsSslLsp.format.sql.indentSpaces": {
+                        "type": "number",
+                        "default": 4,
+                        "minimum": 1,
+                        "description": "Spaces used to indent clauses inside formatted inline SQL."
+                    },
+                    "starlimsSslLsp.format.sql.style": {
+                        "type": "string",
+                        "enum": [
+                            "standard",
+                            "canonicalCompact",
+                            "compact",
+                            "expanded"
+                        ],
+                        "default": "canonicalCompact",
+                        "description": "Layout style for formatted inline SQL. standard breaks major clauses; canonicalCompact also breaks AND/OR and SET assignments; compact keeps everything on as few lines as possible; expanded breaks the most aggressively."
+                    },
+                    "starlimsSslLsp.diagnostics.rules": {
+                        "type": "object",
+                        "default": {},
+                        "description": "Per-rule severity overrides for SSL style-guide diagnostics. Keys are rule slugs, values are off | info | warn | error. Known slugs: keyword_uppercase, not_preferred_operator, dot_property_access, equals_vs_strict_equals, step_spacing, comment_termination, sql_injection, require_parameterized_queries, placeholder_policy, hungarian_notation, limit_block_depth, max_params_per_procedure, missing_otherwise, prefer_exitcase, redeclare_is_noop, parameters_first, default_after_parameters, nested_iif.",
+                        "additionalProperties": {
+                            "type": "string",
+                            "enum": [
+                                "off",
+                                "info",
+                                "warn",
+                                "error"
+                            ]
+                        }
+                    },
+                    "starlimsSslLsp.diagnostics.strictStyleGuideMode": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Elevate all style warnings to errors."
+                    },
+                    "starlimsSslLsp.diagnostics.globals": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": [],
+                        "description": "Variable names that are always treated as declared globals (exempt from declaration and naming rules)."
+                    },
+                    "starlimsSslLsp.naming.hungarianNotation.enabled": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Enforce Hungarian notation for declared variables and parameters."
+                    },
+                    "starlimsSslLsp.naming.hungarianNotation.prefixes": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": [
+                            "s",
+                            "n",
+                            "b",
+                            "d",
+                            "a",
+                            "o",
+                            "fn",
+                            "v"
+                        ],
+                        "description": "Allowed Hungarian notation prefixes."
+                    },
+                    "starlimsSslLsp.styleGuide.limitBlockDepth": {
+                        "type": "number",
+                        "default": 4,
+                        "minimum": 0,
+                        "description": "Maximum nested control-flow block depth. 0 disables the rule."
+                    },
+                    "starlimsSslLsp.styleGuide.maxParamsPerProcedure": {
+                        "type": "number",
+                        "default": 8,
+                        "minimum": 0,
+                        "description": "Limit on :PARAMETERS entries per procedure. 0 disables the rule."
+                    },
+                    "starlimsSslLsp.editor.autoInsertBlockClosers": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "When you press Enter after a line like :IF, :WHILE, :FOR, :BEGINCASE, :TRY, :PROCEDURE, :CLASS or :REGION, automatically insert the matching :ENDIF;/:ENDWHILE;/:NEXT;/:ENDCASE;/:ENDTRY;/:ENDPROC;/:ENDCLASS;/:ENDREGION; on the line below."
+                    },
+                    "starlimsSslLsp.documentNamespaces": {
+                        "type": "object",
+                        "default": {},
+                        "description": "Mapping of namespace prefixes (as they appear in ExecFunction/DoProc strings) to workspace-relative folders. Example: {\"Services\": \"server/services\"} resolves ExecFunction(\"Services.Orders.ProcessOrder\") to server/services/Orders.ssl.",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    }
+                }
             }
         ],
         "languages": [
@@ -1192,7 +1375,7 @@
         "pretest": "npm run compile-tests && npm run compile && npm run lint",
         "lint": "eslint src --ext ts",
         "test": "node ./out/test/runTest.js",
-        "test:lsp": "tsc -p tsconfig.lsp-test.json && mocha out-lsp-test/lsp/server/parser.test.js",
+        "test:lsp": "tsc -p tsconfig.lsp-test.json && mocha \"out-lsp-test/lsp/server/*.test.js\"",
         "check:ssl": "node tools/check-ssl-syntax.mjs",
         "build": "(rm -rf out || true) && mkdir out && cp package.json out && cd ./src/backend && ./create-packages.sh && cd ../.. && vsce package",
         "generate-typings": "node tools/generate-starlims-typings.mjs \"%STARLIMS_ROOT%\"",

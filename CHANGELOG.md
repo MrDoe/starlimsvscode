@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SSL formatter**: `Format Document` / `Format Selection` for SSL files - block indentation, keyword UPPERCASE, builtin PascalCase normalization, operator/comma spacing, semicolon enforcement, blank-line control between procedures, comma wrapping and inline SQL reflow for `SQLExecute`/`RunSQL`/`GetDataSet` string literals (`starlimsSslLsp.format.*`, incl. `format.sql.*`)
+- **SSL style-guide diagnostics** (17 rules): Hungarian notation, block depth, max params, missing `:OTHERWISE`, `<>`/`#` → `!=`, keyword casing, dot-property access, comment termination, SQL injection/placeholder policy and more - with per-rule severity overrides (`starlimsSslLsp.diagnostics.rules`), strict mode, and `@ssl-disable` / `@ssl-disable-next-line` suppression comments
+- **Quick fixes** for style-rule diagnostics (uppercase keyword, operator/property/equals fixes, comment `;`, redundant `:DECLARE`, missing `:OTHERWISE`) plus "Suppress on this line / for this file" actions
+- **SSL signature help** (parameter hints for builtins and user procedures) and **snippet completions** for common constructs (`:PROCEDURE`, `:IF`, `:WHILE`, `:FOR`, `:TRY`, `:BEGINCASE`, `:REGION`, `:CLASS`)
+- **Block closers**: pressing Enter after `:IF`/`:WHILE`/`:FOR`/`:BEGINCASE`/`:TRY`/`:PROCEDURE`/`:CLASS`/`:REGION` inserts the matching `:END*;` when not already balanced (`starlimsSslLsp.editor.autoInsertBlockClosers`)
+- **DoProc/ExecFunction go-to-definition**: string call targets resolve via workspace namespaces (`starlimsSslLsp.documentNamespaces`), `:INCLUDE` libraries and the live STARLIMS server
+- **Navigation**: document highlights (read/write), rename, inlay hints (parameter names), CodeLens reference counts, call hierarchy
+- **SSL status bar item** (`SSL · LSP vX · N fns`) while an SSL file is active
+- **Grammar**: `obj:Method()` / `obj:Prop` colon-accessor highlighting
+- **`starlimsSslLsp.enabled`** toggle for the SSL language server (previously always on)
+- `npm run check:ssl` now also reports style-guide rule violations (always on; exit code still only fails on parse errors or error-severity rule hits)
+
+### Changed
+
+- Style-rule slugs, formatter settings and hover docs are documented in `.opencode/wiki/` (`ssl-formatter`, `ssl-style-rules`, `ssl-quick-fixes`, `ssl-docs`, `ssl-navigation`, `ssl-definition-provider`, `ssl-comment-termination`)
 - Ollama support for generated check-in and Git commit messages (`STARLIMS.git.commitMessageGenerator` now accepts `ollama`, configured through `STARLIMS.git.ollamaCommitMessageBaseUrl` and `STARLIMS.git.ollamaCommitMessageModel`)
 - Renamed Copilot message settings to provider-neutral names (`STARLIMS.git.aiCommitMessageSystemPrompt`, `STARLIMS.git.aiCommitMessageTimeoutMs`); old setting names still work as fallback
 - Removed unused legacy Copilot commit message generation from the Git service
