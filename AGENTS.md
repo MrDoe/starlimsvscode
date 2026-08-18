@@ -15,7 +15,8 @@ VS Code extension. TypeScript. SSL (`.ssl`, `.srvscr`) and SLSQL (`.slsql`) lang
 | Lint | `npm run lint` |
 | Typecheck main ext | `npm run compile-tests` |
 | All checks (typecheck + compile + lint) | `npm run pretest` |
-| Validate backend SSL syntax (LSP parser over all `.srvscr`) | `npm run check:ssl` |
+| Validate backend SSL syntax + style rules (LSP parser over all `.srvscr`) | `npm run check:ssl` |
+| SSL LSP unit tests (mocha, no VS Code) | `npm run test:lsp` |
 | Windows VSIX | `npm run build-windows` |
 | Generate STARLIMS typings | `npm run generate-typings` (needs `STARLIMS_ROOT` env) |
 | Publish to share | `npm run publish` (copies to `\\BMBH02\SL_Connector\VSCode\`) |
@@ -140,7 +141,7 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 | `src/services/opencodeServerService.ts` | OpenCode server API client (spawns/reuses `opencode web`, sessions, plan→build flow) |
 | `src/services/starlimsJsBridge.ts` | Bridge to the JS language server |
 | `src/services/ticketManagementTypes.ts` | Tickets data model |
-| `src/lsp/server/` | SSL language server (lexer, parser, diagnostics, refs, hover). Design: `starlims-lsp.md` |
+| `src/lsp/server/` | SSL language server (lexer, parser, diagnostics, style rules, quick fixes, formatter, hover, refs, navigation). Design: `starlims-lsp.md` |
 | `src/lsp/js/` | Separate TS-powered JS IntelliSense LSP (`starlimsJsLsp.enabled`, default true) |
 | `src/providers/` | Tree data providers (enterprise, checked-out, tickets), file decorations, server-selector webview |
 | `src/panels/` | Webview panels (table designer, data view) |
@@ -158,6 +159,7 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 `STARLIMS.opencode.*` — "Solve with OpenCode" (`integration: server|terminal`, `planModel: glm-5.1`, `buildModel: kimi-2.6`, `serverPort: 4096`; password in secret storage via `STARLIMS.SetOpenCodeServerPassword`).
 `STARLIMS.git.*` — git on check-in (autoPush, remoteUrl, commit message generator).
 `starlimsJsLsp.enabled` — JS LSP (default true).
+`starlimsSslLsp.*` — SSL LSP: `enabled`, `format.*` (indent, casing, spacing, wrap, inline SQL), `diagnostics.rules` (style-rule slug → off|info|warn|error), `diagnostics.strictStyleGuideMode`, `diagnostics.globals`, `naming.hungarianNotation.*`, `styleGuide.*`, `editor.autoInsertBlockClosers`, `documentNamespaces`. Style rules run in `check:ssl` always on; exit code only fails on parse errors or error-severity rule hits.
 
 ## Gotchas
 
@@ -177,7 +179,7 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 - `concepts/` — patterns, workflows, gotchas (e.g. `ssl-keyword-registration.md`, `unicode-roundtrip.md`)
 - Consult before source reading; file new knowledge back as new/updated pages with `[[wiki/...]]` cross-links
 
-**LSP note:** when changing SSL keywords/tokens, touch lexer.ts + parser.ts + `syntaxes/ssl.tmLanguage.json` + hover.ts + server.ts completion + `starlims-lsp.md` design doc (see wiki `ssl-keyword-registration.md`). After editing any `.srvscr` under `src/backend/`, run `npm run check:ssl` (parses all backend scripts with the SSL LSP parser) and rebuild `SCM_API.sdp` via `src/backend/create-packages.ps1` (bumps the version; use `create-packages.sh` on non-Windows).
+**LSP note:** when changing SSL keywords/tokens, touch lexer.ts + parser.ts + `syntaxes/ssl.tmLanguage.json` + hover.ts + server.ts completion + `starlims-lsp.md` design doc (see wiki `ssl-keyword-registration.md`). The SSL LSP also has a formatter (`formatter.ts`/`sqlFormatter.ts`), style rules (`styleRules.ts`), quick fixes (`codeActions.ts`), signature help (`signatureHelp.ts`) and navigation (`navigation.ts`) — keyword changes can affect all of them. `tsconfig.lsp-test.json` now compiles the whole `src/lsp/server` directory (not just `parser.test.ts`); `test:lsp` runs all `*.test.js` in `out-lsp-test/lsp/server/`. After editing any `.srvscr` under `src/backend/`, run `npm run check:ssl` (parses all backend scripts with the SSL LSP parser, style rules always on) and rebuild `SCM_API.sdp` via `src/backend/create-packages.ps1` (bumps the version; use `create-packages.sh` on non-Windows).
 
 <!-- BEGIN opencode-rag -->
 ## Code Navigation

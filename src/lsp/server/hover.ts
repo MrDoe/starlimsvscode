@@ -3,6 +3,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { ProgramNode, ASTNode, IdentifierNode, FunctionCallNode, ProcedureDeclNode } from './ast';
 import { SymbolTable } from './symbol-table';
 import { getBuiltinFunction, BuiltinFunction } from './builtins';
+import { formatSSLDoc } from './ssldocs';
 
 export function getHover(
   document: TextDocument,
@@ -59,6 +60,8 @@ function formatBuiltinHover(builtins: BuiltinFunction[]): Hover {
   }
 
   md += `\n\n**Returns:** \`${first.returnType}\``;
+
+  md += formatSSLDoc(first.name);
 
   return {
     contents: {

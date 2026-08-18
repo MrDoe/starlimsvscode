@@ -40,7 +40,7 @@ function nodeInRange(document: TextDocument, node: ASTNode, offset: number): boo
   return offset >= start && offset <= end;
 }
 
-function findIdentifierAtOffset(document: TextDocument, node: ASTNode, offset: number): IdentifierNode | null {
+export function findIdentifierAtOffset(document: TextDocument, node: ASTNode, offset: number): IdentifierNode | null {
   switch (node.type) {
     case 'Identifier': {
       if (nodeInRange(document, node, offset)) {

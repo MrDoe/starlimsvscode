@@ -1,14 +1,7 @@
 import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver';
-import { TextDocument } from 'vscode-languageserver-textdocument';
-import { SSLParser, ParseError } from './parser';
+import { ParseError } from './parser';
 
-export function computeDiagnostics(
-  document: TextDocument,
-  parser: SSLParser
-): Diagnostic[] {
-  const text = document.getText();
-  const { errors } = parser.parse(text);
-
+export function computeDiagnostics(errors: ParseError[]): Diagnostic[] {
   return errors.map((err: ParseError) => {
     const range: Range = {
       start: { line: err.line, character: err.column },

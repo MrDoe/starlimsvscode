@@ -431,7 +431,39 @@ code --install-extension *.vsix   # install in VS Code
 
 ## 11. Open Questions
 
-1. **Scope**: start with Phase 1 only (MVP) or target Phases 1–2?
+1. **Scope**: start with Phase 1 only (MVP) or target Phases 1–2
 2. **Repository location**: inside this repo as `extensions/ssl-language-support/` or separate repo?
 3. **`.ssl.ssl` suffix**: some files have double extension — should the grammar support both `.ssl` and `.ssl.ssl`?
 4. **Built-in docs parsing**: build-time extraction from `UserDoc/SSLReference/index.html` into JSON, or lazy-load at runtime?
+
+---
+
+## 12. Implemented Feature Set (2026-08)
+
+The original plan has been implemented and extended. Current LSP capabilities in `src/lsp/server/server.ts`:
+
+| Capability | Module | Notes |
+|---|---|---|
+| Incremental sync + diagnostics (parse errors) | `diagnostics.ts` | debounced 300ms |
+| Style-guide diagnostics (17 rules) | `styleRules.ts` | per-rule severity overrides via `starlimsSslLsp.diagnostics.rules`; `@ssl-disable` / `@ssl-disable-next-line` suppression comments; strict mode; also run by `npm run check:ssl` |
+| Quick fixes / code actions | `codeActions.ts` | slug-keyed fixes (keyword_uppercase, not_preferred_operator, dot_property_access, equals_vs_strict_equals, step_spacing, comment_termination, redeclare_is_noop, missing_otherwise) + universal suppress actions |
+| Document/range formatting | `formatter.ts`, `sqlFormatter.ts` | line-based rewriter over the lexer token stream: block indentation, keyword UPPERCASE, builtin PascalCase normalization, operator/comma spacing, semicolon enforcement, blank-line policy, comma wrapping, inline SQL reflow (SQLExecute/RunSQL/GetDataSet literals, `?param?` preserved) |
+| Completion | `server.ts` | keywords + snippet templates + builtins + user procedures |
+| Signature help | `signatureHelp.ts` | builtin + user procedure parameter hints |
+| Hover | `hover.ts`, `ssldocs.ts` | keyword/builtin/symbol docs + hand-authored exceptions/caveats/guidance |
+| Definition / references / highlights / rename | `definition.ts`, `references.ts`, `navigation.ts` | read/write highlight distinction, workspace edits |
+| Inlay hints, CodeLens, call hierarchy | `navigation.ts` | parameter names at call sites; reference counts (no-op command `starlimsSslLsp.noop`); incoming/outgoing calls |
+| Folding, document symbols | `folding.ts`, `document-symbols.ts` | |
+
+Extension-host features (VS Code API):
+
+| Feature | Module |
+|---|---|
+| Block closers (`:IF` → `:ENDIF;` on Enter, balance-aware) | `src/providers/sslBlockCloser.ts` |
+| DoProc/ExecFunction definition provider (workspace namespaces + `:INCLUDE` + live server) | `src/providers/sslDefinitionProvider.ts` |
+| Status bar (`SSL · LSP vX · N fns`) | `src/providers/sslStatusBar.ts` |
+| Grammar: `obj:Method()` / `obj:Prop` colon-accessor scoping | `syntaxes/ssl.tmLanguage.json` |
+
+Settings namespace: `starlimsSslLsp.*` (`format.*`, `diagnostics.*`, `naming.hungarianNotation.*`, `styleGuide.*`, `editor.autoInsertBlockClosers`, `documentNamespaces`).
+
+**SSL comment rule reminder**: block comments terminate at the first `;` — suppression comments are written as `/* @ssl-disable <slug>;` (no trailing `*/`).
