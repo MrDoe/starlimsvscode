@@ -48,8 +48,8 @@ export const DEFAULT_STYLE_RULE_CONFIG: StyleRuleConfig = {
   strict: false,
   globals: [],
   hungarianPrefixes: ['s', 'n', 'b', 'd', 'a', 'o', 'fn', 'v'],
-  limitBlockDepth: 4,
-  maxParamsPerProcedure: 8,
+  limitBlockDepth: 10,
+  maxParamsPerProcedure: 30,
 };
 
 interface Finding {
@@ -71,6 +71,7 @@ const NAMED_PLACEHOLDER_FUNCTIONS = new Set([
   'GETDATASETXMLFROMSELECT', 'GETDATASETWITHSCHEMAFROMSELECT', 'GETSSLDATASET',
 ]);
 const POSITIONAL_PLACEHOLDER_FUNCTIONS = new Set(['RUNSQL', 'LSEARCH', 'LSELECT', 'LSELECT1', 'LSELECTC']);
+const BUILD_STRING_FUNCTIONS = new Set(['BUILDSTRING', 'BUILDSTRINGFORIN', 'BUILDSTRINGEX']);
 
 function isKeywordToken(t: Token): boolean {
   switch (t.type) {
@@ -223,6 +224,7 @@ function checkSqlFunction(fnToken: Token, tokens: Token[], startIdx: number, fin
   let sawPlaceholder = false;
   let sawBareQuestion = false;
   let sqlStringStart = -1;
+  let usedBuildString = false;
 
   for (let j = startIdx + 1; j < tokens.length; j++) {
     const t = tokens[j];
@@ -239,6 +241,10 @@ function checkSqlFunction(fnToken: Token, tokens: Token[], startIdx: number, fin
     }
     if (depth <= 0) {
       break;
+    }
+    if (t.type === TokenType.Identifier && BUILD_STRING_FUNCTIONS.has(t.value.toUpperCase()) &&
+        j + 1 < tokens.length && tokens[j + 1].type === TokenType.LeftParen) {
+      usedBuildString = true;
     }
     if (t.type === TokenType.String && sqlStringStart === -1) {
       sqlStringStart = j;
@@ -260,7 +266,7 @@ function checkSqlFunction(fnToken: Token, tokens: Token[], startIdx: number, fin
     }
   }
 
-  if (hasConcatenation) {
+  if (hasConcatenation && !usedBuildString) {
     findings.push({
       slug: 'sql_injection',
       line: fnToken.line,

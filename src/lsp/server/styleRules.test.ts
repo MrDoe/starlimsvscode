@@ -55,6 +55,11 @@ describe('SSL style rules', () => {
     assert.deepStrictEqual(bySlug.get('sql_injection'), [1]);
   });
 
+  it('does not flag concatenation when built via BuildString (sql_injection)', () => {
+    const bySlug = rules('oDS := SQLExecute("SELECT * FROM t WHERE x = " + BuildString(sVal));\n');
+    assert.strictEqual(bySlug.get('sql_injection'), undefined);
+  });
+
   it('flags non-parameterized SQL (require_parameterized_queries)', () => {
     const bySlug = rules('oDS := SQLExecute("SELECT * FROM t WHERE x = 5");\n');
     assert.deepStrictEqual(bySlug.get('require_parameterized_queries'), [1]);
@@ -83,15 +88,16 @@ describe('SSL style rules', () => {
 
   it('flags deep block nesting (limit_block_depth)', () => {
     const src = [
-      ':IF a;', ':IF b;', ':IF c;', ':IF d;', ':IF e;',
-      ':ENDIF;', ':ENDIF;', ':ENDIF;', ':ENDIF;', ':ENDIF;',
+      ':IF a;', ':IF b;', ':IF c;', ':IF d;', ':IF e;', ':IF f;', ':IF g;', ':IF h;', ':IF i;', ':IF j;', ':IF k;',
+      ':ENDIF;', ':ENDIF;', ':ENDIF;', ':ENDIF;', ':ENDIF;', ':ENDIF;', ':ENDIF;', ':ENDIF;', ':ENDIF;', ':ENDIF;', ':ENDIF;',
     ].join('\n');
     const bySlug = rules(src);
     assert.ok((bySlug.get('limit_block_depth') || []).length >= 1);
   });
 
   it('flags too many parameters (max_params_per_procedure)', () => {
-    const src = ':PROCEDURE p;\n:PARAMETERS a, b, c, d, e, f, g, h, i;\n:ENDPROC;\n';
+    const params = Array.from({ length: 31 }, (_, i) => `p${i}`).join(', ');
+    const src = `:PROCEDURE p;\n:PARAMETERS ${params};\n:ENDPROC;\n`;
     const bySlug = rules(src);
     assert.deepStrictEqual(bySlug.get('max_params_per_procedure'), [2]);
   });
