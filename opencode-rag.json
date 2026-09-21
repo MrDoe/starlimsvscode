@@ -8,6 +8,11 @@
   },
   "indexing": {
     "includeExtensions": [
+      ".ver",
+      ".comments",
+      ".srvscr",
+      ".clientscript",
+      ".xml",
       ".ts",
       ".tsx",
       ".js",
@@ -34,7 +39,6 @@
       ".html",
       ".htm",
       ".css",
-      ".xml",
       ".csproj",
       ".sln",
       ".rs",
@@ -74,7 +78,25 @@
       ".dockerfile",
       ".containerfile"
     ],
+    "excludeExtensions": [
+      ".map",
+      ".lock",
+      ".log",
+      ".tmp",
+      ".temp",
+      ".bak",
+      ".backup",
+      ".swp",
+      ".swo",
+      ".DS_Store",
+      ".thumbs.db",
+      ".sdp",
+      ".vsix"
+    ],
     "excludeDirs": [
+      "out-lsp-test",
+      "out",
+      ".vscode-test",
       "node_modules",
       ".git",
       ".opencode",
@@ -99,32 +121,21 @@
       ".svelte-kit",
       ".gradle",
       ".dart_tool",
-      ".cache",
-      ".vscode-test",
-      ".vscode",
-      "opt",
-      "dist",
-      "out",
-      "build",
-      "bin",
-      "obj",
-      "target",
-      "public",
-      "tmp",
-      "temp",
-      "logs"
+      ".cache"
     ],
     "chunkOverlap": 0,
     "minFileSizeBytes": 0,
     "concurrency": 8,
-    "embedBatchSize": 100
+    "embedBatchSize": 40,
+    "embedConcurrency": 4,
+    "ollamaMaxBatchSize": 40
   },
   "vectorStore": {
     "path": "./.opencode/rag_db"
   },
   "retrieval": {
     "topK": 20,
-    "minScore": 0.6,
+    "minScore": 0.35,
     "hybridSearch": {
       "enabled": true,
       "keywordWeight": 0.4

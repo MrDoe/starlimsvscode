@@ -17,3 +17,4 @@ dist/*.sdp
 .env
 CLAUDE.md
 .opencode
+.out-lsp-test

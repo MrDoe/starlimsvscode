@@ -169,6 +169,8 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 - `enterpriseService.ts` backend error messages dropped: ~13 `get*Result` methods call `getOperationErrorMessage(data, fallback)` but the backend puts errors in `result.error`, not `result.data`. Pass the full `result` object instead of `data` to surface real error messages (e.g., `getEnterpriseItemsResult` L1336 had this bug).
 - Backend `ParseURI` (Utils.srvscr) assigns Type purely from URI component count, not from DB lookup. `/ServerScripts/ssCat/realScript` (leaf) and `/ServerScripts/ssCat/nonexistent` (bogus) both return `success:true, items:[]`. No way for the client to distinguish leaf from empty from nonexistent folder without an extra `search_for_items_result` call.
 - SSL comments are terminated by the first `;` — `; */` is NOT valid. A comment written as `/* ... ; */` closes at the `;` and the leftover `*/` becomes a parse error ("Unexpected token in expression"). Always end comments with just `;` (the file header keeps its original `***/;` form). Run `npm run check:ssl` after editing any `.srvscr`.
+- `create-packages.ps1` must read/write `package.json` and `Version.srvscr` with explicit UTF-8 .NET IO (`ReadAllText`/`WriteAllText` + `UTF8Encoding($false)`) — `Get-Content`/`Set-Content` without `-Encoding` use the ANSI codepage for BOM-less files in PS 5.1 and each build double-encodes non-ASCII (the author name), which once inflated `package.json` to 842 MB of mojibake and broke `npm run publish` (`ERR_STRING_TOO_LONG`). The script also guards the size (256 KB) and validates JSON before writing.
+- SCM_API **GET query strings are capped at 2048 chars** by ASP.NET (`maxQueryStringLength` default; the IIS `maxQueryString` is huge but ASP.NET still rejects) → HTTP 400 HTML page. Long AI-generated check-in reasons used to fail with the generic "Could not check in all items." toast. `checkInItem`/`checkInAllItems` now POST `{URI, UserLang, Reason}` and `CheckIn.srvscr`/`CheckInAll.srvscr` read the JSON body first (query string fallback); the URL carries a clamped reason (`buildApiUrlWithClampedParam` + `MAX_STARLIMS_QUERY_URL_LENGTH`). Never put unbounded text into an SCM_API GET query string; surface HTML error titles via `parseJsonWithError` instead of generic toasts. `CheckInAll.srvscr` checks each item in TRY/CATCH and inspects `CheckInItem`'s returned `"Error ..."` string (the provider returns errors, it does not throw).
 
 ## Wiki
 
@@ -188,9 +190,10 @@ ALWAYS use OpenCodeRAG tools before reading or editing:
 - **Search first** — `search_semantic(query)` instead of grep/glob
 - **Skeleton before read** — `get_file_skeleton(filePath)` then read specific lines
 - **Usages before edit** — `find_usages(symbolName)` before modifying any symbol
-- **Images via describe** — `describe_image(filePath)` — never read raw bytes
+- **Images via describe** — `describe_image(filePath, systemPrompt?)` — never read raw bytes
 - **Recall quirks** — `recall_quirks(query)` when you hit a known pitfall
 - **Add quirks** — `add_quirk(content)` when you discover a non-obvious fact
+- **Fix quirks** — `update_quirk(id, ...)` / `delete_quirk(id)` when a stored quirk is outdated or wrong
 
 If no results, run `opencode-rag index`.
 
@@ -199,9 +202,10 @@ If no results, run `opencode-rag index`.
 2. User mentions a file path → `get_file_skeleton(filePath)` THEN `read` on specific lines
 3. User mentions a function/class/variable to edit → `find_usages(symbolName)` THEN `search_semantic` THEN `edit`
 4. User asks a code question → `search_semantic` to gather context before answering
-5. User asks about an image or visual asset → `describe_image(filePath)` to retrieve its generated description, then optionally `search_semantic` for related code
+5. User asks about an image or visual asset → `describe_image(filePath)` (optionally pass `systemPrompt` to focus on specific features) to retrieve its generated description, then optionally `search_semantic` for related code
 6. You encounter an error or need to recall a known pitfall → `recall_quirks(query)`
 7. You discover a non-obvious fact or workaround → `add_quirk(content)` to persist it for future sessions
+8. A recalled quirk is outdated or wrong → `update_quirk(id, ...)` to fix it, or `delete_quirk(id)` if it no longer applies
 
 ### Proactive triggers — you MUST call these tools when
 - User asks about code behavior, architecture, or implementation details
@@ -218,7 +222,7 @@ If no results, run `opencode-rag index`.
 - Answering code questions without calling `search_semantic` first (you guess at behavior)
 - Using `grep`/`glob` when `search_semantic` would find the answer faster
 - Treating image files as text — use `describe_image` instead of reading raw bytes
-- Using `npx opencode-rag quirk` shell commands instead of the built-in `add_quirk` / `recall_quirks` tools (the tools are faster, already loaded in-process, and go through the trust monitor)
+- Using `npx opencode-rag quirk` shell commands instead of the built-in quirk tools (`add_quirk` / `recall_quirks` / `update_quirk` / `delete_quirk`) (the tools are faster, already loaded in-process, and go through the trust monitor)
 
 ### MANDATORY quirk capture rules — you MUST call `add_quirk` when
 - A build, test, or type-check command fails and you resolve it
@@ -226,5 +230,8 @@ If no results, run `opencode-rag index`.
 - You learn an environment-specific requirement (OS, tool version, etc.)
 - You make a design decision that future sessions should remember
 - You resolve a gotcha that cost more than one attempt
+
+### MANDATORY quirk hygiene — you MUST call `update_quirk` or `delete_quirk` when
+- A stored quirk is outdated, wrong, or has been fixed — update it or delete it instead of adding a contradicting duplicate
 - NEVER finish a coding session without adding quirks for resolved errors.
 <!-- END opencode-rag -->

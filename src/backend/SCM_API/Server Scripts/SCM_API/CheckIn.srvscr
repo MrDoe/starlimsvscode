@@ -4,6 +4,7 @@ Author....... :	DC
 Date......... : 2023-06-02
 *******************************************************************************/;
 :DECLARE String, oResponse, oResult, sURI, sReason, oUtils, oEnterpriseItem, sItemID, sItemName, sUserLang, sType, sCategory, sAppName;
+:DECLARE sBody, sRequestAsFile, oPayload;
 String := "";
 oResult := CreateUDObject();
 oResponse := CreateUDObject({
@@ -11,31 +12,64 @@ oResponse := CreateUDObject({
 	{"data", NIL}
 });
 
+/* Read the parameters from the JSON request body when the client announces one
+   with the Body=1 parameter. VSCode sends long check in reasons in the body
+   because they exceed the ASP.NET maxQueryStringLength (2048) of GET requests.
+   The query string is still accepted as a fallback for older clients;
+oPayload := NIL;
+sBody := "";
+:IF Request:QueryString:IsProperty("Body");
+	:TRY;
+		sRequestAsFile := Request:SaveInputStream();
+		:IF !Empty(sRequestAsFile);
+			sBody := ReadText(sRequestAsFile);
+			FileSupport(sRequestAsFile, "DELETE");
+		:ENDIF;
+		:IF !Empty(sBody);
+			oPayload := FromJSON(sBody);
+		:ENDIF;
+	:CATCH;
+		oPayload := NIL;
+	:ENDTRY;
+:ENDIF;
+
 /* get parameters;
-:IF Request:QueryString:IsProperty("URI");
-	sURI := Request:QueryString:URI;
+:IF !Empty(oPayload) .AND. oPayload:IsProperty("URI");
+	sURI := LimsString(oPayload:URI);
 :ELSE;
-	Response:StatusCode := 400;
-	oResponse:success := .F.;
-	oResponse:data := String:Format("Missing required parameter: {0}", "URI");
-	usrmes(oResponse:data);
-	:RETURN oResponse;
+	:IF Request:QueryString:IsProperty("URI");
+		sURI := Request:QueryString:URI;
+	:ELSE;
+		Response:StatusCode := 400;
+		oResponse:success := .F.;
+		oResponse:data := String:Format("Missing required parameter: {0}", "URI");
+		usrmes(oResponse:data);
+		:RETURN oResponse;
+	:ENDIF;
 :ENDIF;
 
-:IF Request:QueryString:IsProperty("UserLang") .AND. !Empty(Request:QueryString:UserLang);
-	sUserLang := Request:QueryString:UserLang;
+:IF !Empty(oPayload) .AND. oPayload:IsProperty("UserLang") .AND. !Empty(oPayload:UserLang);
+	sUserLang := LimsString(oPayload:UserLang);
 :ELSE;
-	sUserLang := GetSetting("DEFAULTLANGUAGE");
+	:IF Request:QueryString:IsProperty("UserLang") .AND. !Empty(Request:QueryString:UserLang);
+		sUserLang := Request:QueryString:UserLang;
+	:ELSE;
+		sUserLang := GetSetting("DEFAULTLANGUAGE");
+	:ENDIF;
 :ENDIF;
 
-:IF Request:QueryString:IsProperty("Reason");
-	sReason := Request:QueryString:Reason;
+:IF !Empty(oPayload) .AND. oPayload:IsProperty("Reason");
+	sReason := LimsString(oPayload:Reason);
 :ELSE;
-	Response:StatusCode := 400;
-	oResponse:success := .F.;
-	oResponse:data := String:Format("Missing required parameter: {0}", "Reason");
-	usrmes(oResponse:data);
-	:RETURN oResponse;
+	:IF Request:QueryString:IsProperty("Reason");
+		sReason := Request:QueryString:Reason;
+	:ELSE;
+		Response:StatusCode := 400;
+		oResponse:success := .F.;
+		oResponse:data := String:Format("Missing required parameter: {0}", "Reason");
+		usrmes(oResponse:data);
+		:RETURN oResponse;
+	:ENDIF;
 :ENDIF;
 
 oUtils := CreateUDObject("SCM_API.Utils", {});

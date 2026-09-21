@@ -181,11 +181,40 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
   /SCM_API.CheckIn.lims:
+    post:
+      tags:
+        - "Code Management"
+      description: |
+        The `SCM_API.CheckIn.lims` endpoint checks in the item at the specified URI.
+        Preferred variant: the check in reason is sent in the JSON body and is not limited by the
+        ASP.NET `maxQueryStringLength` (2048 characters) of the query string.
+      operationId: CheckIn
+      requestBody:
+        description: Check in request object.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckInRequest"
+        required: true
+      responses:
+        "200":
+          description: The operation response (success status and error or success message).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckInResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
     get:
       tags:
         - "Code Management"
-      description: The `SCM_API.CheckIn.lims` endpoint checks in the item at the specified URI.
-      operationId: CheckIn
+      description: |
+        The `SCM_API.CheckIn.lims` endpoint checks in the item at the specified URI.
+        Legacy variant kept for older clients; long check in reasons exceed the ASP.NET
+        `maxQueryStringLength` (2048 characters) and fail with an HTTP 400 error page.
+      operationId: CheckInLegacy
       parameters:
         - in: query
           name: URI
@@ -221,11 +250,41 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
   /SCM_API.CheckInAll.lims:
+    post:
+      tags:
+        - "Code Management"
+      description: |
+        The `SCM_API.CheckInAll.lims` endpoint checks in all items checked out by the user (or by all
+        users). Preferred variant: the check in reason is sent in the JSON body and is not limited by
+        the ASP.NET `maxQueryStringLength` (2048 characters) of the query string. The response reports
+        per item failures so a single failing item no longer hides the errors of the other items.
+      operationId: CheckInAll
+      requestBody:
+        description: Check in all request object.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckInAllRequest"
+        required: true
+      responses:
+        "200":
+          description: The operation response (success status and error or success message).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckInResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
     get:
       tags:
         - "Code Management"
-      description: The `SCM_API.CheckInAll.lims` endpoint checks in the item at the specified URI.
-      operationId: CheckInAll
+      description: |
+        The `SCM_API.CheckInAll.lims` endpoint checks in all items checked out by the user (or by all
+        users). Legacy variant kept for older clients; long check in reasons exceed the ASP.NET
+        `maxQueryStringLength` (2048 characters) and fail with an HTTP 400 error page.
+      operationId: CheckInAllLegacy
       parameters:
         - in: query
           name: AllUsers
@@ -683,6 +742,31 @@ components:
           type: string
           example:
           description: empty string if successful or an error message otherwise.
+    CheckInRequest:
+      required:
+        - URI
+        - Reason
+      properties:
+        URI:
+          type: string
+          example: "/ServerScripts/Test/TestServerScript"
+          description: The URI to the item to check in.
+        UserLang:
+          type: string
+          example: GER
+          description: Optional form language. Defaults to the server default language.
+        Reason:
+          type: string
+          description: The check in reason.
+          example: Checked in bug fix.
+    CheckInAllRequest:
+      required:
+        - Reason
+      properties:
+        Reason:
+          type: string
+          description: The check in reason.
+          example: Checked in bug fix.
     SaveCodeRequest:
       required:
         - URI

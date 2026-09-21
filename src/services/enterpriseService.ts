@@ -7,7 +7,7 @@ import * as path from "path";
 import { IEnterpriseService } from "./iEnterpriseService";
 import { EnterpriseItemCodeRecord, EnterpriseItemRecord, EnterpriseOperationResult, LocalCopyResult } from "./starlimsAutomationTypes";
 import { connectBridge } from "../utilities/bridge";
-import { cleanUrl, isJson } from "../utilities/miscUtils";
+import { clampValueToEncodedBudget, cleanUrl, isJson, MAX_STARLIMS_QUERY_URL_LENGTH } from "../utilities/miscUtils";
 import { DOMParser } from "@xmldom/xmldom";
 import * as crypto from 'crypto';
 import {
@@ -148,6 +148,15 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns The parsed JSON object or null if parsing fails
    */
   private async safeParseJsonInternal(response: any, showErrors: boolean): Promise<any> {
+    const { data } = await this.parseJsonWithError(response, showErrors);
+    return data;
+  }
+
+  /**
+   * Parses a response as JSON and keeps the HTTP/HTML error details when parsing fails, so callers
+   * can surface the real server error (e.g. an ASP.NET error page) instead of a generic message.
+   */
+  private async parseJsonWithError(response: any, showErrors: boolean): Promise<{ data: any; error?: string }> {
     const contentType = response.headers?.get?.('content-type') || '';
     const statusCode = response.status;
     const responseUrl = response.url || 'unknown';
@@ -160,7 +169,7 @@ export class EnterpriseService implements IEnterpriseService {
     // Check if response status is not ok
     if (!response.ok) {
       if (parsedJson) {
-        return parsedJson;
+        return { data: parsedJson };
       }
 
       const htmlTitle = this.getHtmlTitle(text);
@@ -169,11 +178,11 @@ export class EnterpriseService implements IEnterpriseService {
         vscode.window.showErrorMessage(`Server error (${statusCode}): ${errorMessage}`);
       }
       console.error(`[EnterpriseService] HTTP ${statusCode} non-JSON response from ${responseUrl}:`, compactPreview);
-      return null;
+      return { data: null, error: `HTTP ${statusCode}: ${errorMessage}` };
     }
 
     if (parsedJson) {
-      return parsedJson;
+      return { data: parsedJson };
     }
 
     const htmlTitle = this.getHtmlTitle(text);
@@ -182,14 +191,14 @@ export class EnterpriseService implements IEnterpriseService {
         vscode.window.showErrorMessage(`Server error: ${htmlTitle}`);
       }
       console.error(`[EnterpriseService] HTML response from ${responseUrl}:`, compactPreview);
-      return null;
+      return { data: null, error: `Server error: ${htmlTitle}` };
     }
 
     if (showErrors) {
       vscode.window.showErrorMessage(`Server returned non-JSON response (${statusCode}): ${contentType || 'unknown content type'}`);
     }
     console.error(`[EnterpriseService] Unexpected response from ${responseUrl}:`, contentType, compactPreview);
-    return null;
+    return { data: null, error: `Server returned non-JSON response (${statusCode}): ${contentType || 'unknown content type'}` };
   }
 
   private async safeParseJson(response: any): Promise<any> {
@@ -212,6 +221,16 @@ export class EnterpriseService implements IEnterpriseService {
     }
 
     return fallbackMessage;
+  }
+
+  /**
+   * Appends transport level error details (e.g. the HTTP status and the title of the server's error
+   * page) to a user facing message, so failures such as an overlong query string are visible
+   * instead of being hidden behind a generic "Could not check in ..." notification.
+   */
+  private formatCheckInError(fallbackMessage: string, error: string | undefined): string {
+    const details = (error ?? "").trim();
+    return details.length > 0 ? `${fallbackMessage} ${details}` : fallbackMessage;
   }
 
   private normalizeLocalFileExtension(extension: string): string {
@@ -1476,34 +1495,47 @@ export class EnterpriseService implements IEnterpriseService {
       vscode.window.showErrorMessage("Could not check in enterprise item. Missing URI.");
       return false;
     }
-    const params = new URLSearchParams([
-      ["URI", uri],
-      ["UserLang", language ?? ""],
-      ["Reason", reason]
-    ]);
-    const url = `${this.baseUrl}/SCM_API.CheckIn.${this.urlSuffix}?${params}`;
+    // The reason is sent in the POST body: long generated reasons exceed the ASP.NET query string
+    // limit (`maxQueryStringLength`, 2048 by default). The `Body=1` marker tells the server to read
+    // the JSON body, and the clamped query string value keeps older SCM_API deployments working.
+    const payload = {
+      URI: uri,
+      UserLang: language ?? "",
+      Reason: reason ?? ""
+    };
+    const { url, truncated } = this.buildApiUrlWithClampedParam(
+      "CheckIn",
+      { URI: uri, UserLang: language ?? "", Reason: reason, Body: "1" },
+      "Reason"
+    );
+    if (truncated) {
+      console.warn("[EnterpriseService] The check-in reason was clamped for the request URL; the full reason is sent in the POST body.");
+    }
+
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
-      method: "GET",
-      headers
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload)
     };
 
     try {
       const response = await fetch(url, options);
-      const result = await this.safeParseJsonInternal(response, false);
-      if (!result) {
-        vscode.window.showErrorMessage("Could not check in enterprise item.");
+      const { data, error } = await this.parseJsonWithError(response, false);
+      if (!data) {
+        vscode.window.showErrorMessage(this.formatCheckInError("Could not check in enterprise item.", error));
         return false;
       }
-      const { success }: { success: boolean } = result;
+      const { success, data: responseData }: { success: boolean; data: unknown } = data;
       if (success) {
         this.checkedOutDocuments.delete(uri);
         vscode.window.showInformationMessage("Enterprise item checked in successfully.");
         return true;
-      } else {
-        vscode.window.showErrorMessage("Could not check in enterprise item.");
-        return false;
       }
+
+      vscode.window.showErrorMessage(this.getOperationErrorMessage(responseData, "Could not check in enterprise item."));
+      console.error(responseData);
+      return false;
     } catch (e: any) {
       console.error(e);
       vscode.window.showErrorMessage("Could not check in enterprise item.");
@@ -2143,6 +2175,40 @@ export class EnterpriseService implements IEnterpriseService {
     return url;
   }
 
+  /**
+   * Builds a SCM_API URL and clamps the value of `clampedKey` so the resulting URL stays below the
+   * ASP.NET query string limit. ASP.NET answers HTTP 400 with an HTML error page when the query
+   * string exceeds `maxQueryStringLength` (2048 by default), which is why long check-in reasons must
+   * be sent in a POST body and only this clamped value ends up in the URL.
+   *
+   * @param path the SCM_API script name, e.g. `CheckInAll`
+   * @param params the query parameters
+   * @param clampedKey the parameter whose value is clamped to the available URL budget
+   * @returns the URL plus a flag indicating whether the value had to be truncated
+   */
+  private buildApiUrlWithClampedParam(
+    path: string,
+    params: Record<string, string | undefined>,
+    clampedKey: string
+  ): { url: string; truncated: boolean } {
+    const url = this.buildApiUrl(path, params);
+    const value = params[clampedKey];
+    if (!value || url.length <= MAX_STARLIMS_QUERY_URL_LENGTH) {
+      return { url, truncated: false };
+    }
+
+    const urlWithoutValue = this.buildApiUrl(path, { ...params, [clampedKey]: "" });
+    const budget = MAX_STARLIMS_QUERY_URL_LENGTH - urlWithoutValue.length;
+    const encodedLength = (candidate: string) =>
+      new URLSearchParams([[clampedKey, candidate]]).toString().length - (clampedKey.length + 1);
+    const clampedValue = clampValueToEncodedBudget(value, budget, encodedLength);
+
+    return {
+      url: this.buildApiUrl(path, { ...params, [clampedKey]: clampedValue }),
+      truncated: true
+    };
+  }
+
   private async connectStarlimsBridge() {
     if (this.refreshSessionInterval) {
       clearInterval(this.refreshSessionInterval);
@@ -2259,28 +2325,38 @@ export class EnterpriseService implements IEnterpriseService {
    * @returns true if all items were checked in successfully, false otherwise
    */
   public async checkInAllItems(reason: string | undefined) {
-    const url = this.buildApiUrl("CheckInAll", { Reason: reason });
+    // The reason is sent in the POST body: long generated reasons exceed the ASP.NET query string
+    // limit (`maxQueryStringLength`, 2048 by default), which used to fail with an HTTP 400 error
+    // page. The `Body=1` marker tells the server to read the JSON body, and the clamped query string
+    // value keeps older SCM_API deployments working.
+    const payload = { Reason: reason ?? "" };
+    const { url, truncated } = this.buildApiUrlWithClampedParam("CheckInAll", { Reason: reason, Body: "1" }, "Reason");
+    if (truncated) {
+      console.warn("[EnterpriseService] The check-in reason was clamped for the request URL; the full reason is sent in the POST body.");
+    }
+
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
-      method: "GET",
-      headers
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload)
     };
 
     try {
       const response = await fetch(url, options);
-      const result = await this.safeParseJsonInternal(response, false);
-      if (!result) {
-        vscode.window.showErrorMessage("Could not check in all items.");
+      const { data, error } = await this.parseJsonWithError(response, false);
+      if (!data) {
+        vscode.window.showErrorMessage(this.formatCheckInError("Could not check in all items.", error));
         return false;
       }
-      const { success, data }: { success: boolean; data: any } = result;
+      const { success, data: responseData }: { success: boolean; data: any } = data;
       if (success) {
         this.checkedOutDocuments.clear();
         vscode.window.showInformationMessage("All items checked in successfully.");
         return true;
       } else {
-        vscode.window.showErrorMessage(data);
-        console.error(data);
+        vscode.window.showErrorMessage(this.getOperationErrorMessage(responseData, "Could not check in all items."));
+        console.error(responseData);
         return false;
       }
     } catch (e: any) {
