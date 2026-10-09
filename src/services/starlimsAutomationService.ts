@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { EnterpriseItemType } from "../providers/enterpriseTreeDataProvider";
 import { EnterpriseService } from "./enterpriseService";
-import { EnterpriseItemRecord } from "./starlimsAutomationTypes";
+import { CheckedOutItemRecord, EnterpriseItemRecord } from "./starlimsAutomationTypes";
 import { RemoteScriptOutputType } from "./ticketManagementTypes";
 
 type StarlimsLanguageOption = {
@@ -18,6 +18,7 @@ export type StarlimsAutomationOptions = {
   getMaxItems: () => number;
   getWorkspaceRoot: () => string | undefined;
   refreshCheckoutTree: (includeAllUsers: boolean) => Promise<void>;
+  listCheckedOutItems?: (includeAllUsers: boolean) => Promise<CheckedOutItemRecord[]>;
   transferToServer?: (targetServer: string, saveLocalEdits: boolean) => Promise<StarlimsAutomationResult>;
 };
 
@@ -110,6 +111,53 @@ export class StarlimsAutomationService {
       return {
         ok: false,
         error: error instanceof Error ? error.message : "Could not refresh the checked-out tree."
+      };
+    }
+  }
+
+  /**
+   * Lists the items currently checked out on the STARLIMS server as structured records.
+   * @param includeAllUsers true to list the checkouts of all users, otherwise only the current user
+   * @param maxItems optional cap for the number of returned items
+   */
+  public async listCheckedOutItems(
+    includeAllUsers: boolean | undefined,
+    maxItems?: number
+  ): Promise<StarlimsAutomationResult> {
+    const effectiveIncludeAllUsers = includeAllUsers === true;
+    if (!this.options.listCheckedOutItems) {
+      return {
+        ok: false,
+        error: "Listing checked out items is not available in this extension configuration."
+      };
+    }
+
+    try {
+      const items = await this.options.listCheckedOutItems(effectiveIncludeAllUsers);
+      const bounded = this.limitItems(items ?? [], maxItems);
+      const result: StarlimsAutomationResult = {
+        ok: true,
+        includeAllUsers: effectiveIncludeAllUsers,
+        items: bounded.items,
+        limit: bounded.limit,
+        serverName: this.enterpriseService.getCurrentServerName(),
+        totalItems: bounded.totalItems,
+        truncated: bounded.truncated
+      };
+
+      if (bounded.truncated) {
+        result.note = `Results limited to ${bounded.limit} of ${bounded.totalItems} checked out items. Pass a larger maxItems to get all of them.`;
+      } else if (bounded.totalItems === 0) {
+        result.note = effectiveIncludeAllUsers
+          ? "No items are currently checked out on this server."
+          : "No items are currently checked out by the current user. Pass includeAllUsers=true to list checkouts of all users.";
+      }
+
+      return result;
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "Could not list the checked out items."
       };
     }
   }
@@ -278,7 +326,7 @@ export class StarlimsAutomationService {
   }
 
 
-  public async readLog(user?: string, maxLines?: number): Promise<StarlimsAutomationResult> {
+  public async readLog(user?: string, lastLines?: number): Promise<StarlimsAutomationResult> {
     const logUser = (user || this.enterpriseService.getCurrentUser() || "").trim();
     if (!logUser) {
       return {
@@ -296,12 +344,15 @@ export class StarlimsAutomationService {
       };
     }
 
-    const effectiveNumLines = typeof maxLines === "number" && Number.isFinite(maxLines)
-      ? Math.max(1, Math.floor(maxLines))
+    const effectiveNumLines = typeof lastLines === "number" && Number.isFinite(lastLines)
+      ? Math.max(1, Math.floor(lastLines))
       : 20;
 
     const logUri = "/ServerLogs/" + logUser + ".log";
-    const result = await this.enterpriseService.getEnterpriseItemCodeResult(logUri, undefined);
+    // Ask the backend for only the last `effectiveNumLines` lines (SCM_API LastLines query
+    // parameter) so huge logs are not transferred in full. The client-side slice below stays
+    // as a fallback for older SCM_API versions that ignore LastLines.
+    const result = await this.enterpriseService.getEnterpriseItemCodeResult(logUri, undefined, effectiveNumLines);
     if (!result.ok || !result.data) {
       return {
         ok: false,

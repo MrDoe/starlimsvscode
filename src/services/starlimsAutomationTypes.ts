@@ -18,6 +18,15 @@ export interface EnterpriseItemRecord {
   scriptLanguage?: string;
 }
 
+export interface CheckedOutItemRecord {
+  name: string;
+  type: string;
+  uri: string;
+  checkedOutBy?: string;
+  guid?: string;
+  language?: string;
+}
+
 export interface EnterpriseItemCodeRecord {
   code: string;
   language: string;

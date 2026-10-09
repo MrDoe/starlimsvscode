@@ -1,10 +1,11 @@
 /********************************************************************************
 Description.. :	Script to get the code of an Enterprise item
+					Optional LastLines query parameter: for server logs, only the last N lines are returned.
 Author....... :	MARIUS
 Date......... : 2018-11-07
 *******************************************************************************/;
 :DECLARE String, sUserLang, oResponse, oResult, sURI, oUtils, oEnterpriseItem, sItemID,
-		 oDataSet, sDataSet, sItemName, sItemType, nRowNo;
+		 oDataSet, sDataSet, sItemName, sItemType, nRowNo, nLastLines;
 String := "";
 oResult := CreateUDObject();
 oResponse := CreateUDObject({
@@ -25,6 +26,14 @@ oResponse := CreateUDObject({
 	sUserLang := Request:QueryString:UserLang;
 :ELSE;
 	sUserLang := GetSetting("DEFAULTLANGUAGE");
+:ENDIF;
+
+nLastLines := 0;
+:IF Request:QueryString:IsProperty("LastLines");
+	nLastLines := Val(LimsString(Request:QueryString:LastLines));
+	:IF nLastLines < 1;
+		nLastLines := 0;
+	:ENDIF;
 :ENDIF;
 
 oResult:language := "";
@@ -142,6 +151,21 @@ oResult:code := "";
 		:CASE sItemType == "SERVERLOG";
 			oResult:code := DoProc("Enterprise_Data_Providers.EnterpriseUtilsProvider.GetServerLog", {sItemName});
 			oResult:language := "LOG";
+			:IF nLastLines > 0;
+				:DECLARE aLogLines, sLogText, i;
+				sLogText := StrTran(oResult:code, CrLf, Chr(10));
+				aLogLines := BuildArray(sLogText, , Chr(10));
+				:IF Len(aLogLines) > 0 .AND. Empty(aLogLines[Len(aLogLines)]);
+					DelArray(aLogLines, Len(aLogLines));
+				:ENDIF;
+				:IF Len(aLogLines) > nLastLines;
+					sLogText := "";
+					:FOR i := Len(aLogLines) - nLastLines + 1 :TO Len(aLogLines);
+						sLogText := sLogText + LimsString(aLogLines[i]) + CrLf;
+					:NEXT;
+					oResult:code := sLogText;
+				:ENDIF;
+			:ENDIF;
 		:EXITCASE;
 		:CASE sItemType == "TABLE";
 			sItemID := oUtils:GetItemGUID(oEnterpriseItem:CategoryName + "." + sItemName, sItemType);

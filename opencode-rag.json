@@ -1,10 +1,11 @@
 {
   "embedding": {
-    "provider": "ollama",
-    "baseUrl": "http://127.0.0.1:11434/api",
-    "model": "qwen3-embedding:0.6b",
-    "timeoutMs": 120000,
-    "vectorDimension": 1024
+    "provider": "openai",
+    "apiKey": "sk-llama-local",
+    "baseUrl": "http://127.0.0.1:11437/v1",
+    "model": "Qwen3-Embedding:8B",
+    "timeoutMs": 30000,
+    "vectorDimension": 4096
   },
   "indexing": {
     "includeExtensions": [
@@ -154,18 +155,20 @@
   },
   "imageDescription": {
     "enabled": true,
-    "provider": "ollama",
-    "model": "minicpm-v4.6:latest",
-    "baseUrl": "http://127.0.0.1:11434/api",
+    "provider": "openai",
+    "apiKey": "sk-llama-local",
+    "model": "Ornith-1.5-9B",
+    "baseUrl": "http://127.0.0.1:11437/v1",
     "timeoutMs": 60000,
     "think": false,
     "numCtx": 2048
   },
   "description": {
     "enabled": true,
-    "provider": "ollama",
-    "baseUrl": "http://127.0.0.1:11434/api",
-    "model": "qwen2.5:3b",
+    "provider": "openai",
+    "apiKey": "sk-llama-local",
+    "baseUrl": "http://127.0.0.1:11437/v1",
+    "model": "Ornith-1.5-9B",
     "think": false,
     "numCtx": 4096,
     "timeoutMs": 60000,

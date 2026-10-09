@@ -197,5 +197,52 @@ describe('SSLParser - scOllamaService.ssl', () => {
     }
   });
 
+  // --- Regression: comments inside expressions (array literal elements, call args) ---
+describe('SSLParser - comments inside expressions', () => {
+
+  it('inline comment after comma in multi-line array literal parses cleanly', () => {
+    const src = [
+      ':PROCEDURE p;',
+      ':PARAMETERS x;',
+      ':DECLARE aParams;',
+      'aParams := {',
+      'x[1], /* sExternalCode;',
+      'NIL, /* nSizeX - only used for containers;',
+      '"b"',
+      '};',
+      ':ENDPROC;',
+    ].join('\r\n');
+    const { errors } = parse(src);
+    assert.strictEqual(errors.length, 0, 'comments inside array literals should not fail parsing');
+  });
+
+  it('inline comment between function call arguments parses cleanly', () => {
+    const src = [
+      ':PROCEDURE p;',
+      ':DECLARE r;',
+      'r := LimsNetConnect("", /* db; "System.Collections.Hashtable");',
+      ':ENDPROC;',
+    ].join('\r\n');
+    const { errors } = parse(src);
+    assert.strictEqual(errors.length, 0, 'comment between call arguments should not fail parsing');
+  });
+
+  it('comment-only line inside a :TRY/:CATCH block parses cleanly', () => {
+    const src = [
+      ':PROCEDURE p;',
+      ':DECLARE ht, s;',
+      'ht := LimsNetConnect("", "System.Collections.Hashtable");',
+      ':TRY;',
+      '/* more than one combination - remove it;',
+      'ht:Remove(s);',
+      ':CATCH;',
+      ':ENDTRY;',
+      ':ENDPROC;',
+    ].join('\r\n');
+    const { errors } = parse(src);
+    assert.strictEqual(errors.length, 0, 'comment-only line inside block should not fail parsing');
+  });
+
+});
 });
 });

@@ -516,12 +516,16 @@ suite('StarlimsAutomationService', () => {
 
   test('readLog returns the last N lines and reports the actual tail length', async () => {
     const allLines = ['a', 'b', 'c', 'd', 'e'];
+    const requestedLastLines: Array<number | undefined> = [];
     const automationService = new StarlimsAutomationService(
       createEnterpriseServiceMock({
-        getEnterpriseItemCodeResult: async () => ({
-          ok: true,
-          data: { code: allLines.join('\r\n'), language: '' }
-        })
+        getEnterpriseItemCodeResult: async (_uri: string, _language: string | undefined, lastLines?: number) => {
+          requestedLastLines.push(lastLines);
+          return {
+            ok: true,
+            data: { code: allLines.join('\r\n'), language: '' }
+          };
+        }
       }),
       {
         getDefaultFormLanguage: () => undefined,
@@ -537,6 +541,34 @@ suite('StarlimsAutomationService', () => {
     assert.strictEqual(result.totalLines, allLines.length);
     assert.strictEqual(result.numLastLines, 2);
     assert.strictEqual(result.code, 'd\ne');
+    assert.deepStrictEqual(requestedLastLines, [2]);
+  });
+
+  test('readLog passes the default line cap to the backend when lastLines is omitted', async () => {
+    const requestedLastLines: Array<number | undefined> = [];
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        getEnterpriseItemCodeResult: async (_uri: string, _language: string | undefined, lastLines?: number) => {
+          requestedLastLines.push(lastLines);
+          return {
+            ok: true,
+            data: { code: 'only line\r\n', language: '' }
+          };
+        }
+      }),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.readLog('DC');
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.numLastLines, 1);
+    assert.deepStrictEqual(requestedLastLines, [20]);
   });
 
   test('readLog does not echo the requested cap when it exceeds total lines', async () => {
@@ -585,6 +617,48 @@ suite('StarlimsAutomationService', () => {
     assert.match(String(result.error), /no log file exists/i);
     assert.strictEqual(result.user, 'Nobody');
     assert.strictEqual(result.uri, '/ServerLogs/Nobody.log');
+  });
+
+  test('listCheckedOutItems caps results and reports the total count', async () => {
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock(),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined,
+        listCheckedOutItems: async (includeAllUsers: boolean) => [
+          { name: 'scAddCase', type: 'APPSS', uri: '/Applications/Mod/CaseMgmt/ServerScripts/scAddCase', checkedOutBy: 'DC' },
+          { name: 'frmScan', type: 'HTMLFORMXML', uri: '/Applications/Scan/HTMLForms/XML/frmScan', checkedOutBy: includeAllUsers ? 'MHINZE' : 'DC', language: 'GER' }
+        ]
+      }
+    );
+
+    const result = await automationService.listCheckedOutItems(true, 1);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.includeAllUsers, true);
+    assert.strictEqual((result.items as unknown[]).length, 1);
+    assert.strictEqual(result.totalItems, 2);
+    assert.strictEqual(result.truncated, true);
+    assert.match(String(result.note), /limited/i);
+  });
+
+  test('listCheckedOutItems reports when listing is unavailable', async () => {
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock(),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.listCheckedOutItems(false, undefined);
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /not available/i);
   });
 
   test('transferItems rejects an empty target server name', async () => {

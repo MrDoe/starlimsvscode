@@ -935,7 +935,13 @@ oResponse := CreateUDObject({
 			sXml := sXml + DoProc("_XmlElem", {"ItemBehaviour", "merge"}) + CrLf;
 			sXml := sXml + DoProc("_XmlElem", {"ItemIsSystem", category:ItemIsSystem}) + CrLf;
 			sXml := sXml + DoProc("_ClientScriptsXml", {category:ClientScripts}) + CrLf;
-			sXml := sXml + DoProc("_XmlElem", {"Hidden", "true"}) + CrLf;
+			/* Do NOT emit a Hidden element here. The target ImportManager
+			   silently skips the whole ClientScriptCategory when its manifest
+			   entry carries Hidden=true, while the import still ends with
+			   "Import ended successfully" (verified on Test 2026-10-09 with a
+			   live package: global client scripts in the package never arrive
+			   and produce no import log line at all). Hidden is a Designer UI
+			   tree state and not wanted on the wire;
 			sXml := sXml + "</ClientScriptCategory>" + CrLf;
 		:NEXT;
 		sXml := sXml + "</ClientScriptCategoryCollection>" + CrLf;

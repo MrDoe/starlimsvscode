@@ -1376,12 +1376,16 @@ export class EnterpriseService implements IEnterpriseService {
 
   public async getEnterpriseItemCodeResult(
     uri: string,
-    language: string | undefined
+    language: string | undefined,
+    lastLines?: number
   ): Promise<EnterpriseOperationResult<EnterpriseItemCodeRecord>> {
     const params = new URLSearchParams([
       ["URI", uri],
       ["UserLang", language ?? ""]
     ]);
+    if (typeof lastLines === "number" && Number.isFinite(lastLines) && lastLines > 0) {
+      params.set("LastLines", String(Math.floor(lastLines)));
+    }
     const url = `${this.baseUrl}/SCM_API.GetCode.${this.urlSuffix}?${params}`;
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {

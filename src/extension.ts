@@ -3044,6 +3044,14 @@ Please provide:
         );
       }
 
+      // Names of the items a transfer is expected to deliver; the target
+      // import log must mention each of them, or the item did not arrive.
+      function getCheckedOutItemNamesForTransfer(): string[] {
+        return getCurrentUserCheckedOutItems().map(
+          (item) => (typeof item.label === "string" ? item.label : item.uri || "")
+        );
+      }
+
       // Pushes local working copy edits of all checked out items to the source server before exporting.
       async function saveLocalEditsForTransfer(): Promise<void> {
         const leafItems = getCurrentUserCheckedOutItems();
@@ -3093,11 +3101,28 @@ Please provide:
         refreshCheckoutTree: async (includeAllUsers: boolean = false) => {
           await refreshCheckedOutItems(includeAllUsers);
         },
+        listCheckedOutItems: async (includeAllUsers: boolean = false) => {
+          const checkedOutItemsXml = await enterpriseService.getCheckedOutItems(includeAllUsers);
+          if (typeof checkedOutItemsXml !== "string" || checkedOutItemsXml.length === 0) {
+            return [];
+          }
+
+          const checkedOutItemsProvider = new CheckedOutTreeDataProvider(checkedOutItemsXml, enterpriseService);
+          return checkedOutItemsProvider.getLeafItems().map((item) => ({
+            name: typeof item.label === "string" ? item.label : item.uri,
+            type: item.type ?? "",
+            uri: item.uri ?? "",
+            checkedOutBy: item.checkedOutBy,
+            guid: item.guid,
+            language: item.language
+          }));
+        },
         transferToServer: async (targetServer: string, saveLocalEdits: boolean) => {
           const result = await itemTransferService.transferAllCheckouts(
             targetServer,
             saveLocalEdits ? saveLocalEditsForTransfer : undefined,
-            () => getCurrentUserCheckedOutItems().length
+            () => getCurrentUserCheckedOutItems().length,
+            getCheckedOutItemNamesForTransfer
           );
           return { ...result };
         }
@@ -3688,7 +3713,8 @@ Please provide:
               const result = await itemTransferService.transferAllCheckouts(
                 targetServer.label,
                 saveLocalEditsForTransfer,
-                () => getCurrentUserCheckedOutItems().length
+                () => getCurrentUserCheckedOutItems().length,
+                getCheckedOutItemNamesForTransfer
               );
               progress.report({ increment: 100, message: "Done." });
 
@@ -3701,6 +3727,16 @@ Please provide:
                 return;
               }
 
+              const unconfirmedItems = result.unconfirmedItems ?? [];
+              if (unconfirmedItems.length > 0) {
+                if (result.importLog) {
+                  outputChannel.appendLine(`[Transfer] ${result.importLog}`);
+                }
+                vscode.window.showWarningMessage(
+                  `The import log does not mention ${unconfirmedItems.length} transferred item(s); they may not have arrived on '${result.targetServer}': ${unconfirmedItems.join(", ")}. Verify these items on the target server.`
+                );
+              }
+
               const itemCount = result.totalItems ?? getCurrentUserCheckedOutItems().length;
               const action = await vscode.window.showInformationMessage(
                 `Transferred ${itemCount} checked out item(s) to '${result.targetServer}'. New versions were created on the target server.`,
@@ -3710,6 +3746,9 @@ Please provide:
                 const targetConfig = servers.find((server) => server.name === result.targetServer);
                 if (targetConfig) {
                   await switchToServer(targetConfig);
+                  // Keep the server selector dropdown and STARLIMS.selectedServer
+                  // in sync with the switch (no change event - already switched).
+                  serverSelectorProvider.setSelectedServer(targetConfig.name);
                 }
               }
             }

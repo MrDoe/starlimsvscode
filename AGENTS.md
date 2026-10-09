@@ -77,12 +77,13 @@ All tools are defined in `src/services/starlimsMcpServer.ts` and implemented in 
 | `global_code_search` | `searchString`, `itemTypes?`, `maxItems?` | Search code text |
 | `list_languages` | `maxItems?` | Languages for form checkout |
 | `get_item_code` | `uri`, `language?`, `maxCharacters?` | Read item source |
-| `read_log` | `user?`, `maxLines?` | Read server log |
+| `read_log` | `user?`, `lastLines?` (legacy alias `maxLines?`) | Read server log tail (backend `LastLines` param keeps transfer small) |
 | `checkout_item` | `uri`, `language?` | Check out → SLVSCODE workspace |
 | `save_item` | `localPath`, `language?` | Save local edits to server |
 | `checkin_item` | `uri`, `reason`, `language?` | Check in |
 | `undo_checkout` | `uri` | Discard checkout |
 | `refresh_checkout_tree` | `includeAllUsers?` | Refresh VS Code checked-out tree |
+| `list_checked_out_items` | `includeAllUsers?`, `maxItems?` | List items currently checked out on the server (URI, type, owner, language) |
 | `execute_server_script` | `uri`, `parameters?`, `outputType?`, `entryPoint?`, `maxCharacters?` | Run script |
 | `execute_data_source` | `uri`, `parameters?`, `outputType?`, `maxCharacters?`, `maxRows?` | Run data source (ARRAY output capped at `STARLIMS.mcp.maxDataSourceRows`, default 500) |
 | `create_item` | `itemName`, `itemType`, `language`, `categoryName`, `appName` | Create item |

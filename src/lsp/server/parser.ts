@@ -32,7 +32,12 @@ export class SSLParser {
 
   parse(source: string): { ast: ProgramNode; errors: ParseError[] } {
     const lexer = new SSLLexer(source);
-    this.tokens = lexer.tokenize();
+    // The lexer emits Comment tokens, but the parser itself only ever skips
+    // them (formatter/style rules/code actions re-tokenize on their own).
+    // Filter them out here so comments may appear anywhere - including inside
+    // expressions such as array literals and call arguments - without
+    // producing "Unexpected token in expression".
+    this.tokens = lexer.tokenize().filter((t) => t.type !== TokenType.Comment);
     this.pos = 0;
     this.errors = [];
 

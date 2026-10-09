@@ -65,6 +65,11 @@ const refreshCheckoutTreeInputSchema = z.object({
   includeAllUsers: z.boolean().optional().describe("Set to true to refresh the checked-out tree for all users instead of just the current user.")
 });
 
+const listCheckedOutItemsInputSchema = z.object({
+  includeAllUsers: z.boolean().optional().describe("Set to true to list checked out items of all users instead of just the current user."),
+  maxItems: z.number().int().positive().optional().describe("Optional maximum number of checked out items to return.")
+});
+
 const listLanguagesInputSchema = z.object({
   maxItems: z.number().int().positive().optional().describe("Optional maximum number of languages to return.")
 });
@@ -150,7 +155,8 @@ const runIntegrationTestsInputSchema = z.object({
 
 const readLogInputSchema = z.object({
   user: z.string().optional().describe("STARLIMS user name whose log to read. Defaults to the current user configured in starlimsvscode."),
-  maxLines: z.number().int().positive().optional().describe("Optional maximum number of lines to return from the log.")
+  lastLines: z.number().int().positive().optional().describe("Number of the most recent lines of the log to return. Defaults to 20. Passed to the backend as the LastLines query parameter so only the tail is transferred."),
+  maxLines: z.number().int().positive().optional().describe("Deprecated alias of lastLines, kept for backward compatibility. lastLines takes precedence when both are given.")
 });
 
 const transferItemInputSchema = z.object({
@@ -341,14 +347,14 @@ export class StarlimsMcpServer {
       "read_log",
       {
         annotations: { readOnlyHint: true },
-        description: "Read the STARLIMS server log file for a specified user (default: current user).",
+        description: "Read the STARLIMS server log file for a specified user (default: current user). Returns the last lastLines lines of the current log.",
         inputSchema: readLogInputSchema,
         outputSchema: toolResultSchema
       },
-      async ({ user, maxLines }) => this.executeTool(
+      async ({ user, lastLines, maxLines }) => this.executeTool(
         "read_log",
-        { maxLines, user },
-        () => this.automationService.readLog(user, maxLines),
+        { lastLines, maxLines, user },
+        () => this.automationService.readLog(user, lastLines ?? maxLines),
         (result) => `Retrieved ${this.toCount(result.totalLines)} line(s) from log for user '${result.user}'.`
       )
     );
@@ -395,6 +401,21 @@ export class StarlimsMcpServer {
         { includeAllUsers },
         () => this.automationService.refreshCheckoutTree(includeAllUsers === true),
         (result) => `Refreshed the checked-out tree${result.includeAllUsers === true ? " for all users" : ""}.`
+      )
+    );
+
+    server.registerTool(
+      "list_checked_out_items",
+      {
+        description: "List the items currently checked out on the STARLIMS server, with URI, item type, owner, and language.",
+        inputSchema: listCheckedOutItemsInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ includeAllUsers, maxItems }) => this.executeTool(
+        "list_checked_out_items",
+        { includeAllUsers, maxItems },
+        () => this.automationService.listCheckedOutItems(includeAllUsers, maxItems),
+        (result) => `Found ${this.toCount(result.totalItems)} checked out item(s)${result.includeAllUsers === true ? " across all users" : " for the current user"}.`
       )
     );
 
@@ -588,9 +609,15 @@ export class StarlimsMcpServer {
             ? result.targetServer
             : "the target server";
           const itemCount = this.toCount(result.totalItems);
-          return itemCount > 0
+          const summary = itemCount > 0
             ? `Transferred ${itemCount} checked-out item(s) to '${targetLabel}'. New versions were created on the target server.`
             : `Transferred the checked out items to '${targetLabel}'. New versions were created on the target server.`;
+          const unconfirmed = Array.isArray(result.unconfirmedItems)
+            ? result.unconfirmedItems.filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+            : [];
+          return unconfirmed.length > 0
+            ? `${summary} WARNING: the import log does not mention ${unconfirmed.length} transferred item(s); they may not have arrived: ${unconfirmed.join(", ")}. Verify them on the target server.`
+            : summary;
         }
       )
     );

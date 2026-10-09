@@ -158,14 +158,24 @@ export class ServerSelectorWebviewProvider implements vscode.WebviewViewProvider
 
   }
 
-  private selectServer(serverName: string) {
+  /**
+   * Programmatically selects a server: persists `STARLIMS.selectedServer` and
+   * syncs the webview dropdown. Does NOT fire the on-server-changed callback -
+   * callers that have already switched the connection themselves (e.g. the
+   * "Switch to target server" action after a transfer) use this to keep the
+   * selector UI and the persisted selection in sync.
+   */
+  public setSelectedServer(serverName: string): void {
     this._selectedServer = serverName;
     const config = vscode.workspace.getConfiguration("STARLIMS");
     config.update("selectedServer", serverName, false);
+    this.updateWebview();
+  }
 
+  private selectServer(serverName: string) {
+    this.setSelectedServer(serverName);
     const selectedServerConfig = this._servers.find(s => s.name === serverName);
     this._onServerChanged(selectedServerConfig);
-    this.updateWebview();
   }
 
   private async configureCurrentServer() {

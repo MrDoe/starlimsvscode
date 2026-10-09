@@ -9,12 +9,41 @@ export type TransferResult = {
   sourceServer: string;
   targetServer: string;
   totalItems?: number;
+  /**
+   * Names of the transferred items that the STARLIMS import engine did not
+   * mention in the import log. The import engine skips such items silently
+   * while still reporting "Import ended successfully", so these items
+   * probably did not arrive on the target and must be verified manually.
+   */
+  unconfirmedItems?: string[];
 };
 
 export type ItemTransferOptions = {
   getServerConfigs: () => ServerConfig[];
   createTargetService: (config: ServerConfig) => EnterpriseService;
 };
+
+/**
+ * Compares the expected item names against the STARLIMS import log.
+ * The import engine logs one "Importing ..." line per processed item but
+ * silently skips items it refuses to import (e.g. client script categories
+ * that the manifest marked as hidden), so an item name that never appears
+ * in the log is treated as unconfirmed.
+ * @param importLog the raw import log returned by the target server
+ * @param expectedItemNames display names of the items that were exported
+ * @returns the expected item names that the import log does not mention
+ */
+export function findUnimportedItems(importLog: string | undefined, expectedItemNames: string[]): string[] {
+  const names = expectedItemNames
+    .map((name) => (name || "").trim())
+    .filter((name) => name.length > 0);
+  if (names.length === 0) {
+    return [];
+  }
+
+  const log = importLog || "";
+  return names.filter((name) => log.indexOf(name) === -1);
+}
 
 /**
  * Transfers all checked out items of the current user from the active STARLIMS
@@ -35,11 +64,13 @@ export class ItemTransferService {
    * @param targetServerName name of the configured target server
    * @param saveLocalEdits optional callback that pushes local working copy edits to the source server before exporting
    * @param getItemCount optional callback returning the number of checked out items for reporting
+   * @param getExpectedItemNames optional callback returning the names of the items that are expected to arrive on the target
    */
   public async transferAllCheckouts(
     targetServerName: string,
     saveLocalEdits?: () => Promise<void>,
-    getItemCount?: () => number
+    getItemCount?: () => number,
+    getExpectedItemNames?: () => string[]
   ): Promise<TransferResult> {
     const sourceServer = this.sourceService.getCurrentServerName();
     const targetServer = targetServerName.trim();
@@ -63,6 +94,8 @@ export class ItemTransferService {
       };
     }
 
+    const expectedItemNames = getExpectedItemNames ? getExpectedItemNames() : [];
+
     if (saveLocalEdits) {
       await saveLocalEdits();
     }
@@ -85,9 +118,14 @@ export class ItemTransferService {
         error: "Could not import the package on the target server.",
         fileName: exportedPackage.fileName,
         sourceServer,
-        targetServer
+        targetServer,
+        unconfirmedItems: expectedItemNames.length > 0 ? expectedItemNames : undefined
       };
     }
+
+    const unconfirmedItems = expectedItemNames.length > 0
+      ? findUnimportedItems(importResult.log, expectedItemNames)
+      : undefined;
 
     if (!importResult.success) {
       return {
@@ -96,7 +134,8 @@ export class ItemTransferService {
         fileName: exportedPackage.fileName,
         importLog: importResult.log,
         sourceServer,
-        targetServer
+        targetServer,
+        unconfirmedItems
       };
     }
 
@@ -106,7 +145,8 @@ export class ItemTransferService {
       importLog: importResult.log,
       sourceServer,
       targetServer,
-      totalItems: getItemCount ? getItemCount() : undefined
+      totalItems: getItemCount ? getItemCount() : undefined,
+      unconfirmedItems
     };
   }
 }
