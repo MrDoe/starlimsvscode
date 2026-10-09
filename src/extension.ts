@@ -3013,6 +3013,44 @@ Please provide:
       ensureSLVSCODECopilotInstructions(rootPath);
 
       // Switches the active enterprise service and refreshes all views to the given server.
+      // Checks the deployed SCM_API backend version and imports the packaged
+      // dist/SCM_API.sdp when the server runs an older API. Runs at activation and
+      // whenever the selected server changes, so switching servers upgrades the
+      // backend without restarting VS Code.
+      let backendVersionCheck: Promise<void> | undefined;
+      function ensureBackendUpToDate(): Promise<void> {
+        if (!backendVersionCheck) {
+          backendVersionCheck = (async () => {
+            try {
+              const apiVersion = await enterpriseService.getVersion();
+              if (!apiVersion) {
+                vscode.window.showWarningMessage('STARLIMS VS Code API is not reachable. Please check connection info or install API package. See extension README for installation instructions.');
+                return;
+              }
+              if (version === apiVersion) {
+                return;
+              }
+              const sdpPackage = context.asAbsolutePath("dist/SCM_API.sdp");
+              if (!fs.existsSync(sdpPackage)) {
+                vscode.window.showWarningMessage('Backend API package not found at ' + sdpPackage);
+                return;
+              }
+              await executeWithProgress(async () => {
+                await enterpriseService.upgradeBackend(sdpPackage);
+                const selection = await vscode.window.showInformationMessage(`Backend API upgraded successfully. We recommend that you restart Visual Studio Code.`,
+                  'Restart', 'Cancel');
+                if (selection === "Restart") {
+                  await vscode.commands.executeCommand("workbench.action.reloadWindow");
+                }
+              }, "Upgrading the extension backend API.");
+            } finally {
+              backendVersionCheck = undefined;
+            }
+          })();
+        }
+        return backendVersionCheck;
+      }
+
       async function switchToServer(selectedServer: ServerConfig): Promise<void> {
         serverConfig = selectedServer;
         activeUser = selectedServer.user || activeUser;
@@ -3030,6 +3068,11 @@ Please provide:
           if (ticketsTreeDataProvider) {
             ticketsTreeDataProvider.refresh();
           }
+          // Verify and, when needed, upgrade the backend API right away so a server
+          // switch does not require a VS Code restart to deploy the packaged SCM_API.
+          void ensureBackendUpToDate().catch((error: any) => {
+            vscode.window.showErrorMessage(`Failed to verify API version: ${error.message}`);
+          });
         } catch (error) {
           console.error("Error switching to server:", error);
           vscode.window.showErrorMessage(`Failed to connect to server: ${selectedServer.name}`);
@@ -3234,29 +3277,7 @@ Please provide:
       }
 
       // verify API version
-      enterpriseService.getVersion()
-        .then(async (apiVersion) => {
-          if (!apiVersion) {
-            vscode.window.showWarningMessage('STARLIMS VS Code API is not reachable. Please check connection info or install API package. See extension README for installation instructions.');
-            return;
-          }
-
-          if (version !== apiVersion) {
-            const sdpPackage = context.asAbsolutePath("dist/SCM_API.sdp");
-            if (!fs.existsSync(sdpPackage)) {
-              vscode.window.showWarningMessage('Backend API package not found at ' + sdpPackage);
-              return;
-            }
-            await executeWithProgress(async () => {
-              await enterpriseService.upgradeBackend(sdpPackage);
-              const selection = await vscode.window.showInformationMessage(`Backend API upgraded successfully. We recommend that you restart Visual Studio Code.`,
-                'Restart', 'Cancel');
-              if (selection === "Restart") {
-                await vscode.commands.executeCommand("workbench.action.reloadWindow");
-              }
-            }, "Upgrading the extension backend API.");
-          }
-        })
+      void ensureBackendUpToDate()
         .catch((error: any) => {
           vscode.window.showErrorMessage(`Failed to verify API version: ${error.message}`);
         });
