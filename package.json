@@ -3,7 +3,7 @@
     "displayName": "STARLIMS VS Code Extension",
     "description": "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license": "SEE LICENSE IN LICENSE.md",
-    "version": "1.8.14",
+    "version": "1.8.15",
     "icon": "resources/extension/starlimsvscode.png",
     "publisher": "cdoellinger",
     "author": "Christoph Döllinger <christoph.doellinger@med.uni-heidelberg.de>",
@@ -355,7 +355,7 @@
             {
                 "command": "STARLIMS.SolveTicketWithOpenCode",
                 "title": "Solve ticket with OpenCode",
-                "icon": "$(terminal)"
+                "icon": "$(sparkle)"
             },
             {
                 "command": "STARLIMS.ApproveTicketPlanAndBuild",
@@ -925,7 +925,7 @@
                     "STARLIMS.opencode.command": {
                         "type": "string",
                         "default": "opencode",
-                        "description": "Command or absolute executable path used by the Solve with OpenCode ticket action. Use npx.cmd together with STARLIMS.opencode.commandArgs if you launch OpenCode through npx on Windows."
+                        "description": "Command or absolute executable path used to launch the OpenCode server (opencode web) for the Solve with OpenCode ticket action. Use npx.cmd together with STARLIMS.opencode.commandArgs if you launch OpenCode through npx on Windows."
                     },
                     "STARLIMS.opencode.commandArgs": {
                         "type": "array",
@@ -933,25 +933,12 @@
                         "items": {
                             "type": "string"
                         },
-                        "description": "Additional arguments passed before the ticket-specific OpenCode flags, for example [\"opencode\"] when STARLIMS.opencode.command is set to npx.cmd."
+                        "description": "Additional arguments passed before the server flags when spawning the OpenCode server, for example [\"opencode\"] when STARLIMS.opencode.command is set to npx.cmd."
                     },
                     "STARLIMS.opencode.openOnStartup": {
                         "type": "boolean",
                         "default": false,
                         "description": "Automatically open OpenCode in a new window when VS Code starts. Uses STARLIMS.opencode.command, STARLIMS.opencode.commandArgs, and STARLIMS.opencode.workingDirectory."
-                    },
-                    "STARLIMS.opencode.integration": {
-                        "type": "string",
-                        "enum": [
-                            "server",
-                            "terminal"
-                        ],
-                        "enumDescriptions": [
-                            "Launch ticket sessions through the OpenCode server API (opencode web). The extension spawns the server on STARLIMS.opencode.serverHostname:STARLIMS.opencode.serverPort when it is not running yet, creates a session per ticket, runs the plan agent, and asks you to approve before the build model implements the plan.",
-                            "Launch OpenCode in a terminal with the ticket prompt preloaded (previous behavior)."
-                        ],
-                        "default": "server",
-                        "description": "How the Solve ticket with OpenCode action launches OpenCode."
                     },
                     "STARLIMS.opencode.serverHostname": {
                         "type": "string",
@@ -963,7 +950,7 @@
                         "default": 4096,
                         "minimum": 1,
                         "maximum": 65535,
-                        "description": "TCP port used by the OpenCode server in server integration mode. A server already running on this port is reused; otherwise the extension spawns `opencode web` there."
+                        "description": "TCP port used by the OpenCode server. A server already running on this port is reused; otherwise the extension spawns `opencode web` there."
                     },
                     "STARLIMS.opencode.planModel": {
                         "type": "string",

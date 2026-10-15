@@ -157,7 +157,7 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 
 `STARLIMS.url`/`user`/`userPassword`/`rootPath`/`servers`/`selectedServer` — connections.
 `STARLIMS.mcp.*` — MCP on/off, port, max items, max code chars.
-`STARLIMS.opencode.*` — "Solve with OpenCode" (`integration: server|terminal`, `planModel: glm-5.1`, `buildModel: kimi-2.6`, `serverPort: 4096`; password in secret storage via `STARLIMS.SetOpenCodeServerPassword`).
+`STARLIMS.opencode.*` — "Solve with OpenCode" (always via OpenCode server API; `planModel: glm-5.1`, `buildModel: kimi-2.6`, `serverPort: 4096`; password in secret storage via `STARLIMS.SetOpenCodeServerPassword`).
 `STARLIMS.git.*` — git on check-in (autoPush, remoteUrl, commit message generator).
 `starlimsJsLsp.enabled` — JS LSP (default true).
 `starlimsSslLsp.*` — SSL LSP: `enabled`, `format.*` (indent, casing, spacing, wrap, inline SQL), `diagnostics.rules` (style-rule slug → off|info|warn|error), `diagnostics.strictStyleGuideMode`, `diagnostics.globals`, `naming.hungarianNotation.*`, `styleGuide.*`, `editor.autoInsertBlockClosers`, `documentNamespaces`. Style rules run in `check:ssl` always on; exit code only fails on parse errors or error-severity rule hits.
