@@ -1119,7 +1119,7 @@ export async function activate(context: vscode.ExtensionContext) {
           }
 
           const planModel = getOpenCodePlanModel();
-          const prompt = buildTicketOpenCodePrompt(ticketToSolve, ticketInfo, getOpenCodeBuildModel());
+          const prompt = buildTicketOpenCodePrompt(ticketToSolve, ticketInfo);
           const title = `Ticket #${ticketToSolve.id}${ticketToSolve.title ? ` - ${ticketToSolve.title}` : ""}`.slice(0, MAX_TICKET_REFERENCE_TITLE_LENGTH);
           const planAgentAvailable = (await service.getAgentIds()).includes("plan");
           const sessionId = await service.createSession(title, {
@@ -1299,6 +1299,8 @@ Please analyze this STARLIMS ticket and provide a solution. Follow these steps t
 - Read the local wiki for additional context if needed
 - Use MSSQL MCP to query the STARLIMS database for additional information if needed
 
+### 2. **MSSQL MCP Tool Usage**
+- Use the MSSQL MCP tool to query the STARLIMS database for data verification or to retrieve additional information.
 
 ### 3. **Make Changes**
 You primarily work in the STARLIMS MCP workspace.
@@ -1310,8 +1312,12 @@ Follow these steps:
 5. Edit the local synced file in your workspace
 6. Stop after the local edit unless the user explicitly asks you to perform check-in
 
-### 4. **MSSQL MCP Tool Usage**
-- Use the MSSQL MCP tool to query the STARLIMS database for data verification or to retrieve additional information.
+### 4. **Testing with Firefox DevTools**
+- Use the firefox-devtools MCP to verify against the live TEST system; follow the \`starlims-browser-testing\` workspace skill for STARLIMS-specific protocols and the \`firefox-debug\` skill for generic browser MCP plumbing.
+- Ask the user to log in to the TEST system; never handle credentials yourself.
+- Reproduce the reported issue and capture verbatim evidence for your root-cause analysis: console messages, failing network requests, and dialog/message-box text (harvest dialog text before clicking).
+- Local edits are not live: until items are saved/checked in, testing reflects the CURRENT server behavior. Client-side code changes additionally require a full page reload before they take effect.
+- Respect the skill's runtime rules: a page reload wipes all in-page handles (re-query components by FormType), and long-running evaluates may time out while the action still runs - never double-fire.
 
 **Remember**: Always prefer STARLIMS MCP tools over local workspace search when working with STARLIMS items to ensure you have the correct, checked-out version.
 **Do not** use STARLIMS check-in tools unless the user explicitly requests check-in
@@ -1325,18 +1331,18 @@ Please provide:
 2. Detailed solution steps
 3. Code changes needed (if applicable)
 4. Testing recommendations
-5. Any STARLIMS items that you checked out and modified during your investigation.`;
+5. Any STARLIMS items that you checked out and modified during your investigation
+6. If you tested live via Firefox DevTools: the evidence you collected (verbatim console/network/dialog observations and what they proved)`;
       }
 
       function buildTicketOpenCodePrompt(
         ticket: TicketReference,
-        ticketInfo: TicketFullInfo,
-        buildModel: string
+        ticketInfo: TicketFullInfo
       ): string {
         const headerLines = [
           "You are analyzing a STARLIMS ticket in plan mode. Produce a concrete, actionable implementation plan and do not edit any files in this phase.",
           "Focus on understanding the ticket, identifying the relevant STARLIMS items, and investigating the root cause before proposing changes.",
-          `The user will approve your plan; after approval the implementation continues with the ${buildModel || "preferred build"} model.`,
+          "The user will approve your plan before implementation starts; after approval the implementation continues in this same session.",
           ""
         ];
 
