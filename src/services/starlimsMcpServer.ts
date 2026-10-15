@@ -596,7 +596,7 @@ export class StarlimsMcpServer {
     server.registerTool(
       "transfer_item_to_server",
       {
-        description: "Transfer all checked out items of the current user to another configured STARLIMS server. Exports an SDP package from the source server and imports it on the target server, automatically generating a new version of each item on the target. Optionally pushes local working copy edits to the source server first. Items on the source server remain checked out.",
+        description: "Transfer all checked out items of the current user to another configured STARLIMS server. Exports an SDP package from the source server and imports it on the target server, automatically generating a new version of each item on the target. Optionally pushes local working copy edits to the source server first. Items on the source server remain checked out. After a successful import the transferred items are fetched back from the target server and written as local working copies into the target server's SLVSCODE workspace folder.",
         inputSchema: transferItemInputSchema,
         outputSchema: toolResultSchema
       },
@@ -612,12 +612,26 @@ export class StarlimsMcpServer {
           const summary = itemCount > 0
             ? `Transferred ${itemCount} checked-out item(s) to '${targetLabel}'. New versions were created on the target server.`
             : `Transferred the checked out items to '${targetLabel}'. New versions were created on the target server.`;
+          const localSyncCount = Array.isArray(result.localSyncedFiles) ? result.localSyncedFiles.length : 0;
+          const localSyncText = localSyncCount > 0
+            ? ` Updated ${localSyncCount} local file copy(ies) in the '${targetLabel}' SLVSCODE folder.`
+            : "";
+          const localSyncErrorCount = Array.isArray(result.localSyncErrors) ? result.localSyncErrors.length : 0;
+          const localSyncErrorText = localSyncErrorCount > 0
+            ? ` WARNING: ${localSyncErrorCount} local file copy(ies) could not be refreshed from the target server.`
+            : "";
           const unconfirmed = Array.isArray(result.unconfirmedItems)
             ? result.unconfirmedItems.filter((name): name is string => typeof name === "string" && name.trim().length > 0)
             : [];
-          return unconfirmed.length > 0
-            ? `${summary} WARNING: the import log does not mention ${unconfirmed.length} transferred item(s); they may not have arrived: ${unconfirmed.join(", ")}. Verify them on the target server.`
-            : summary;
+          const warnings = [
+            unconfirmed.length > 0
+              ? `WARNING: the import log does not mention ${unconfirmed.length} transferred item(s); they may not have arrived: ${unconfirmed.join(", ")}. Verify them on the target server.`
+              : "",
+            localSyncErrorText.trim()
+          ].filter((warning) => warning.length > 0).join(" ");
+          return warnings.length > 0
+            ? `${summary}${localSyncText} ${warnings}`
+            : `${summary}${localSyncText}`;
         }
       )
     );

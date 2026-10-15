@@ -1571,17 +1571,28 @@ export class EnterpriseService implements IEnterpriseService {
     return returnCode ? result.data.code : result.data.localFilePath;
   }
 
+  /**
+   * Downloads the STARLIMS enterprise item code and stores it as a local working copy.
+   * @param uri the URI to the remote script / code item
+   * @param workspaceFolder the local workspace folder where to write the file
+   * @param language the item language (determines the local file extension)
+   * @param forceRefresh when true, always fetches from the server and overwrites the
+   * local file even if it is newer than the last sync (e.g. after a transfer created
+   * a new version on that server)
+   */
   public async getLocalCopyResult(
     uri: string,
     workspaceFolder: string,
-    language: string
+    language: string,
+    forceRefresh: boolean = false
   ): Promise<EnterpriseOperationResult<LocalCopyResult>> {
     const normalizedUri = this.normalizeEnterpriseUri(uri);
 
     // Skip the server fetch when the local file is newer than the last-known synced
     // server copy. Persisting this timestamp prevents a restart from losing the
-    // overwrite protection for checked-out items.
-    if (language) {
+    // overwrite protection for checked-out items. Callers that must mirror the
+    // server state (forceRefresh) intentionally bypass this protection.
+    if (!forceRefresh && language) {
       const localFilePath = this.buildLocalFilePath(normalizedUri, workspaceFolder, language);
       if (fs.existsSync(localFilePath)) {
         const lastSyncTime = this.getStoredLastSyncTimestamp(normalizedUri);

@@ -11,7 +11,7 @@ import { EnterpriseService } from "./services/enterpriseService";
 import { ExpressServer } from "./services/expressServer";
 import { StarlimsAutomationService } from "./services/starlimsAutomationService";
 import { StarlimsMcpServer } from "./services/starlimsMcpServer";
-import { ItemTransferService } from "./services/itemTransferService";
+import { ItemTransferService, TransferLocalSyncItem } from "./services/itemTransferService";
 import { EnterpriseTextDocumentContentProvider } from "./providers/enterpriseTextContentProvider";
 import path = require("path");
 import { ResourcesDataViewPanel } from "./panels/ResourcesDataViewPanel";
@@ -2921,6 +2921,17 @@ Please provide:
         );
       }
 
+      // Items whose local working copies get refreshed from the target server
+      // after a successful transfer (written under the target's SLVSCODE folder).
+      function getLocalSyncItemsForTransfer(): TransferLocalSyncItem[] {
+        return getCurrentUserCheckedOutItems().map((item) => ({
+          name: typeof item.label === "string" ? item.label : item.uri || "",
+          uri: item.uri,
+          language: item.language || item.scriptLanguage,
+          isTable: item.type === EnterpriseItemType.Table
+        }));
+      }
+
       // Pushes local working copy edits of all checked out items to the source server before exporting.
       async function saveLocalEditsForTransfer(): Promise<void> {
         const leafItems = getCurrentUserCheckedOutItems();
@@ -2957,7 +2968,8 @@ Please provide:
           const targetService = new EnterpriseService(config, secretStorage, context.workspaceState);
           targetService.updateServerConfig(targetServer, targetServer.name);
           return targetService;
-        }
+        },
+        getWorkspaceRoot: () => rootPath
       });
 
       const automationService = new StarlimsAutomationService(enterpriseService, {
@@ -2991,7 +3003,8 @@ Please provide:
             targetServer,
             saveLocalEdits ? saveLocalEditsForTransfer : undefined,
             () => getCurrentUserCheckedOutItems().length,
-            getCheckedOutItemNamesForTransfer
+            getCheckedOutItemNamesForTransfer,
+            getLocalSyncItemsForTransfer
           );
           return { ...result };
         }
@@ -3561,7 +3574,8 @@ Please provide:
                 targetServer.label,
                 saveLocalEditsForTransfer,
                 () => getCurrentUserCheckedOutItems().length,
-                getCheckedOutItemNamesForTransfer
+                getCheckedOutItemNamesForTransfer,
+                getLocalSyncItemsForTransfer
               );
               progress.report({ increment: 100, message: "Done." });
 
@@ -3585,10 +3599,19 @@ Please provide:
               }
 
               const itemCount = result.totalItems ?? getCurrentUserCheckedOutItems().length;
+              const localSyncedFiles = result.localSyncedFiles ?? [];
+              const localSyncNote = localSyncedFiles.length > 0
+                ? ` Updated ${localSyncedFiles.length} local file copy(ies) in the '${result.targetServer}' SLVSCODE folder.`
+                : "";
               const action = await vscode.window.showInformationMessage(
-                `Transferred ${itemCount} checked out item(s) to '${result.targetServer}'. New versions were created on the target server.`,
+                `Transferred ${itemCount} checked out item(s) to '${result.targetServer}'. New versions were created on the target server.${localSyncNote}`,
                 "Switch to target server"
               );
+              if (result.localSyncErrors && result.localSyncErrors.length > 0) {
+                vscode.window.showWarningMessage(
+                  `Could not refresh ${result.localSyncErrors.length} local file copy(ies) from '${result.targetServer}': ${result.localSyncErrors.join("; ")}`
+                );
+              }
               if (action === "Switch to target server") {
                 const targetConfig = servers.find((server) => server.name === result.targetServer);
                 if (targetConfig) {

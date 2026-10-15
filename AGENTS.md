@@ -93,7 +93,7 @@ All tools are defined in `src/services/starlimsMcpServer.ts` and implemented in 
 | `create_table` | `tableName`, `dsn` | Create table |
 | `edit_table` | `uri`, `tableXml` | Save table XML |
 | `run_integration_tests` | `reason?`, `maxCharacters?` | Run `npm test` (prompts user) |
-| `transfer_item_to_server` | `targetServer`, `saveLocalEdits?` | Transfer all checked out items to another configured server (new versions on target) |
+| `transfer_item_to_server` | `targetServer`, `saveLocalEdits?` | Transfer all checked out items to another configured server (new versions on target; after success, local copies are refreshed from the target into its `SLVSCODE\<Target>` folder) |
 
 ## Workflow for OpenCode agents
 
