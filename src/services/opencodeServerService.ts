@@ -10,6 +10,13 @@ export type OpenCodeServerServiceOptions = {
   workingDirectory: string;
   username?: string;
   password?: string;
+  /**
+   * Called with the password the spawned server generated (the
+   * "server password <token>" stdout line) so the caller can persist it.
+   * Persisting lets later extension windows authenticate against a still
+   * running server and reuse it instead of starting a second one.
+   */
+  onGeneratedPassword?: (password: string) => void | Promise<void>;
   log?: (message: string) => void;
 };
 
@@ -64,8 +71,15 @@ type V2Message = {
  * Auth: if STARLIMS provides a password it is passed to the spawned server via
  * OPENCODE_SERVER_PASSWORD; otherwise OpenCode v2 generates a random password
  * and prints it on startup ("server password <token>"), which is captured from
- * the child process output. A server that is already running with a password
- * we do not know cannot be reused and is reported as "locked".
+ * the child process output and handed to the caller via onGeneratedPassword so
+ * it can be persisted - a later window that knows the password reuses the
+ * still-running server instead of starting a second one. A server running with
+ * a password we do not know cannot be reused and is reported as "locked".
+ *
+ * The server is only started when it is actually needed: ensureServer()
+ * reuses any reachable server, and a server that died since it was marked
+ * ready is detected (spawned child exit, connection-level fetch failures) so
+ * the next ensureServer() re-probes and starts a fresh one.
  *
  * Prompt delivery is asynchronous: POST /api/session/{id}/prompt queues the
  * message into the session inbox and the session becomes "running" while it
@@ -110,6 +124,13 @@ export class OpenCodeServerService {
    * configured working directory and waits until it answers /api/info.
    */
   public async ensureServer(): Promise<void> {
+    if (this.child && this.child.exitCode !== null) {
+      this.log("The previously spawned OpenCode server process has exited; it will be replaced.");
+      this.child = undefined;
+      this.serverPid = undefined;
+      this.ready = false;
+      this.generatedPassword = undefined;
+    }
     if (this.ready) {
       return;
     }
@@ -159,8 +180,25 @@ export class OpenCodeServerService {
     return { Authorization: `Basic ${credentials}` };
   }
 
+  /**
+   * fetch against the configured server; a connection-level failure means a
+   * server we believed was running is gone, so the ready flag is cleared and
+   * the next ensureServer() re-probes and only then starts a new server.
+   */
+  private async fetchServer(url: string, init: RequestInit): Promise<Response> {
+    try {
+      return await fetch(url, init);
+    } catch (error) {
+      if (this.ready) {
+        this.log("Lost the connection to the OpenCode server; it will be restarted when needed.");
+        this.ready = false;
+      }
+      throw error;
+    }
+  }
+
   private async requestJson<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const response = await fetch(`${this.serverUrl}${path}`, {
+    const response = await this.fetchServer(`${this.serverUrl}${path}`, {
       method,
       headers: {
         ...this.authHeaders(),
@@ -196,7 +234,7 @@ export class OpenCodeServerService {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
-      const response = await fetch(`${this.serverUrl}/api/info`, {
+      const response = await this.fetchServer(`${this.serverUrl}/api/info`, {
         headers: this.authHeaders(),
         signal: controller.signal
       });
@@ -258,6 +296,10 @@ export class OpenCodeServerService {
         if (match && !this.options.password && !this.generatedPassword) {
           this.generatedPassword = match[1];
           this.log("[OpenCode server] captured generated server password for authentication.");
+          // Let the caller persist it so other windows can reuse this server.
+          void Promise.resolve(this.options.onGeneratedPassword?.(match[1])).catch((error: unknown) => {
+            this.log(`Could not persist the generated OpenCode server password: ${errorMessage(error)}`);
+          });
         }
         this.log(`[OpenCode server] ${match ? "server password ***" : line}`);
       }
@@ -417,6 +459,12 @@ export class OpenCodeServerService {
       } catch (error) {
         this.log(`Session poll failed for ${sessionId}: ${errorMessage(error)}`);
         idleWithoutMarker = 0;
+        if (!this.ready) {
+          // The server connection is gone - waiting would spin until the
+          // timeout, and a restarted server would not have this session.
+          this.log(`Stopped waiting for session ${sessionId} because the OpenCode server went away.`);
+          return;
+        }
       }
 
       await sleep(intervalMs);

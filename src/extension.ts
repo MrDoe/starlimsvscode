@@ -53,6 +53,7 @@ const OPENCODE_STARTUP_LAST_LAUNCH_KEY = "starlims.opencode.autoOpenStartup.last
 const OPENCODE_STARTUP_SUPPRESSION_WINDOW_MS = 60_000;
 const OPENCODE_STARTUP_TERMINAL_NAME = "OpenCode";
 const OPENCODE_SERVER_PASSWORD_SECRET_KEY = "starlims.opencode.serverPassword";
+const OPENCODE_GENERATED_SERVER_PASSWORD_SECRET_KEY = "starlims.opencode.generatedServerPassword";
 const DEFAULT_AI_COMMIT_MESSAGE_SYSTEM_PROMPT = [
   "You write STARLIMS check-in and git commit messages.",
   "Return plain text only.",
@@ -133,6 +134,7 @@ const execFile = promisify(execFileCallback);
 
 let openCodeServerService: OpenCodeServerService | undefined;
 let openCodeServerServiceSignature = "";
+let generatedOpenCodeServerPassword: string | undefined;
 
 type CommitMessageDetailLevel = "short" | "standard" | "detailed";
 
@@ -1016,7 +1018,9 @@ export async function activate(context: vscode.ExtensionContext) {
         return (vscode.workspace.getConfiguration("STARLIMS").get<string>("opencode.buildModel", "qwen3.8-flash-next") || "").trim() || "qwen3.8-flash-next";
       }
 
-      async function resolveOpenCodeServerServiceOptions(): Promise<import("./services/opencodeServerService").OpenCodeServerServiceOptions | undefined> {
+      async function resolveOpenCodeServerServiceOptions(): Promise<
+        (import("./services/opencodeServerService").OpenCodeServerServiceOptions & { hasConfiguredPassword: boolean }) | undefined
+      > {
         const currentConfig = vscode.workspace.getConfiguration("STARLIMS");
         const command = (currentConfig.get<string>("opencode.command", "opencode") || "").trim();
         const commandArgs = currentConfig.get<string[]>("opencode.commandArgs", []) || [];
@@ -1050,14 +1054,25 @@ export async function activate(context: vscode.ExtensionContext) {
           return undefined;
         }
 
-        const password = await context.secrets.get(OPENCODE_SERVER_PASSWORD_SECRET_KEY);
+        const configuredPassword = await context.secrets.get(OPENCODE_SERVER_PASSWORD_SECRET_KEY);
+        // A generated password from a server this extension spawned earlier is
+        // persisted so a later window can authenticate against and reuse that
+        // server instead of failing with the "locked" error and starting a
+        // second one.
+        const persistedGeneratedPassword =
+          generatedOpenCodeServerPassword ?? (await context.secrets.get(OPENCODE_GENERATED_SERVER_PASSWORD_SECRET_KEY));
         return {
           hostname,
           port,
           command,
           commandArgs,
           workingDirectory,
-          password: password || undefined,
+          password: configuredPassword || persistedGeneratedPassword || undefined,
+          hasConfiguredPassword: !!configuredPassword,
+          onGeneratedPassword: async (password: string) => {
+            generatedOpenCodeServerPassword = password;
+            await context.secrets.store(OPENCODE_GENERATED_SERVER_PASSWORD_SECRET_KEY, password);
+          },
           log: (message) => outputChannel.appendLine(`[OpenCode Server] ${message}`)
         };
       }
@@ -1074,7 +1089,10 @@ export async function activate(context: vscode.ExtensionContext) {
           command: options.command,
           commandArgs: options.commandArgs,
           workingDirectory: options.workingDirectory,
-          hasPassword: !!options.password
+          // Only the user-configured password may force a service rebuild: the
+          // generated password appears in the secret store right after the first
+          // spawn and must never make us dispose and restart the running server.
+          hasConfiguredPassword: options.hasConfiguredPassword
         });
 
         if (!openCodeServerService || signature !== openCodeServerServiceSignature) {
