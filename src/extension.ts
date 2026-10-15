@@ -1009,11 +1009,11 @@ export async function activate(context: vscode.ExtensionContext) {
       const ticketOpenCodeRuns = new Map<number, OpenCodeTicketRun>();
 
       function getOpenCodePlanModel(): string {
-        return (vscode.workspace.getConfiguration("STARLIMS").get<string>("opencode.planModel", "glm-5.1") || "").trim() || "glm-5.1";
+        return (vscode.workspace.getConfiguration("STARLIMS").get<string>("opencode.planModel", "qwen3.8-flash-next") || "").trim() || "qwen3.8-flash-next";
       }
 
       function getOpenCodeBuildModel(): string {
-        return (vscode.workspace.getConfiguration("STARLIMS").get<string>("opencode.buildModel", "kimi-2.6") || "").trim() || "kimi-2.6";
+        return (vscode.workspace.getConfiguration("STARLIMS").get<string>("opencode.buildModel", "qwen3.8-flash-next") || "").trim() || "qwen3.8-flash-next";
       }
 
       async function resolveOpenCodeServerServiceOptions(): Promise<import("./services/opencodeServerService").OpenCodeServerServiceOptions | undefined> {
@@ -1121,7 +1121,11 @@ export async function activate(context: vscode.ExtensionContext) {
           const planModel = getOpenCodePlanModel();
           const prompt = buildTicketOpenCodePrompt(ticketToSolve, ticketInfo, getOpenCodeBuildModel());
           const title = `Ticket #${ticketToSolve.id}${ticketToSolve.title ? ` - ${ticketToSolve.title}` : ""}`.slice(0, MAX_TICKET_REFERENCE_TITLE_LENGTH);
-          const sessionId = await service.createSession(title);
+          const planAgentAvailable = (await service.getAgentIds()).includes("plan");
+          const sessionId = await service.createSession(title, {
+            agent: planAgentAvailable ? "plan" : undefined,
+            model: planModel
+          });
 
           const previousRun = ticketOpenCodeRuns.get(ticketToSolve.id);
           if (previousRun) {
@@ -1129,11 +1133,7 @@ export async function activate(context: vscode.ExtensionContext) {
           }
           ticketOpenCodeRuns.set(ticketToSolve.id, { sessionId, cancelled: false, approved: false });
 
-          const planAgentAvailable = (await service.getAgentIds()).includes("plan");
-          await service.sendMessage(sessionId, prompt, {
-            agent: planAgentAvailable ? "plan" : undefined,
-            model: planAgentAvailable ? planModel : undefined
-          });
+          await service.sendMessage(sessionId, prompt);
 
           outputChannel.appendLine(`[TicketManagement] Started OpenCode session ${sessionId} for ticket #${ticketToSolve.id} (plan agent: ${planAgentAvailable ? "plan" : "default"}).`);
           vscode.window.showInformationMessage(

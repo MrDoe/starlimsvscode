@@ -3,7 +3,7 @@
     "displayName": "STARLIMS VS Code Extension",
     "description": "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license": "SEE LICENSE IN LICENSE.md",
-    "version": "1.8.15",
+    "version": "1.8.16",
     "icon": "resources/extension/starlimsvscode.png",
     "publisher": "cdoellinger",
     "author": "Christoph Döllinger <christoph.doellinger@med.uni-heidelberg.de>",
@@ -925,7 +925,7 @@
                     "STARLIMS.opencode.command": {
                         "type": "string",
                         "default": "opencode",
-                        "description": "Command or absolute executable path used to launch the OpenCode server (opencode web) for the Solve with OpenCode ticket action. Use npx.cmd together with STARLIMS.opencode.commandArgs if you launch OpenCode through npx on Windows."
+                        "description": "Command or absolute executable path used to launch the OpenCode server (opencode serve, OpenCode v2) for the Solve with OpenCode ticket action. Use npx.cmd together with STARLIMS.opencode.commandArgs if you launch OpenCode through npx on Windows."
                     },
                     "STARLIMS.opencode.commandArgs": {
                         "type": "array",
@@ -950,16 +950,16 @@
                         "default": 4096,
                         "minimum": 1,
                         "maximum": 65535,
-                        "description": "TCP port used by the OpenCode server. A server already running on this port is reused; otherwise the extension spawns `opencode web` there."
+                        "description": "TCP port used by the OpenCode server. A compatible OpenCode v2 server already running on this port is reused; otherwise the extension spawns `opencode serve` there."
                     },
                     "STARLIMS.opencode.planModel": {
                         "type": "string",
-                        "default": "glm-5.1",
+                        "default": "qwen3.8-flash-next",
                         "description": "Initial OpenCode model used by the Solve with OpenCode ticket action when it launches plan mode."
                     },
                     "STARLIMS.opencode.buildModel": {
                         "type": "string",
-                        "default": "kimi-2.6",
+                        "default": "qwen3.8-flash-next",
                         "description": "Preferred follow-up model shown to the user after the OpenCode plan phase. This extension does not switch to it automatically."
                     },
                     "STARLIMS.opencode.workingDirectory": {
@@ -1400,7 +1400,6 @@
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0",
-        "@opencode-ai/sdk": "^1.18.16",
         "@vscode/webview-ui-toolkit": "^1.4.0",
         "@xmldom/xmldom": "^0.9.9",
         "jsdom": "^29.0.1",

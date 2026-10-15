@@ -77,7 +77,7 @@ OpenCode ticket launcher settings:
 
 - `STARLIMS.opencode.serverHostname`: Loopback hostname the OpenCode server binds to when spawned by the extension (`127.0.0.1` by default)
 - `STARLIMS.opencode.serverPort`: TCP port used by the OpenCode server (`4096` by default). A server already running on this port is reused
-- `STARLIMS.opencode.command`: Command or absolute executable path used to launch the OpenCode server (`opencode web`). Use `npx.cmd` together with `STARLIMS.opencode.commandArgs` if you launch OpenCode through npx on Windows
+- `STARLIMS.opencode.command`: Command or absolute executable path used to launch the OpenCode server (`opencode serve`, OpenCode v2). Use `npx.cmd` together with `STARLIMS.opencode.commandArgs` if you launch OpenCode through npx on Windows
 - `STARLIMS.opencode.commandArgs`: Optional leading arguments for the server command, such as `opencode` when using `npx.cmd`
 - `STARLIMS.opencode.planModel`: Initial model used when the ticket action starts the plan phase
 - `STARLIMS.opencode.buildModel`: Implementation model used after the plan is approved
@@ -106,7 +106,7 @@ The Tickets view groups STARLIMS tickets by status and supports title filtering,
 
 When an active ticket is selected, STARLIMS check-in commands can reuse ticket-aware reasons and automatically create ticket measures. Ticket measure text can use the same fast local generator or Copilot-assisted generation that is used for Git and check-in messages.
 
-The ticket context menu also includes `Solve ticket with OpenCode`. It always drives OpenCode through the OpenCode server API: the extension reuses an OpenCode server running on `STARLIMS.opencode.serverHostname:STARLIMS.opencode.serverPort` or spawns `opencode web` there itself (which opens the OpenCode Web UI in your browser). For each ticket it creates a session titled `Ticket #<id> - <title>`, sends the ticket prompt with the plan agent, and shows an `Approve & Implement` notification once the plan is ready. Approving continues the same session with the build model. Sessions can be aborted from the ticket context menu, and the Web UI is opened from the ticket context menu or the `Approve & Implement`/`Open Web UI` notifications.
+The ticket context menu also includes `Solve ticket with OpenCode`. It always drives OpenCode through the OpenCode v2 server API (OpenCode 1.x is not supported): the extension reuses an OpenCode server running on `STARLIMS.opencode.serverHostname:STARLIMS.opencode.serverPort` or spawns `opencode serve` there itself. If the spawned server generates a random access password, the extension captures it from the server output; a foreign password-protected server on that port is reported and can be reused by storing its password via `STARLIMS: Set OpenCode server password`. For each ticket it creates a session titled `Ticket #<id> - <title>`, sends the ticket prompt (plan agent when the server provides one), and shows an `Approve & Implement` notification once the plan is ready. Approving continues the same session with the build model. Sessions can be aborted from the ticket context menu, and the OpenCode Web UI (served by the same port) is opened from the ticket context menu or the `Approve & Implement`/`Open Web UI` notifications.
 
 ## MCP Integration
 
