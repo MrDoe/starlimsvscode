@@ -8,6 +8,7 @@ import { IEnterpriseService } from "./iEnterpriseService";
 import { EnterpriseHistoryCodeRecord, EnterpriseHistoryVersionRecord, EnterpriseItemCodeRecord, EnterpriseItemRecord, EnterpriseOperationResult, LocalCopyResult } from "./starlimsAutomationTypes";
 import { connectBridge } from "../utilities/bridge";
 import { clampValueToEncodedBudget, cleanUrl, isJson, MAX_STARLIMS_QUERY_URL_LENGTH } from "../utilities/miscUtils";
+import { normalizeColumnKey, normalizeScriptResultRows } from "../utilities/scriptResultRows";
 import { DOMParser } from "@xmldom/xmldom";
 import * as crypto from 'crypto';
 import {
@@ -24,6 +25,12 @@ import {
 
 const TICKET_MANAGEMENT_APP_ROOT = "/Applications/BMBH_Modules/BMBH_Ticketmanagement";
 const TICKETS_SERVERSCRIPT_URI = `/ServerScripts/SCM_API/GetTickets`;
+/** Columns selected by TicketManagement.GetTicketMeasures, in SELECT order (results have no header row). */
+const TICKET_MEASURE_COLUMNS = ["ORIGREC", "TITLE", "DESCRIPTION", "STATUS", "PRIORITY", "TICKET_ID", "DATE_FINISHED"];
+/** Columns selected by the ticket history script scGetTicketTnx, in SELECT order. */
+const TICKET_HISTORY_COLUMNS = ["OLD_VALUE", "NEW_VALUE", "CHANGED_FIELD", "CHANGED_ON", "MODIFIED_BY"];
+/** Shape of the `[ORIGREC, NAME]` pairs the ticket lookup dictionaries return. */
+const TICKET_LOOKUP_COLUMNS = ["ORIGREC", "NAME"];
 const TICKET_DATA_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scGetTicketData`;
 const TICKET_COMMENT_INSERT_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scInsertTicketComment`;
 const TICKET_HISTORY_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scGetTicketTnx`;
@@ -406,11 +413,7 @@ export class EnterpriseService implements IEnterpriseService {
   }
 
   private normalizeColumnKey(value: string): string {
-    return value
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-zA-Z0-9]/g, "")
-      .toLocaleLowerCase();
+    return normalizeColumnKey(value);
   }
 
   private getRecordValue(row: Record<string, unknown>, keys: string[]): unknown {
@@ -822,7 +825,7 @@ export class EnterpriseService implements IEnterpriseService {
       };
     }
 
-    const measures = this.normalizeArrayResultRows(result.data)
+    const measures = normalizeScriptResultRows(result.data, TICKET_MEASURE_COLUMNS)
       .map<TicketMeasure | undefined>((row) => {
         const id = this.normalizeNumber(this.getRecordValue(row, ["ORIGREC"]));
         const title = this.normalizeString(this.getRecordValue(row, ["TITLE"]));
@@ -935,7 +938,7 @@ export class EnterpriseService implements IEnterpriseService {
   }
 
   private normalizeTicketLookupOptions(payload: unknown): Array<{ code: number; name: string }> {
-    return this.normalizeArrayResultRows(payload)
+    return normalizeScriptResultRows(payload, TICKET_LOOKUP_COLUMNS)
       .map((row) => ({
         code: this.normalizeNumber(this.getRecordValue(row, ["ORIGREC", "CODE", "ID"])) ?? -1,
         name: this.normalizeString(this.getRecordValue(row, ["NAME", "STATUS_NAME", "TYPE_NAME", "PRIORITY_NAME", "SEVERITY_NAME"])) || ""
@@ -993,7 +996,7 @@ export class EnterpriseService implements IEnterpriseService {
       };
     }
 
-    const entries = this.normalizeArrayResultRows(result.data)
+    const entries = normalizeScriptResultRows(result.data, TICKET_HISTORY_COLUMNS)
       .map<TicketHistoryEntry>((row) => ({
         changedField: this.normalizeString(this.getRecordValue(row, ["CHANGED_FIELD"])),
         oldValue: this.normalizeString(this.getRecordValue(row, ["OLD_VALUE"])),

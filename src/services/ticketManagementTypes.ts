@@ -60,7 +60,7 @@ export type TicketMeasure = {
   /** Measure status text, 'Completed' for every measure created by check-ins or the app. */
   status?: string;
   priority?: number;
-  /** DATE_FINISHED as returned by the server, for example "2026-10-16 09:26:36.360". */
+  /** DATE_FINISHED as the server serialises it, for example "2026-10-16 09:26:36.360000" or "2026-10-16T09:26:36.360+02:00". */
   dateFinished?: string;
 };
 

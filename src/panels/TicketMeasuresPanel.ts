@@ -127,7 +127,7 @@ export class TicketMeasuresPanel {
     return clipped.length > 0 ? `#${ticket.id} measures - ${clipped}` : `Ticket #${ticket.id} measures`;
   }
 
-  /** DATE_FINISHED arrives as "2026-10-16 09:26:36.360000"; show a locale date/time when parseable. */
+  /** DATE_FINISHED arrives as "2026-10-16T09:26:36.360+02:00" (or "2026-10-16 09:26:36.360000"); show a locale date/time when parseable. */
   private static formatFinishedAt(value: string | undefined): string {
     const normalized = (value || "").trim();
     if (!normalized) {
