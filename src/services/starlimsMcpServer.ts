@@ -58,6 +58,14 @@ const getItemHistoryInputSchema = z.object({
   maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return when versionId is set. Omit to return the full output without truncation")
 });
 
+const getItemHistoryDiffInputSchema = z.object({
+  uri: z.string().describe("STARLIMS item URI."),
+  versionId: z.string().describe("Left side: LIMSSOURCECONTROL version id to diff from (get the ids from get_item_history)."),
+  compareVersionId: z.string().optional().describe("Optional right side: another LIMSSOURCECONTROL version id. Omit to diff against the current server version."),
+  contextLines: z.number().int().min(0).optional().describe("Unchanged context lines kept around each hunk (default 3)."),
+  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of diff characters to return. Omit to return the full diff without truncation")
+});
+
 const checkoutItemInputSchema = z.object({
   uri: z.string().describe("STARLIMS item URI."),
   language: z.string().optional().describe("Optional form language identifier for form checkout. Defaults to GER for form items when omitted.")
@@ -430,6 +438,24 @@ export class StarlimsMcpServer {
         (result) => typeof result.code === "string"
           ? `Retrieved ${this.toCount(result.totalCharacters)} character(s) of code for history version '${result.versionId}' of ${this.toUriLabel(result.uri)}.`
           : `Found ${this.toCount(result.totalItems)} history version(s) for ${this.toUriLabel(result.uri)}.`
+      )
+    );
+
+    server.registerTool(
+      "get_item_history_diff",
+      {
+        annotations: { readOnlyHint: true },
+        description: "Unified line diff between two server-side versions of a STARLIMS item: a LIMSSOURCECONTROL history version against another history version or (default) the current server version. Read-only history/diff browsing; nothing is modified.",
+        inputSchema: getItemHistoryDiffInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ uri, versionId, compareVersionId, contextLines, maxCharacters }) => this.executeTool(
+        "get_item_history_diff",
+        { compareVersionId, contextLines, maxCharacters, uri, versionId },
+        () => this.automationService.getItemHistoryDiff(uri, versionId, compareVersionId, contextLines, maxCharacters),
+        (result) => result.changed === true
+          ? `Diff of ${this.toUriLabel(result.uri)}: +${this.toCount(result.addedLines)} / -${this.toCount(result.removedLines)} line(s) against ${typeof result.compareVersionId === "string" && result.compareVersionId.length > 0 ? `version ${result.compareVersionId}` : "the current server version"}.`
+          : `The versions of ${this.toUriLabel(result.uri)} are identical.`
       )
     );
 

@@ -78,6 +78,7 @@ All tools are defined in `src/services/starlimsMcpServer.ts` and implemented in 
 | `list_languages` | `maxItems?` | Languages for form checkout |
 | `get_item_code` | `uri`, `language?`, `maxCharacters?` | Read item source |
 | `get_item_history` | `uri`, `versionId?`, `maxItems?`, `maxCharacters?` | Item check-out/check-in history from LIMSSOURCECONTROL (version list; or stored code of one version when `versionId` is set) |
+| `get_item_history_diff` | `uri`, `versionId`, `compareVersionId?`, `contextLines?`, `maxCharacters?` | Unified line diff: history version vs another version or the current server version (read-only) |
 | `read_log` | `user?`, `lastLines?` (legacy alias `maxLines?`) | Read server log tail (backend `LastLines` param keeps transfer small) |
 | `checkout_item` | `uri`, `language?` | Check out → SLVSCODE workspace |
 | `save_item` | `localPath`, `language?` | Save local edits to server |

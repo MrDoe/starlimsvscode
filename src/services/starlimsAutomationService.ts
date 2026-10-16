@@ -4,6 +4,7 @@ import { EnterpriseItemType } from "../providers/enterpriseTreeDataProvider";
 import { EnterpriseService } from "./enterpriseService";
 import { CheckedOutItemRecord, EnterpriseItemRecord } from "./starlimsAutomationTypes";
 import { RemoteScriptOutputType, TicketHistoryEntry, TicketListFilter, TicketLookupOption, TicketOverview, TicketReference } from "./ticketManagementTypes";
+import { createLineDiff } from "../utilities/textDiff";
 
 type StarlimsLanguageOption = {
   label: string;
@@ -410,6 +411,119 @@ export class StarlimsAutomationService {
       result.note = `Results limited to ${bounded.limit} of ${bounded.totalItems} history entries. Pass a larger maxItems to get all of them.`;
     } else if (bounded.totalItems === 0) {
       result.note = `No source control history exists for '${normalizedUri}'. The item has no check-out/check-in versions on this server.`;
+    }
+
+    return result;
+  }
+
+  /**
+   * Computes a unified line diff between two server-side versions of an item:
+   * a LIMSSOURCECONTROL history version (left side) against another history
+   * version or - by default - the current server-side version (right side).
+   * Read-only browsing of history and diffs; nothing is changed anywhere.
+   * @param uri enterprise item URI
+   * @param versionId left-side LIMSSOURCECONTROL version id
+   * @param compareVersionId optional right-side version id; omit to diff against the current server version
+   * @param contextLines optional unchanged context lines around hunks (default 3)
+   * @param maxCharacters optional cap for the returned diff text
+   */
+  public async getItemHistoryDiff(
+    uri: string,
+    versionId: string,
+    compareVersionId?: string,
+    contextLines?: number,
+    maxCharacters?: number
+  ): Promise<StarlimsAutomationResult> {
+    const normalizedUri = uri.trim();
+    if (!normalizedUri) {
+      return {
+        ok: false,
+        error: "The item URI cannot be empty."
+      };
+    }
+
+    const leftVersionId = (versionId ?? "").trim();
+    if (!leftVersionId) {
+      return {
+        ok: false,
+        error: "versionId is required: the history version to diff from. Call get_item_history without versionId to list the available versions.",
+        uri: normalizedUri
+      };
+    }
+    const rightVersionId = (compareVersionId ?? "").trim();
+    const serverName = this.enterpriseService.getCurrentServerName();
+
+    const leftResult = await this.enterpriseService.getHistoryVersionCodeResult(normalizedUri, leftVersionId);
+    if (!leftResult.ok || !leftResult.data) {
+      return {
+        ok: false,
+        error: leftResult.error ?? "Could not retrieve the left history version code.",
+        serverName,
+        uri: normalizedUri,
+        versionId: leftVersionId
+      };
+    }
+
+    let rightCode = "";
+    let rightLanguage: string | undefined;
+    if (rightVersionId) {
+      const rightResult = await this.enterpriseService.getHistoryVersionCodeResult(normalizedUri, rightVersionId);
+      if (!rightResult.ok || !rightResult.data) {
+        return {
+          ok: false,
+          error: rightResult.error ?? "Could not retrieve the right history version code.",
+          serverName,
+          uri: normalizedUri,
+          versionId: leftVersionId,
+          compareVersionId: rightVersionId
+        };
+      }
+      rightCode = rightResult.data.code;
+      rightLanguage = rightResult.data.language;
+    } else {
+      const currentResult = await this.enterpriseService.getEnterpriseItemCodeResult(normalizedUri, undefined);
+      if (!currentResult.ok || !currentResult.data) {
+        return {
+          ok: false,
+          error: currentResult.error ?? "Could not retrieve the current server version code.",
+          serverName,
+          uri: normalizedUri,
+          versionId: leftVersionId
+        };
+      }
+      rightCode = currentResult.data.code;
+      rightLanguage = currentResult.data.language;
+    }
+
+    const lineDiff = createLineDiff(leftResult.data.code, rightCode, { contextLines });
+    const diffText =
+      `--- history version ${leftVersionId}\n` +
+      `+++ ${rightVersionId ? `history version ${rightVersionId}` : "current server version"}\n` +
+      lineDiff.diff;
+    const bounded = this.limitCode(diffText, maxCharacters);
+
+    const result: StarlimsAutomationResult = {
+      ok: true,
+      addedLines: lineDiff.addedLines,
+      changed: lineDiff.changed,
+      coarse: lineDiff.coarse,
+      diff: bounded.code,
+      language: rightLanguage,
+      maxCharacters: bounded.maxCharacters,
+      removedLines: lineDiff.removedLines,
+      serverName,
+      totalCharacters: bounded.totalCharacters,
+      truncated: bounded.truncated,
+      uri: normalizedUri,
+      versionId: leftVersionId
+    };
+    if (rightVersionId) {
+      result.compareVersionId = rightVersionId;
+    }
+    if (!lineDiff.changed) {
+      result.note = "Both versions have identical code.";
+    } else if (lineDiff.coarse) {
+      result.note = "The versions are too large or too dissimilar for a line-precise diff; a coarse replace-all hunk was emitted.";
     }
 
     return result;
