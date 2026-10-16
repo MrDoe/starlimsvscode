@@ -19,6 +19,7 @@ import path = require("path");
 import { ResourcesDataViewPanel } from "./panels/ResourcesDataViewPanel";
 import { GenericDataViewPanel } from "./panels/GenericDataViewPanel";
 import { TableDesignerPanel } from "./panels/TableDesignerPanel";
+import { TicketMeasuresPanel } from "./panels/TicketMeasuresPanel";
 import { cleanUrl, executeWithProgress } from "./utilities/miscUtils";
 import { CheckedOutTreeDataProvider } from "./providers/checkedOutTreeDataProvider";
 import { TicketTreeItem, TicketsTreeDataProvider } from "./providers/ticketsTreeDataProvider";
@@ -1508,6 +1509,26 @@ Please provide:
         outputChannel.appendLine(`[TicketManagement] Opened stacktrace viewer for ticket #${ticketToInspect.id}`);
       }
 
+      /**
+       * Opens the measures panel (what was done for a ticket) for the clicked ticket,
+       * the selected ticket in the tickets tree, or the active ticket.
+       */
+      async function showTicketMeasures(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
+        const selectedTreeItem = ticketsTreeView?.selection?.[0];
+        const selectedTicket = item instanceof TicketTreeItem
+          ? item.ticket
+          : item || selectedTreeItem?.ticket || (activeTicket ? { ...activeTicket } : undefined);
+
+        if (!selectedTicket) {
+          vscode.window.showInformationMessage("Select a ticket first.");
+          return;
+        }
+
+        const ticketToInspect = normalizeTicketReference(selectedTicket);
+        TicketMeasuresPanel.render(context.extensionUri, enterpriseService, ticketToInspect);
+        outputChannel.appendLine(`[TicketManagement] Opened measures view for ticket #${ticketToInspect.id}`);
+      }
+
       async function setActiveTicketSelection(ticket: TicketOverview | TicketReference, silent: boolean = false): Promise<void> {
         const normalizedTicket = normalizeTicketReference(ticket);
         await persistActiveTicket(normalizedTicket);
@@ -2518,6 +2539,7 @@ Please provide:
         }
 
         outputChannel.appendLine(`Created STARLIMS ticket measure ${result.data} for ticket #${ticket.id}.`);
+        TicketMeasuresPanel.refreshIfOpen(ticket.id);
         return undefined;
       }
 
@@ -3399,6 +3421,13 @@ Please provide:
         "STARLIMS.ViewTicketStackTrace",
         async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
           await showTicketStackTrace(item);
+        }
+      );
+
+      vscode.commands.registerCommand(
+        "STARLIMS.ViewTicketMeasures",
+        async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
+          await showTicketMeasures(item);
         }
       );
 

@@ -3,7 +3,7 @@
     "displayName": "STARLIMS VS Code Extension",
     "description": "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license": "SEE LICENSE IN LICENSE.md",
-    "version": "1.8.22",
+    "version": "1.8.24",
     "icon": "resources/extension/starlimsvscode.png",
     "publisher": "cdoellinger",
     "author": "Christoph Döllinger <christoph.doellinger@med.uni-heidelberg.de>",
@@ -357,6 +357,11 @@
                 "icon": "$(output)"
             },
             {
+                "command": "STARLIMS.ViewTicketMeasures",
+                "title": "View ticket measures",
+                "icon": "$(tasklist)"
+            },
+            {
                 "command": "STARLIMS.SolveTicketWithOpenCode",
                 "title": "Solve ticket with OpenCode",
                 "icon": "$(sparkle)"
@@ -674,6 +679,11 @@
                 },
                 {
                     "command": "STARLIMS.ViewTicketStackTrace",
+                    "when": "view == STARLIMSTicketsTree && (viewItem == ticket || viewItem == activeTicket || viewItem == ticketInProgressByCurrentUser || viewItem == lockedTicket)",
+                    "group": "navigation"
+                },
+                {
+                    "command": "STARLIMS.ViewTicketMeasures",
                     "when": "view == STARLIMSTicketsTree && (viewItem == ticket || viewItem == activeTicket || viewItem == ticketInProgressByCurrentUser || viewItem == lockedTicket)",
                     "group": "navigation"
                 },

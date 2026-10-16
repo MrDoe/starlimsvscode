@@ -204,6 +204,11 @@ const getTicketHistoryInputSchema = z.object({
   maxItems: z.number().int().positive().optional().describe("Optional maximum number of change entries to return.")
 });
 
+const getTicketMeasuresInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id."),
+  maxItems: z.number().int().positive().optional().describe("Optional maximum number of measures to return.")
+});
+
 const createTicketInputSchema = z.object({
   title: z.string().describe("Ticket title. Short and specific. The server generates a description by AI when none is given."),
   description: z.string().optional().describe("Detailed description of the request, error or change. Omit to let the server queue an AI job that writes it."),
@@ -818,6 +823,22 @@ export class StarlimsMcpServer {
         { maxItems, ticketId },
         () => this.automationService.getTicketHistory(ticketId, maxItems),
         (result) => `Found ${this.toCount(result.totalItems)} change entr(ies|y) for ticket #${this.toCount(result.ticketId)}.`
+      )
+    );
+
+    server.registerTool(
+      "get_ticket_measures",
+      {
+        annotations: { readOnlyHint: true },
+        description: "Read the measures recorded for a ticket - the record of what was actually done (title, description, finished date). Check them before working on a ticket to see what already happened.",
+        inputSchema: getTicketMeasuresInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ maxItems, ticketId }) => this.executeTool(
+        "get_ticket_measures",
+        { maxItems, ticketId },
+        () => this.automationService.getTicketMeasures(ticketId, maxItems),
+        (result) => `Found ${this.toCount(result.totalItems)} measure(s) for ticket #${this.toCount(result.ticketId)}.`
       )
     );
 

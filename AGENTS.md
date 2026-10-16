@@ -99,6 +99,7 @@ All tools are defined in `src/services/starlimsMcpServer.ts` and implemented in 
 | `list_tickets` | `mine?`, `assignedTo?`, `statusGroup?`, `status?`, `titleContains?`, `modifiedWithinDays?`, `maxItems?` | List BMBH tickets (filters are client-side; umlauts/case flexible) |
 | `get_ticket_details` | `ticketId`, `maxCharacters?` | Ticket overview + description, stack trace, comments |
 | `get_ticket_history` | `ticketId`, `maxItems?` | Ticket field-change history (app script `scGetTicketTnx`) |
+| `get_ticket_measures` | `ticketId`, `maxItems?` | Recorded measures of a ticket (what was actually done), newest first (SCM_API `TicketManagement.GetTicketMeasures`) |
 | `get_ticket_lookup_data` | – | Status/type/priority/severity name→code dictionaries (needs SCM_API >= 1.8.21) |
 | `create_ticket` | `title`, `description?`, `type?`, `priority?`, `username?`, `notifyUser?` | Create ticket via `scTicketUtils.CreateTicketExt` (names resolved via lookup; `notifyUser` default false = no mail; empty description queues an AI job) |
 | `undertake_ticket` | `ticketId`, `username?` | Set ticket to "In Bearbeitung" and assign (default: current user) |
@@ -124,11 +125,13 @@ When working with STARLIMS items from the SLVSCODE workspace, always use MCP too
 
 ### Ticket workflow (BMBH tickets)
 
-Development work is tracked in STARLIMS tickets: `list_tickets` (`mine: true`) → `get_ticket_details` →
+Development work is tracked in STARLIMS tickets: `list_tickets` (`mine: true`) → `get_ticket_details` (plus
+`get_ticket_measures` to see what was already done) →
 `undertake_ticket` and `set_active_ticket` before editing → work → `checkin_item` with the ticket bound (creates the
 completed measure from the reason automatically) → `solve_ticket`. Use `add_ticket_comment` to keep the author
 informed and `release_ticket` to hand a ticket back. Never `solve_ticket` without a measure that says what was
-actually done. Type/priority names for `create_ticket` come from `get_ticket_lookup_data`.
+actually done. Type/priority names for `create_ticket` come from `get_ticket_lookup_data`. In the GUI the same
+measures are shown by "View ticket measures" on a ticket in the Tickets tree.
 
 **Important:** Every MCP tool response has two parts:
 - `content`: summary string plus the full payload as JSON under `--- Structured result ---` (when `STARLIMS.mcp.includeStructuredDataInText` is on, default) and a `TRUNCATED:` note when the result was cut off
@@ -168,7 +171,7 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 | `src/lsp/server/` | SSL language server (lexer, parser, diagnostics, style rules, quick fixes, formatter, hover, refs, navigation). Design: `starlims-lsp.md` |
 | `src/lsp/js/` | Separate TS-powered JS IntelliSense LSP (`starlimsJsLsp.enabled`, default true) |
 | `src/providers/` | Tree data providers (enterprise, checked-out, tickets), file decorations, server-selector webview |
-| `src/panels/` | Webview panels (table designer, data view) |
+| `src/panels/` | Webview panels (table designer, data view, ticket measures) |
 | `src/webview/` | Webview UI built separately by webpack |
 | `src/backend/SCM_API/` | Backend package → `SCM_API.sdp` |
 

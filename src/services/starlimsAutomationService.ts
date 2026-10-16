@@ -3,7 +3,7 @@ import * as path from "path";
 import { EnterpriseItemType } from "../providers/enterpriseTreeDataProvider";
 import { EnterpriseService } from "./enterpriseService";
 import { CheckedOutItemRecord, EnterpriseItemRecord } from "./starlimsAutomationTypes";
-import { RemoteScriptOutputType, TicketHistoryEntry, TicketListFilter, TicketLookupOption, TicketOverview, TicketReference } from "./ticketManagementTypes";
+import { RemoteScriptOutputType, TicketHistoryEntry, TicketListFilter, TicketLookupOption, TicketMeasure, TicketOverview, TicketReference } from "./ticketManagementTypes";
 import { createLineDiff } from "../utilities/textDiff";
 
 type StarlimsLanguageOption = {
@@ -1459,6 +1459,43 @@ export class StarlimsAutomationService {
       result.note = `Results limited to ${bounded.limit} of ${bounded.totalItems} history entries.`;
     } else if (bounded.totalItems === 0) {
       result.note = `No change history is recorded for ticket #${ticketId}.`;
+    }
+
+    return result;
+  }
+
+  /** Recorded measures of a ticket (what was actually done), newest first. */
+  public async getTicketMeasures(ticketId: number, maxItems?: number): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    if (!(ticketId > 0)) {
+      return { ok: false, error: "A positive ticket id is required.", serverName };
+    }
+
+    const measuresResult = await this.enterpriseService.getTicketMeasuresResult(ticketId);
+    if (!measuresResult.ok) {
+      return {
+        error: `${measuresResult.error ?? `Could not retrieve measures for ticket #${ticketId}.`} Reading measures needs a SCM_API backend with TicketManagement.GetTicketMeasures; the extension updates the backend automatically on activation, so reload the window if this error persists.`,
+        ok: false,
+        serverName,
+        ticketId
+      };
+    }
+
+    const bounded = this.limitItems<TicketMeasure>(measuresResult.data ?? [], maxItems);
+    const result: StarlimsAutomationResult = {
+      limit: bounded.limit,
+      measures: bounded.items,
+      ok: true,
+      serverName,
+      ticketId,
+      totalItems: bounded.totalItems,
+      truncated: bounded.truncated
+    };
+
+    if (bounded.truncated) {
+      result.note = `Results limited to ${bounded.limit} of ${bounded.totalItems} measures.`;
+    } else if (bounded.totalItems === 0) {
+      result.note = `No measures are recorded for ticket #${ticketId}.`;
     }
 
     return result;

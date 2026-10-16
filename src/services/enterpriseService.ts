@@ -17,6 +17,7 @@ import {
   TicketFullInfo,
   TicketHistoryEntry,
   TicketLookupData,
+  TicketMeasure,
   TicketOverview,
   TicketStatusGroupName
 } from "./ticketManagementTypes";
@@ -793,6 +794,57 @@ export class EnterpriseService implements IEnterpriseService {
     return {
       ok: true,
       data: measureId
+    };
+  }
+
+  /**
+   * Recorded measures of a ticket (BMBH_TICKET_MEASURES), newest first, through
+   * SCM_API TicketManagement.GetTicketMeasures. Backends without that procedure
+   * return an error; the extension upgrades SCM_API automatically on activation.
+   */
+  public async getTicketMeasuresResult(ticketId: number): Promise<EnterpriseOperationResult<TicketMeasure[]>> {
+    if (!(ticketId > 0)) {
+      return {
+        ok: false,
+        error: "A positive ticket id is required."
+      };
+    }
+
+    const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+      parameters: [ticketId],
+      outputType: "ARRAY",
+      entryPoint: "GetTicketMeasures"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not retrieve measures for ticket #${ticketId}.`
+      };
+    }
+
+    const measures = this.normalizeArrayResultRows(result.data)
+      .map<TicketMeasure | undefined>((row) => {
+        const id = this.normalizeNumber(this.getRecordValue(row, ["ORIGREC"]));
+        const title = this.normalizeString(this.getRecordValue(row, ["TITLE"]));
+        if (!id) {
+          return undefined;
+        }
+
+        return {
+          id,
+          ticketId: this.normalizeNumber(this.getRecordValue(row, ["TICKET_ID"])) ?? ticketId,
+          title: title || "Measure",
+          description: this.normalizeString(this.getRecordValue(row, ["DESCRIPTION"])),
+          status: this.normalizeString(this.getRecordValue(row, ["STATUS"])),
+          priority: this.normalizeNumber(this.getRecordValue(row, ["PRIORITY"])),
+          dateFinished: this.normalizeString(this.getRecordValue(row, ["DATE_FINISHED"]))
+        };
+      })
+      .filter((measure): measure is TicketMeasure => measure !== undefined);
+
+    return {
+      ok: true,
+      data: measures
     };
   }
 

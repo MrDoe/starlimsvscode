@@ -982,6 +982,57 @@ suite('StarlimsAutomationService', () => {
     assert.strictEqual(result.truncated, true);
   });
 
+  test('getTicketMeasures caps the number of measures', async () => {
+    const automationService = createTicketAutomationService({
+      getTicketMeasuresResult: async () => ({
+        ok: true,
+        data: [
+          { dateFinished: '2026-10-16 09:26:36.360', description: 'd3', id: 495, status: 'Completed', ticketId: 12, title: 'Analyse' },
+          { dateFinished: '2026-10-16 09:26:30.187', description: 'd2', id: 494, status: 'Completed', ticketId: 12, title: 'Datenkorrektur' },
+          { dateFinished: '2026-10-16 09:26:29.870', description: 'd1', id: 492, status: 'Completed', ticketId: 12, title: 'Code-Fix' }
+        ]
+      })
+    });
+
+    const result = await automationService.getTicketMeasures(12, 2);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual((result.measures as unknown[]).length, 2);
+    assert.strictEqual(result.totalItems, 3);
+    assert.strictEqual(result.truncated, true);
+    assert.match(String(result.note), /limited to 2 of 3 measures/i);
+  });
+
+  test('getTicketMeasures reports tickets without measures', async () => {
+    const automationService = createTicketAutomationService({
+      getTicketMeasuresResult: async () => ({ ok: true, data: [] })
+    });
+
+    const result = await automationService.getTicketMeasures(13);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual((result.measures as unknown[]).length, 0);
+    assert.strictEqual(result.totalItems, 0);
+    assert.match(String(result.note), /No measures are recorded for ticket #13/);
+  });
+
+  test('getTicketMeasures points at the SCM_API backend when the read fails', async () => {
+    const automationService = createTicketAutomationService({
+      getTicketMeasuresResult: async () => ({ ok: false, error: 'Could not execute remote script.' })
+    });
+
+    const result = await automationService.getTicketMeasures(12);
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /Could not execute remote script\./);
+    assert.match(String(result.error), /GetTicketMeasures/);
+  });
+
+  test('getTicketMeasures rejects a missing ticket id', async () => {
+    const automationService = createTicketAutomationService();
+
+    const result = await automationService.getTicketMeasures(0);
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /positive ticket id/i);
+  });
+
   test('undertakeTicket assigns the configured user by default', async () => {
     let receivedTicketId = 0;
     let receivedUser = '';

@@ -125,3 +125,18 @@ oResponse:severities := SQLExecute("SELECT ORIGREC, SEVERITY_NAME FROM BMBH_TICK
 
 :RETURN oResponse;
 :ENDPROC;
+
+:PROCEDURE GetTicketMeasures;
+:PARAMETERS nTicketId;
+:DEFAULT nTicketId, -1;
+
+:IF nTicketId < 0;
+	RaiseError("TicketId must be provided.", "SCM_API.TicketManagement.GetTicketMeasures", -1);
+:ENDIF;
+
+/* Recorded measures of one ticket, newest first - ORIGSTS is deliberately not filtered because its default constraint writes N for every inserted row;
+:DECLARE aMeasures;
+aMeasures := SQLExecute("SELECT ORIGREC, TITLE, DESCRIPTION, STATUS, PRIORITY, TICKET_ID, DATE_FINISHED FROM BMBH_TICKET_MEASURES WHERE TICKET_ID = ?nTicketId? ORDER BY ORIGREC DESC");
+
+:RETURN aMeasures;
+:ENDPROC;

@@ -51,6 +51,19 @@ export type TicketMeasureDraft = {
   description: string;
 };
 
+/** One recorded measure of a ticket (a BMBH_TICKET_MEASURES row): what was actually done. */
+export type TicketMeasure = {
+  id: number;
+  ticketId: number;
+  title: string;
+  description?: string;
+  /** Measure status text, 'Completed' for every measure created by check-ins or the app. */
+  status?: string;
+  priority?: number;
+  /** DATE_FINISHED as returned by the server, for example "2026-10-16 09:26:36.360". */
+  dateFinished?: string;
+};
+
 export type TicketDataDetails = {
   description: string;
   stackTrace: string;
