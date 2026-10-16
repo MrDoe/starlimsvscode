@@ -1356,7 +1356,7 @@ export class StarlimsAutomationService {
     const lookupResult = await this.enterpriseService.getTicketLookupDataResult();
     if (!lookupResult.ok || !lookupResult.data) {
       return {
-        error: `${lookupResult.error ?? "Could not read the ticket lookup data."} The server needs SCM_API >= 1.8.20 (TicketManagement.GetTicketLookupData); the extension updates the backend automatically on activation.`,
+        error: `${lookupResult.error ?? "Could not read the ticket lookup data."} The server needs SCM_API >= 1.8.21 (TicketManagement.GetTicketLookupData); the extension updates the backend automatically on activation.`,
         ok: false,
         serverName
       };

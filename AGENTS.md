@@ -98,7 +98,7 @@ All tools are defined in `src/services/starlimsMcpServer.ts` and implemented in 
 | `list_tickets` | `mine?`, `assignedTo?`, `statusGroup?`, `status?`, `titleContains?`, `modifiedWithinDays?`, `maxItems?` | List BMBH tickets (filters are client-side; umlauts/case flexible) |
 | `get_ticket_details` | `ticketId`, `maxCharacters?` | Ticket overview + description, stack trace, comments |
 | `get_ticket_history` | `ticketId`, `maxItems?` | Ticket field-change history (app script `scGetTicketTnx`) |
-| `get_ticket_lookup_data` | – | Status/type/priority/severity name→code dictionaries (needs SCM_API >= 1.8.20) |
+| `get_ticket_lookup_data` | – | Status/type/priority/severity name→code dictionaries (needs SCM_API >= 1.8.21) |
 | `create_ticket` | `title`, `description?`, `type?`, `priority?`, `username?`, `notifyUser?` | Create ticket via `scTicketUtils.CreateTicketExt` (names resolved via lookup; `notifyUser` default false = no mail; empty description queues an AI job) |
 | `undertake_ticket` | `ticketId`, `username?` | Set ticket to "In Bearbeitung" and assign (default: current user) |
 | `release_ticket` | `ticketId`, `force?` | Back to "Offen", clears assignee (refused for foreign assignee unless `force`) |

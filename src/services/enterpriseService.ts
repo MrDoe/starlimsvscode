@@ -893,7 +893,7 @@ export class EnterpriseService implements IEnterpriseService {
 
   /**
    * Ticket lookup dictionaries (status/type/priority/severity name -> ORIGREC code).
-   * Requires SCM_API >= 1.8.20 (TicketManagement.GetTicketLookupData); older backends return an error.
+   * Requires SCM_API >= 1.8.21 (TicketManagement.GetTicketLookupData); older backends return an error.
    */
   public async getTicketLookupDataResult(): Promise<EnterpriseOperationResult<TicketLookupData>> {
     const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
