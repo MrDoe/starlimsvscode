@@ -107,3 +107,21 @@ SQLExecute("UPDATE BMBH_TICKETS SET TITLE = ?sNewTitle?, MODIFIEDON = GETDATE() 
 
 :RETURN 1;
 :ENDPROC;
+
+:PROCEDURE GetTicketLookupData;
+:DECLARE oResponse;
+oResponse := CreateUDObject({
+	{"statuses", NIL},
+	{"types", NIL},
+	{"priorities", NIL},
+	{"severities", NIL}
+});
+
+/* Static ticket dictionaries, returned as arrays of [ORIGREC, NAME] so clients can resolve names to codes.;
+oResponse:statuses := SQLExecute("SELECT ORIGREC, STATUS_NAME FROM BMBH_TICKET_STATUS ORDER BY ORIGREC");
+oResponse:types := SQLExecute("SELECT ORIGREC, TYPE_NAME FROM BMBH_TICKET_TYPE ORDER BY ORIGREC");
+oResponse:priorities := SQLExecute("SELECT ORIGREC, PRIORITY_NAME FROM BMBH_TICKET_PRIORITY ORDER BY ORIGREC");
+oResponse:severities := SQLExecute("SELECT ORIGREC, SEVERITY_NAME FROM BMBH_TICKET_SEVERITY ORDER BY ORIGREC");
+
+:RETURN oResponse;
+:ENDPROC;

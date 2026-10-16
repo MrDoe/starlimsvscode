@@ -26,7 +26,7 @@ VS Code extension. TypeScript. SSL (`.ssl`, `.srvscr`) and SLSQL (`.slsql`) lang
 ## Lint
 
 `npm run lint` = `eslint src --ext ts` (includes `src/lsp/**` and `src/webview`).
-**Zero errors.** Warnings okay, baseline ~341 (mostly `curly` in `src/lsp/server/`). Do not introduce new ones without intent.
+**Zero errors.** Warnings okay, baseline ~380 (mostly `curly` in `src/lsp/server/`). Do not introduce new ones without intent.
 
 ## Tests
 
@@ -77,10 +77,11 @@ All tools are defined in `src/services/starlimsMcpServer.ts` and implemented in 
 | `global_code_search` | `searchString`, `itemTypes?`, `maxItems?` | Search code text |
 | `list_languages` | `maxItems?` | Languages for form checkout |
 | `get_item_code` | `uri`, `language?`, `maxCharacters?` | Read item source |
+| `get_item_history` | `uri`, `versionId?`, `maxItems?`, `maxCharacters?` | Item check-out/check-in history from LIMSSOURCECONTROL (version list; or stored code of one version when `versionId` is set) |
 | `read_log` | `user?`, `lastLines?` (legacy alias `maxLines?`) | Read server log tail (backend `LastLines` param keeps transfer small) |
 | `checkout_item` | `uri`, `language?` | Check out → SLVSCODE workspace |
 | `save_item` | `localPath`, `language?` | Save local edits to server |
-| `checkin_item` | `uri`, `reason`, `language?` | Check in |
+| `checkin_item` | `uri`, `reason`, `language?`, `ticketId?` | Check in; creates a completed ticket measure from `reason` when a ticket is bound (`ticketId`, else the active ticket; `ticketId: 0` = never). A failed measure never reverts the check-in (`measureError`) |
 | `undo_checkout` | `uri` | Discard checkout |
 | `refresh_checkout_tree` | `includeAllUsers?` | Refresh VS Code checked-out tree |
 | `list_checked_out_items` | `includeAllUsers?`, `maxItems?` | List items currently checked out on the server (URI, type, owner, language) |
@@ -94,6 +95,19 @@ All tools are defined in `src/services/starlimsMcpServer.ts` and implemented in 
 | `edit_table` | `uri`, `tableXml` | Save table XML |
 | `run_integration_tests` | `reason?`, `maxCharacters?` | Run `npm test` (prompts user) |
 | `transfer_item_to_server` | `targetServer`, `saveLocalEdits?` | Transfer all checked out items to another configured server (new versions on target; after success, local copies are refreshed from the target into its `SLVSCODE\<Target>` folder) |
+| `list_tickets` | `mine?`, `assignedTo?`, `statusGroup?`, `status?`, `titleContains?`, `modifiedWithinDays?`, `maxItems?` | List BMBH tickets (filters are client-side; umlauts/case flexible) |
+| `get_ticket_details` | `ticketId`, `maxCharacters?` | Ticket overview + description, stack trace, comments |
+| `get_ticket_history` | `ticketId`, `maxItems?` | Ticket field-change history (app script `scGetTicketTnx`) |
+| `get_ticket_lookup_data` | – | Status/type/priority/severity name→code dictionaries (needs SCM_API >= 1.8.20) |
+| `create_ticket` | `title`, `description?`, `type?`, `priority?`, `username?`, `notifyUser?` | Create ticket via `scTicketUtils.CreateTicketExt` (names resolved via lookup; `notifyUser` default false = no mail; empty description queues an AI job) |
+| `undertake_ticket` | `ticketId`, `username?` | Set ticket to "In Bearbeitung" and assign (default: current user) |
+| `release_ticket` | `ticketId`, `force?` | Back to "Offen", clears assignee (refused for foreign assignee unless `force`) |
+| `solve_ticket` | `ticketId` | Set ticket to "Fertig" |
+| `rename_ticket` | `ticketId`, `title` | Change ticket title |
+| `add_ticket_measure` | `ticketId`, `title`, `description?` | Add a completed measure |
+| `add_ticket_comment` | `ticketId`, `comment`, `author?` | Add a comment (author defaults to current user) |
+| `set_active_ticket` | `ticketId?` | Set/clear the workspace active ticket (same state the tickets tree uses: status-bar/tree filter + check-in measures) |
+| `get_active_ticket` | – | Show the active ticket of this workspace/server |
 
 ## Workflow for OpenCode agents
 
@@ -106,6 +120,14 @@ When working with STARLIMS items from the SLVSCODE workspace, always use MCP too
 5. **Edit** — modify the synced local file (path from `checkout_item.localPath`).
 6. **Save** — `save_item` with the absolute `localPath` from step 3.
 7. **Never check in** unless the user explicitly asks.
+
+### Ticket workflow (BMBH tickets)
+
+Development work is tracked in STARLIMS tickets: `list_tickets` (`mine: true`) → `get_ticket_details` →
+`undertake_ticket` and `set_active_ticket` before editing → work → `checkin_item` with the ticket bound (creates the
+completed measure from the reason automatically) → `solve_ticket`. Use `add_ticket_comment` to keep the author
+informed and `release_ticket` to hand a ticket back. Never `solve_ticket` without a measure that says what was
+actually done. Type/priority names for `create_ticket` come from `get_ticket_lookup_data`.
 
 **Important:** Every MCP tool response has two parts:
 - `content`: summary string plus the full payload as JSON under `--- Structured result ---` (when `STARLIMS.mcp.includeStructuredDataInText` is on, default) and a `TRUNCATED:` note when the result was cut off

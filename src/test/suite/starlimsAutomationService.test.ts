@@ -3,7 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { EnterpriseItemType } from '../../providers/enterpriseTreeDataProvider';
 import { EnterpriseService } from '../../services/enterpriseService';
-import { StarlimsAutomationService } from '../../services/starlimsAutomationService';
+import { StarlimsAutomationOptions, StarlimsAutomationService } from '../../services/starlimsAutomationService';
+import { TicketLookupData, TicketOverview, TicketReference } from '../../services/ticketManagementTypes';
 
 function createEnterpriseServiceMock(overrides: Partial<EnterpriseService> = {}): EnterpriseService {
   return {
@@ -38,6 +39,69 @@ function createEnterpriseServiceMock(overrides: Partial<EnterpriseService> = {})
     undoCheckOut: async () => true,
     ...overrides
   } as unknown as EnterpriseService;
+}
+
+const SAMPLE_TICKETS: TicketOverview[] = [
+  {
+    assignedTo: 'DC',
+    author: 'MHINZE',
+    createdOn: '2026-10-01T09:00:00Z',
+    id: 12,
+    modifiedOn: '2026-10-15T09:00:00Z',
+    priorityName: 'Hoch',
+    statusGroupName: 'In Bearbeitung',
+    statusName: 'In Bearbeitung',
+    title: 'Falsche Füllmengen im Kollektiv',
+    typeName: 'Bug'
+  },
+  {
+    assignedTo: 'DOELLINGER',
+    author: 'DC',
+    createdOn: '2026-10-10T09:00:00Z',
+    id: 13,
+    modifiedOn: '2026-10-15T12:00:00Z',
+    priorityName: 'Niedrig',
+    statusGroupName: 'In Prüfung',
+    statusName: 'In Prüfung',
+    title: 'Dauerhafte Prüfung ausstehend',
+    typeName: 'Support-Anfrage'
+  },
+  {
+    assignedTo: '',
+    author: 'RSCHLEGEL',
+    createdOn: '2026-09-01T09:00:00Z',
+    id: 14,
+    modifiedOn: '2026-09-30T09:00:00Z',
+    priorityName: 'Niedrig',
+    statusGroupName: 'Fertig',
+    statusName: 'Fertig',
+    title: 'Alles erledigt',
+    typeName: 'Bug'
+  }
+];
+
+const SAMPLE_TICKET_LOOKUP: TicketLookupData = {
+  priorities: [{ code: 1, name: 'Nicht definiert' }, { code: 4, name: 'Hoch' }],
+  severities: [{ code: 5, name: 'Nicht definiert' }],
+  statuses: [{ code: 1, name: 'Offen' }, { code: 3, name: 'In Bearbeitung' }],
+  types: [{ code: 1, name: 'Bug' }, { code: 4, name: 'Support-Anfrage' }]
+};
+
+function createTicketAutomationService(
+  overrides: Partial<EnterpriseService> = {},
+  optionOverrides: Partial<StarlimsAutomationOptions> = {}
+): StarlimsAutomationService {
+  return new StarlimsAutomationService(
+    createEnterpriseServiceMock(overrides),
+    {
+      getDefaultFormLanguage: () => undefined,
+      getMaxCodeCharacters: () => 20000,
+      getMaxItems: () => 100,
+      getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+      refreshCheckoutTree: async () => undefined,
+      ...optionOverrides
+    }
+  );
 }
 
 suite('StarlimsAutomationService', () => {
@@ -820,5 +884,342 @@ suite('StarlimsAutomationService', () => {
     const result = await automationService.createItem('scNew', 'APPSS', 'N/A', 'BMBH_Modules', 'BMBH_Ticketmanagement');
     assert.strictEqual(result.ok, true);
     assert.strictEqual(receivedLanguage, 'SSL');
+  });
+
+  test('listTickets filters by the current user case-insensitively', async () => {
+    const automationService = createTicketAutomationService({
+      getCurrentUser: () => 'doellinger',
+      getTicketsResult: async () => ({ ok: true, data: SAMPLE_TICKETS })
+    });
+
+    const result = await automationService.listTickets({ mine: true });
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual((result.tickets as TicketOverview[]).length, 1);
+    assert.strictEqual((result.tickets as TicketOverview[])[0].id, 13);
+  });
+
+  test('listTickets matches status names without requiring umlauts', async () => {
+    const automationService = createTicketAutomationService({
+      getTicketsResult: async () => ({ ok: true, data: SAMPLE_TICKETS })
+    });
+
+    const result = await automationService.listTickets({ status: 'In Pruefung' });
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual((result.tickets as TicketOverview[]).length, 1);
+    assert.strictEqual((result.tickets as TicketOverview[])[0].id, 13);
+  });
+
+  test('listTickets filters titles and caps the result', async () => {
+    const automationService = createTicketAutomationService({
+      getTicketsResult: async () => ({ ok: true, data: SAMPLE_TICKETS })
+    });
+
+    const filtered = await automationService.listTickets({ titleContains: 'füllmengen' });
+    assert.strictEqual(filtered.ok, true);
+    assert.strictEqual((filtered.tickets as TicketOverview[]).length, 1);
+    assert.strictEqual((filtered.tickets as TicketOverview[])[0].id, 12);
+
+    const capped = await automationService.listTickets({ maxItems: 1 });
+    assert.strictEqual((capped.tickets as TicketOverview[]).length, 1);
+    assert.strictEqual(capped.totalItems, 3);
+    assert.strictEqual(capped.truncated, true);
+  });
+
+  test('listTickets rejects mine without a configured user', async () => {
+    const automationService = createTicketAutomationService({
+      getCurrentUser: () => '',
+      getTicketsResult: async () => ({ ok: true, data: SAMPLE_TICKETS })
+    });
+
+    const result = await automationService.listTickets({ mine: true });
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /no STARLIMS user is configured/i);
+  });
+
+  test('getTicketDetails truncates long text fields', async () => {
+    const automationService = createTicketAutomationService({
+      getTicketFullInfo: async () => ({
+        comments: '',
+        description: 'x'.repeat(500),
+        stackTrace: ''
+      }),
+      getTicketsResult: async () => ({ ok: true, data: SAMPLE_TICKETS })
+    });
+
+    const result = await automationService.getTicketDetails(12, 20);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.description, 'x'.repeat(20));
+    assert.strictEqual(result.truncated, true);
+    assert.strictEqual((result.ticket as TicketOverview).id, 12);
+  });
+
+  test('getTicketDetails reports unknown tickets instead of returning empty data', async () => {
+    const automationService = createTicketAutomationService({
+      getTicketsResult: async () => ({ ok: true, data: SAMPLE_TICKETS })
+    });
+
+    const result = await automationService.getTicketDetails(9999);
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /not found/i);
+  });
+
+  test('getTicketHistory caps the number of change entries', async () => {
+    const automationService = createTicketAutomationService({
+      getTicketHistoryResult: async () => ({
+        ok: true,
+        data: [
+          { changedField: 'STATUS', newValue: '3', oldValue: '1' },
+          { changedField: 'TITLE', newValue: 'New', oldValue: 'Old' },
+          { changedField: 'PRIORITY', newValue: '4', oldValue: '1' }
+        ]
+      })
+    });
+
+    const result = await automationService.getTicketHistory(12, 2);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual((result.entries as unknown[]).length, 2);
+    assert.strictEqual(result.totalItems, 3);
+    assert.strictEqual(result.truncated, true);
+  });
+
+  test('undertakeTicket assigns the configured user by default', async () => {
+    let receivedTicketId = 0;
+    let receivedUser = '';
+    const automationService = createTicketAutomationService({
+      getCurrentUser: () => 'DC',
+      getTicketsResult: async () => ({ ok: true, data: SAMPLE_TICKETS }),
+      setTicketInProgressResult: async (ticketId, username) => {
+        receivedTicketId = ticketId;
+        receivedUser = username;
+        return { ok: true, data: true };
+      }
+    });
+
+    const result = await automationService.undertakeTicket(12);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(receivedTicketId, 12);
+    assert.strictEqual(receivedUser, 'DC');
+    assert.strictEqual(result.statusName, 'In Bearbeitung');
+    assert.strictEqual(result.warning, undefined);
+  });
+
+  test('undertakeTicket warns when the ticket was assigned to someone else', async () => {
+    const automationService = createTicketAutomationService({
+      getCurrentUser: () => 'DC',
+      getTicketsResult: async () => ({ ok: true, data: SAMPLE_TICKETS }),
+      setTicketInProgressResult: async () => ({ ok: true, data: true })
+    });
+
+    const result = await automationService.undertakeTicket(13);
+    assert.strictEqual(result.ok, true);
+    assert.match(String(result.warning), /previously assigned to DOELLINGER/);
+  });
+
+  test('releaseTicket refuses foreign assignees unless forced', async () => {
+    let releaseCalls = 0;
+    const automationService = createTicketAutomationService({
+      getCurrentUser: () => 'DC',
+      getTicketsResult: async () => ({ ok: true, data: SAMPLE_TICKETS }),
+      setTicketOpenResult: async () => {
+        releaseCalls += 1;
+        return { ok: true, data: true };
+      }
+    });
+
+    const refused = await automationService.releaseTicket(13);
+    assert.strictEqual(refused.ok, false);
+    assert.match(String(refused.error), /force: true/);
+    assert.strictEqual(releaseCalls, 0);
+
+    const forced = await automationService.releaseTicket(13, true);
+    assert.strictEqual(forced.ok, true);
+    assert.strictEqual(releaseCalls, 1);
+    assert.strictEqual(forced.statusName, 'Offen');
+    assert.match(String(forced.warning), /although it was assigned to DOELLINGER/);
+  });
+
+  test('createTicket resolves type and priority names through the lookup', async () => {
+    let receivedArgs: { priority: number; type: number; user: string } | undefined;
+    const automationService = createTicketAutomationService({
+      createTicketResult: async (username, _title, _description, typeCode, priorityCode) => {
+        receivedArgs = { priority: priorityCode, type: typeCode, user: username };
+        return { ok: true, data: 2220 };
+      },
+      getCurrentUser: () => 'DC',
+      getTicketLookupDataResult: async () => ({ ok: true, data: SAMPLE_TICKET_LOOKUP })
+    });
+
+    const result = await automationService.createTicket({ description: 'Text', priority: 'hoch', title: 'Neues Ticket', type: 'bug' });
+    assert.strictEqual(result.ok, true);
+    assert.deepStrictEqual(receivedArgs, { priority: 4, type: 1, user: 'DC' });
+    assert.strictEqual(result.ticketId, 2220);
+    assert.deepStrictEqual(result.type, { code: 1, name: 'Bug' });
+  });
+
+  test('createTicket lists the valid types when a name is unknown', async () => {
+    const automationService = createTicketAutomationService({
+      getCurrentUser: () => 'DC',
+      getTicketLookupDataResult: async () => ({ ok: true, data: SAMPLE_TICKET_LOOKUP })
+    });
+
+    const result = await automationService.createTicket({ title: 'Neues Ticket', type: 'Incident' });
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /Unknown ticket type 'Incident'/);
+    assert.match(String(result.error), /Support-Anfrage \(4\)/);
+  });
+
+  test('createTicket falls back to server defaults without consulting the lookup', async () => {
+    let lookupCalled = false;
+    let receivedArgs: { notify: boolean; priority: number; type: number } | undefined;
+    const automationService = createTicketAutomationService({
+      createTicketResult: async (_user, _title, _description, typeCode, priorityCode, notifyUser) => {
+        receivedArgs = { notify: notifyUser, priority: priorityCode, type: typeCode };
+        return { ok: true, data: 2221 };
+      },
+      getCurrentUser: () => 'DC',
+      getTicketLookupDataResult: async () => {
+        lookupCalled = true;
+        return { ok: false, error: 'unsupported' };
+      }
+    });
+
+    const result = await automationService.createTicket({ description: 'Beschreibung', title: 'Ohne Typ' });
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(lookupCalled, false);
+    assert.deepStrictEqual(receivedArgs, { notify: false, priority: 1, type: 4 });
+    assert.strictEqual(result.note, undefined);
+  });
+
+  test('createTicket mentions the AI description job when no description is given', async () => {
+    const automationService = createTicketAutomationService({
+      createTicketResult: async () => ({ ok: true, data: 2222 }),
+      getCurrentUser: () => 'DC'
+    });
+
+    const result = await automationService.createTicket({ title: 'Nur Titel' });
+    assert.strictEqual(result.ok, true);
+    assert.match(String(result.note), /AI job/i);
+  });
+
+  test('checkinItem creates a ticket measure for the active ticket', async () => {
+    let measureArgs: { description: string; ticketId: number; title: string } | undefined;
+    const automationService = createTicketAutomationService(
+      {
+        checkInItem: async () => true,
+        addTicketMeasureResult: async (ticketId, title, description) => {
+          measureArgs = { description, ticketId, title };
+          return { ok: true, data: 77 };
+        },
+        getCurrentUser: () => 'DC',
+        getEnterpriseItemsResult: async () => ({ ok: true, data: [] })
+      },
+      { getActiveTicket: () => ({ id: 12, title: 'Falsche Füllmengen im Kollektiv' }) }
+    );
+
+    const result = await automationService.checkinItem('/ServerScripts/BMBH/scTest', 'Fix rounding of volumes\n\nDetails', undefined);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.measureId, 77);
+    assert.strictEqual(result.ticketId, 12);
+    assert.strictEqual(measureArgs?.ticketId, 12);
+    assert.strictEqual(measureArgs?.title, 'Fix rounding of volumes');
+    assert.match(String(measureArgs?.description), /scTest/);
+    assert.match(String(result.note), /Created ticket measure 77/);
+  });
+
+  test('checkinItem keeps a successful check-in when the measure fails', async () => {
+    const automationService = createTicketAutomationService(
+      {
+        checkInItem: async () => true,
+        addTicketMeasureResult: async () => ({ ok: false, error: 'measure insert rejected' }),
+        getCurrentUser: () => 'DC',
+        getEnterpriseItemsResult: async () => ({ ok: true, data: [] })
+      },
+      { getActiveTicket: () => ({ id: 12, title: 'Ticket' }) }
+    );
+
+    const result = await automationService.checkinItem('/ServerScripts/BMBH/scTest', 'Fixed it', undefined);
+    assert.strictEqual(result.ok, true);
+    assert.match(String(result.measureError), /measure insert rejected/);
+    assert.match(String(result.note), /could not be created/);
+    assert.strictEqual(result.measureId, undefined);
+  });
+
+  test('checkinItem ticketId 0 skips the measure even with an active ticket', async () => {
+    let measureCalls = 0;
+    const automationService = createTicketAutomationService(
+      {
+        checkInItem: async () => true,
+        addTicketMeasureResult: async () => {
+          measureCalls += 1;
+          return { ok: true, data: 1 };
+        },
+        getCurrentUser: () => 'DC',
+        getEnterpriseItemsResult: async () => ({ ok: true, data: [] })
+      },
+      { getActiveTicket: () => ({ id: 12, title: 'Ticket' }) }
+    );
+
+    const result = await automationService.checkinItem('/ServerScripts/BMBH/scTest', 'Fixed it', undefined, 0);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(measureCalls, 0);
+    assert.match(String(result.note), /No ticket measure was created/);
+  });
+
+  test('setActiveTicket validates the ticket and persists the selection', async () => {
+    const setterCalls: Array<TicketReference | undefined> = [];
+    const automationService = createTicketAutomationService(
+      {
+        getTicketsResult: async () => ({ ok: true, data: SAMPLE_TICKETS })
+      },
+      {
+        setActiveTicket: async (ticket) => {
+          setterCalls.push(ticket);
+        }
+      }
+    );
+
+    const missing = await automationService.setActiveTicket(9999);
+    assert.strictEqual(missing.ok, false);
+    assert.strictEqual(setterCalls.length, 0);
+
+    const selected = await automationService.setActiveTicket(12);
+    assert.strictEqual(selected.ok, true);
+    assert.strictEqual(setterCalls[0]?.id, 12);
+    assert.strictEqual(setterCalls[0]?.title, 'Falsche Füllmengen im Kollektiv');
+
+    const cleared = await automationService.setActiveTicket();
+    assert.strictEqual(cleared.ok, true);
+    assert.strictEqual(cleared.cleared, true);
+    assert.strictEqual(setterCalls[1], undefined);
+  });
+
+  test('getActiveTicket reports the workspace selection', async () => {
+    const withTicket = createTicketAutomationService({}, { getActiveTicket: () => ({ id: 13, title: 'Ticket' }) });
+    const withoutTicket = createTicketAutomationService({});
+
+    const selected = withTicket.getActiveTicket();
+    assert.strictEqual(selected.ok, true);
+    assert.strictEqual((selected.activeTicket as TicketReference).id, 13);
+
+    const none = withoutTicket.getActiveTicket();
+    assert.strictEqual(none.ok, true);
+    assert.strictEqual(none.activeTicket, undefined);
+    assert.match(String(none.note), /set_active_ticket/);
+  });
+
+  test('addTicketComment defaults the author to the configured user', async () => {
+    let receivedAuthor: string | undefined;
+    const automationService = createTicketAutomationService({
+      getCurrentUser: () => 'DC',
+      insertTicketCommentResult: async (_ticketId, _comment, author) => {
+        receivedAuthor = author;
+        return { ok: true, data: true };
+      }
+    });
+
+    const result = await automationService.addTicketComment(12, 'Work in progress');
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(receivedAuthor, 'DC');
+    assert.strictEqual(result.author, 'DC');
   });
 });

@@ -11,6 +11,14 @@ export type OpenCodeServerServiceOptions = {
   username?: string;
   password?: string;
   /**
+   * Git identity applied to the spawned server process via the
+   * GIT_AUTHOR_* and GIT_COMMITTER_* environment variables. Every git command
+   * the OpenCode agent runs in its shell inherits them, so commits made during
+   * OpenCode sessions are attributed to a bot user instead of the machine's
+   * own git identity. Applies only to servers this service spawns.
+   */
+  gitIdentity?: { name: string; email: string };
+  /**
    * Called with the password the spawned server generated (the
    * "server password <token>" stdout line) so the caller can persist it.
    * Persisting lets later extension windows authenticate against a still
@@ -273,6 +281,12 @@ export class OpenCodeServerService {
     if (this.options.password) {
       env.OPENCODE_SERVER_PASSWORD = this.options.password;
       env.OPENCODE_SERVER_USERNAME = this.options.username || DEFAULT_SERVER_USERNAME;
+    }
+    if (this.options.gitIdentity?.name && this.options.gitIdentity.email) {
+      env.GIT_AUTHOR_NAME = this.options.gitIdentity.name;
+      env.GIT_AUTHOR_EMAIL = this.options.gitIdentity.email;
+      env.GIT_COMMITTER_NAME = this.options.gitIdentity.name;
+      env.GIT_COMMITTER_EMAIL = this.options.gitIdentity.email;
     }
 
     this.log(`Spawning OpenCode server: ${this.options.command} ${args.join(" ")} (cwd: ${this.options.workingDirectory})`);

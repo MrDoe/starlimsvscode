@@ -5,7 +5,7 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import { IEnterpriseService } from "./iEnterpriseService";
-import { EnterpriseItemCodeRecord, EnterpriseItemRecord, EnterpriseOperationResult, LocalCopyResult } from "./starlimsAutomationTypes";
+import { EnterpriseHistoryCodeRecord, EnterpriseHistoryVersionRecord, EnterpriseItemCodeRecord, EnterpriseItemRecord, EnterpriseOperationResult, LocalCopyResult } from "./starlimsAutomationTypes";
 import { connectBridge } from "../utilities/bridge";
 import { clampValueToEncodedBudget, cleanUrl, isJson, MAX_STARLIMS_QUERY_URL_LENGTH } from "../utilities/miscUtils";
 import { DOMParser } from "@xmldom/xmldom";
@@ -15,6 +15,8 @@ import {
   RemoteScriptOutputType,
   TicketDataDetails,
   TicketFullInfo,
+  TicketHistoryEntry,
+  TicketLookupData,
   TicketOverview,
   TicketStatusGroupName
 } from "./ticketManagementTypes";
@@ -22,6 +24,9 @@ import {
 const TICKET_MANAGEMENT_APP_ROOT = "/Applications/BMBH_Modules/BMBH_Ticketmanagement";
 const TICKETS_SERVERSCRIPT_URI = `/ServerScripts/SCM_API/GetTickets`;
 const TICKET_DATA_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scGetTicketData`;
+const TICKET_COMMENT_INSERT_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scInsertTicketComment`;
+const TICKET_HISTORY_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scGetTicketTnx`;
+const TICKET_UTILS_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scTicketUtils`;
 const SCM_API_FORM_CALLBACK_PORT_SCRIPT_URI = "/ServerScripts/SCM_API/FormCallbackPort";
 const SCM_API_TICKET_MANAGEMENT_SCRIPT_URI = "/ServerScripts/SCM_API/TicketManagement";
 const LOCAL_SYNC_TIMESTAMP_STATE_KEY_PREFIX = "starlims.localSyncTimestamp";
@@ -877,6 +882,181 @@ export class EnterpriseService implements IEnterpriseService {
     };
   }
 
+  private normalizeTicketLookupOptions(payload: unknown): Array<{ code: number; name: string }> {
+    return this.normalizeArrayResultRows(payload)
+      .map((row) => ({
+        code: this.normalizeNumber(this.getRecordValue(row, ["ORIGREC", "CODE", "ID"])) ?? -1,
+        name: this.normalizeString(this.getRecordValue(row, ["NAME", "STATUS_NAME", "TYPE_NAME", "PRIORITY_NAME", "SEVERITY_NAME"])) || ""
+      }))
+      .filter((option) => option.code > 0 && option.name.length > 0);
+  }
+
+  /**
+   * Ticket lookup dictionaries (status/type/priority/severity name -> ORIGREC code).
+   * Requires SCM_API >= 1.8.20 (TicketManagement.GetTicketLookupData); older backends return an error.
+   */
+  public async getTicketLookupDataResult(): Promise<EnterpriseOperationResult<TicketLookupData>> {
+    const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+      entryPoint: "GetTicketLookupData"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? "Could not retrieve ticket lookup data."
+      };
+    }
+
+    const envelope = (result.data && typeof result.data === "object" && !Array.isArray(result.data))
+      ? result.data as Record<string, unknown>
+      : {};
+
+    return {
+      ok: true,
+      data: {
+        statuses: this.normalizeTicketLookupOptions(envelope.statuses ?? envelope.STATUSES),
+        types: this.normalizeTicketLookupOptions(envelope.types ?? envelope.TYPES),
+        priorities: this.normalizeTicketLookupOptions(envelope.priorities ?? envelope.PRIORITIES),
+        severities: this.normalizeTicketLookupOptions(envelope.severities ?? envelope.SEVERITIES)
+      }
+    };
+  }
+
+  /** Change history of a ticket from BMBH_TICKET_TXN_SET/BMBH_TICKET_TXN. */
+  public async getTicketHistoryResult(ticketId: number): Promise<EnterpriseOperationResult<TicketHistoryEntry[]>> {
+    if (!(ticketId > 0)) {
+      return {
+        ok: false,
+        error: "A positive ticket id is required."
+      };
+    }
+
+    const result = await this.executeRemoteScriptResult(TICKET_HISTORY_SCRIPT_URI, {
+      parameters: [ticketId],
+      outputType: "ARRAY"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not retrieve history for ticket #${ticketId}.`
+      };
+    }
+
+    const entries = this.normalizeArrayResultRows(result.data)
+      .map<TicketHistoryEntry>((row) => ({
+        changedField: this.normalizeString(this.getRecordValue(row, ["CHANGED_FIELD"])),
+        oldValue: this.normalizeString(this.getRecordValue(row, ["OLD_VALUE"])),
+        newValue: this.normalizeString(this.getRecordValue(row, ["NEW_VALUE"])),
+        changedOn: this.normalizeString(this.getRecordValue(row, ["CHANGED_ON", "MODIFIED_ON"])),
+        modifiedBy: this.normalizeString(this.getRecordValue(row, ["MODIFIED_BY"]))
+      }));
+
+    return {
+      ok: true,
+      data: entries
+    };
+  }
+
+  /** Insert a comment on a ticket. Falls back to the currently logged-in user when no author is given. */
+  public async insertTicketCommentResult(
+    ticketId: number,
+    comment: string,
+    author?: string
+  ): Promise<EnterpriseOperationResult<boolean>> {
+    const normalizedComment = (comment || "").trim();
+    if (!(ticketId > 0)) {
+      return {
+        ok: false,
+        error: "A positive ticket id is required."
+      };
+    }
+
+    if (!normalizedComment) {
+      return {
+        ok: false,
+        error: "The comment text cannot be empty."
+      };
+    }
+
+    const result = await this.executeRemoteScriptResult(TICKET_COMMENT_INSERT_SCRIPT_URI, {
+      parameters: [ticketId, normalizedComment, author || this.getCurrentUser()]
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not add a comment to ticket #${ticketId}.`
+      };
+    }
+
+    return {
+      ok: true,
+      data: true
+    };
+  }
+
+  /**
+   * Create a ticket through BMBH_Ticketmanagement.scTicketUtils.CreateTicketExt, which also queues
+   * AI title/description generation jobs on the server. Type and priority are numeric codes from the
+   * ticket lookup dictionaries.
+   */
+  public async createTicketResult(
+    username: string,
+    title: string,
+    description: string,
+    typeCode: number,
+    priorityCode: number,
+    notifyUser: boolean
+  ): Promise<EnterpriseOperationResult<number>> {
+    const normalizedUser = (username || this.getCurrentUser() || "").trim();
+    const normalizedTitle = (title || "").trim();
+    const normalizedDescription = (description || "").trim();
+    if (!normalizedUser) {
+      return {
+        ok: false,
+        error: "A STARLIMS user name is required to create a ticket."
+      };
+    }
+
+    if (!normalizedTitle) {
+      return {
+        ok: false,
+        error: "The ticket title cannot be empty."
+      };
+    }
+
+    const result = await this.executeRemoteScriptResult(TICKET_UTILS_SCRIPT_URI, {
+      parameters: [
+        normalizedUser,
+        normalizedTitle,
+        normalizedDescription,
+        typeCode,
+        priorityCode,
+        notifyUser ? 1 : 0
+      ],
+      entryPoint: "CreateTicketExt"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? "Could not create the ticket."
+      };
+    }
+
+    // CreateTicketExt returns {.T., nOrigrec} - the new ticket id is the second element.
+    const payload = result.data;
+    const ticketId = this.normalizeNumber(Array.isArray(payload) ? payload[1] : payload);
+    if (!ticketId) {
+      return {
+        ok: false,
+        error: "The ticket was created but no ticket id was returned by the server."
+      };
+    }
+
+    return {
+      ok: true,
+      data: ticketId
+    };
+  }
+
   async moveItem(uri: string, destination: string) {
     const url = this.buildApiUrl("Move", { URI: uri, Destination: destination });
     const headers = new Headers(await this.getAPIHeaders());
@@ -1402,25 +1582,7 @@ export class EnterpriseService implements IEnterpriseService {
 
       const { success, data }: { success: boolean; data: EnterpriseItemCodeRecord } = result;
       if (success) {
-        const normalizedData = { ...data };
-        if (normalizedData.language === "JS") {
-          normalizedData.code = normalizedData.code.replace(/^#include/gm, "//#include");
-        }
-
-        // Fix double-encoded non-ASCII characters from Latin-1→UTF-8 round-trip issues
-        if (normalizedData.code) {
-          normalizedData.code = normalizedData.code
-            .replace(/Ã¼/g, '\u00FC')   // ü
-            .replace(/Ã¤/g, '\u00E4')   // ä
-            .replace(/Ã¶/g, '\u00F6')   // ö
-            .replace(/Ãœ/g, '\u00DC')   // Ü
-            .replace(/Ã„/g, '\u00C4')   // Ä
-            .replace(/Ã–/g, '\u00D6')   // Ö
-            .replace(/ÃŸ/g, '\u00DF')   // ß
-            .replace(/Â/g, '');          // stray Â from double-encoding
-        }
-
-        return { ok: true, data: normalizedData };
+        return { ok: true, data: this.normalizeRetrievedCode(data) };
       }
 
       return {
@@ -1430,6 +1592,129 @@ export class EnterpriseService implements IEnterpriseService {
     } catch (e: any) {
       console.error(e);
       return { ok: false, error: `Could not retrieve item code: ${e?.message ?? e}.` };
+    }
+  }
+
+  /**
+   * Normalizes code retrieved from the SCM_API backend: re-comments the '#include'
+   * lines of JS items and fixes double-encoded non-ASCII characters. Applied to the
+   * current version (GetCode) and to history snapshots (GetHistoryCode) so both
+   * sides of a version diff render identically.
+   */
+  private normalizeRetrievedCode<T extends { code: string; language?: string }>(data: T): T {
+    const normalizedData = { ...data };
+
+    if (normalizedData.language === "JS") {
+      normalizedData.code = normalizedData.code.replace(/^#include/gm, "//#include");
+    }
+
+    // Fix double-encoded non-ASCII characters from Latin-1→UTF-8 round-trip issues
+    if (normalizedData.code) {
+      normalizedData.code = normalizedData.code
+        .replace(/Ã¼/g, '\u00FC')   // ü
+        .replace(/Ã¤/g, '\u00E4')   // ä
+        .replace(/Ã¶/g, '\u00F6')   // ö
+        .replace(/Ãœ/g, '\u00DC')   // Ü
+        .replace(/Ã„/g, '\u00C4')   // Ä
+        .replace(/Ã–/g, '\u00D6')   // Ö
+        .replace(/ÃŸ/g, '\u00DF')   // ß
+        .replace(/Â/g, '');          // stray Â from double-encoding
+    }
+
+    return normalizedData;
+  }
+
+  /**
+   * Gets the check-in history of an enterprise item from the server-side source
+   * control tables (LIMSSOURCECONTROL joined with LIMSVERSIONS). History never
+   * uses git or local files - it is the STARLIMS designer's own version history.
+   * @param uri the URI of the enterprise item
+   * @param maxItems optional cap for the number of returned versions
+   */
+  public async getItemHistoryResult(
+    uri: string,
+    maxItems?: number
+  ): Promise<EnterpriseOperationResult<EnterpriseHistoryVersionRecord[]>> {
+    const params = new URLSearchParams([["URI", uri]]);
+    if (typeof maxItems === "number" && Number.isFinite(maxItems) && maxItems > 0) {
+      params.set("MaxItems", String(Math.floor(maxItems)));
+    }
+    const url = `${this.baseUrl}/SCM_API.GetHistory.${this.urlSuffix}?${params}`;
+    const headers = new Headers(await this.getAPIHeaders());
+    const options: any = {
+      method: "GET",
+      headers
+    };
+
+    try {
+      const response = await fetch(url, options);
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        return { ok: false, error: `Could not retrieve item history (HTTP ${response.status}: ${response.statusText || "non-JSON response"}).` };
+      }
+
+      const { success, data }: { success: boolean; data: { items?: EnterpriseHistoryVersionRecord[] } } = result;
+      if (success) {
+        return { ok: true, data: data?.items ?? [] };
+      }
+
+      return {
+        ok: false,
+        error: this.getOperationErrorMessage(data, "Could not retrieve item history.")
+      };
+    } catch (e: any) {
+      console.error(e);
+      return { ok: false, error: `Could not retrieve item history: ${e?.message ?? e}.` };
+    }
+  }
+
+  /**
+   * Gets the stored code snapshot of one history version of an item. The code is
+   * normalized exactly like getEnterpriseItemCodeResult so the version diff shows
+   * both sides in the same representation.
+   * @param uri the URI of the enterprise item
+   * @param versionId the LIMSSOURCECONTROL VERSIONID from getItemHistoryResult
+   */
+  public async getHistoryVersionCodeResult(
+    uri: string,
+    versionId: string
+  ): Promise<EnterpriseOperationResult<EnterpriseHistoryCodeRecord>> {
+    const params = new URLSearchParams([
+      ["URI", uri],
+      ["VersionID", versionId]
+    ]);
+    const url = `${this.baseUrl}/SCM_API.GetHistoryCode.${this.urlSuffix}?${params}`;
+    const headers = new Headers(await this.getAPIHeaders());
+    const options: any = {
+      method: "GET",
+      headers
+    };
+
+    try {
+      const response = await fetch(url, options);
+      const result = await this.safeParseJsonInternal(response, false);
+      if (!result) {
+        return { ok: false, error: `Could not retrieve history version code (HTTP ${response.status}: ${response.statusText || "non-JSON response"}).` };
+      }
+
+      const { success, data }: { success: boolean; data: EnterpriseHistoryCodeRecord } = result;
+      if (success) {
+        const record: EnterpriseHistoryCodeRecord = {
+          uri: data?.uri,
+          versionId: data?.versionId ?? versionId,
+          code: data?.code ?? "",
+          language: data?.language ?? ""
+        };
+        return { ok: true, data: this.normalizeRetrievedCode(record) };
+      }
+
+      return {
+        ok: false,
+        error: this.getOperationErrorMessage(data, "Could not retrieve history version code.")
+      };
+    } catch (e: any) {
+      console.error(e);
+      return { ok: false, error: `Could not retrieve history version code: ${e?.message ?? e}.` };
     }
   }
 

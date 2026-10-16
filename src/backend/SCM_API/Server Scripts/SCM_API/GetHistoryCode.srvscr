@@ -1,0 +1,156 @@
+/******************************************************************************
+Description.. :	Get the stored code snapshot of one Enterprise item version
+					(one LIMSSOURCECONTROL row identified by VERSIONID and ITEMID).
+					Returns the document that matches the requested item type:
+					scripts and tables use CODEDOCUMENT, form XML uses XFDDOCUMENT,
+					form resources use RESOURCEDOCUMENT, form guides are extracted
+					from the resources document.
+Author....... :	DC
+Date......... : 2026-10-16
+*******************************************************************************/;
+:DECLARE String, oResponse, oResult, sURI, sVersionID, oUtils, oEnterpriseItem, sItemID,
+		 sItemName, sType, sCategory, sAppName;
+String := "";
+oResult := CreateUDObject();
+oResponse := CreateUDObject({
+	{"success", .T.},
+	{"data", NIL}
+});
+
+:IF Request:QueryString:IsProperty("URI");
+	sURI := Request:QueryString:URI;
+:ELSE;
+	Response:StatusCode := 400;
+	oResponse:success := .F.;
+	oResponse:data := String:Format("Missing required parameter: {0}", "URI");
+	:RETURN oResponse;
+:ENDIF;
+
+:IF Request:QueryString:IsProperty("VersionID") .AND. !Empty(Request:QueryString:VersionID);
+	sVersionID := AllTrim(Request:QueryString:VersionID);
+:ELSE;
+	Response:StatusCode := 400;
+	oResponse:success := .F.;
+	oResponse:data := String:Format("Missing required parameter: {0}", "VersionID");
+	:RETURN oResponse;
+:ENDIF;
+
+:TRY;
+	oUtils := CreateUDObject("SCM_API.Utils", {});
+	oEnterpriseItem := oUtils:ParseURI(sURI);
+	sItemName := BuildArray(oEnterpriseItem:Name,, ".")[1];
+	sType := oEnterpriseItem:Type;
+
+	:IF oEnterpriseItem:IsProperty("CategoryName");
+		sCategory := oEnterpriseItem:CategoryName;
+	:ENDIF;
+
+	:IF oEnterpriseItem:IsProperty("AppName");
+		sAppName := oEnterpriseItem:AppName;
+	:ENDIF;
+
+	sItemID := "";
+	:BEGINCASE;
+		:CASE sType == "SS" .OR. sType == "CS" .OR. sType == "DS" .OR. sType == "TABLE";
+			sItemID := oUtils:GetItemGUID(sCategory + "." + sItemName, sType);
+		:EXITCASE;
+		:CASE sType == "APPSS" .OR. sType == "APPCS" .OR. sType == "APPDS";
+			sItemID := oUtils:GetItemGUID(sAppName + "." + sItemName, sType);
+		:EXITCASE;
+		:CASE sType == "HTMLFORMXML" .OR. sType == "HTMLFORMCODE" .OR. sType == "HTMLFORMGUIDE" .OR.
+			sType == "HTMLFORMRESOURCES" .OR. sType == "XFDFORMXML" .OR. sType == "XFDFORMCODE" .OR.
+			sType == "XFDFORMRESOURCES";
+			sItemID := oUtils:GetItemGUID(sAppName + "." + sItemName, sType);
+		:EXITCASE;
+	:ENDCASE;
+
+	:IF Empty(sItemID);
+		Response:StatusCode := 400;
+		oResponse:success := .F.;
+		oResponse:data := "Item not found or item type does not support history: " + sURI;
+		:RETURN oResponse;
+	:ENDIF;
+
+	/* the version row must belong to the resolved item;
+	:DECLARE sSQL, aReturn, sCode, sLanguage;
+	sSQL := "select ISNULL(C.CODEDOCUMENT, ''), ISNULL(C.XFDDOCUMENT, ''), " +
+		"ISNULL(C.RESOURCEDOCUMENT, '') " +
+		"from LIMSSOURCECONTROL C where C.VERSIONID = ? and C.ITEMID = ?";
+	aReturn := LSelect(sSQL,, "DICTIONARY", {sVersionID, sItemID});
+
+	:IF Empty(aReturn);
+		Response:StatusCode := 400;
+		oResponse:success := .F.;
+		oResponse:data := "No history version found for the specified item and version id.";
+		:RETURN oResponse;
+	:ENDIF;
+
+	sCode := "";
+	sLanguage := "";
+	:BEGINCASE;
+		:CASE sType == "SS" .OR. sType == "APPSS";
+			sCode := aReturn[1][1];
+			sLanguage := "SSL";
+		:EXITCASE;
+		:CASE sType == "CS" .OR. sType == "APPCS";
+			sCode := aReturn[1][1];
+			sLanguage := "JS";
+		:EXITCASE;
+		:CASE sType == "DS" .OR. sType == "APPDS";
+			sCode := aReturn[1][1];
+			sLanguage := "SQL";
+		:EXITCASE;
+		:CASE sType == "TABLE";
+			sCode := aReturn[1][1];
+			sLanguage := "XML";
+		:EXITCASE;
+		:CASE sType == "HTMLFORMXML" .OR. sType == "XFDFORMXML";
+			sCode := aReturn[1][2];
+			sLanguage := "XML";
+		:EXITCASE;
+		:CASE sType == "HTMLFORMCODE" .OR. sType == "XFDFORMCODE";
+			sCode := aReturn[1][1];
+			sLanguage := "JS";
+		:EXITCASE;
+		:CASE sType == "HTMLFORMRESOURCES" .OR. sType == "XFDFORMRESOURCES";
+			sCode := aReturn[1][3];
+			sLanguage := "XML";
+		:EXITCASE;
+		:CASE sType == "HTMLFORMGUIDE";
+			:DECLARE sResourcesXML, oResourceDS, nRow, sResourceID;
+			sResourcesXML := aReturn[1][3];
+			oResourceDS := DoProc("Enterprise_Server.DataSetSupport.DsFromString", {sResourcesXML});
+			sCode := "[]";
+			:IF oResourceDS:Tables:Count > 0;
+				:FOR nRow := 0 :TO oResourceDS:Tables[0]:Rows:Count - 1;
+					sResourceID := LimsString(oResourceDS:Tables[0]:Rows[nRow]['ResourceId']);
+					:IF sResourceID == "GUIDE";
+						sCode := LimsString(oResourceDS:Tables[0]:Rows[nRow]['ResourceValue']);
+						:EXITFOR;
+					:ENDIF;
+				:NEXT;
+			:ENDIF;
+			sLanguage := "JSON";
+		:EXITCASE;
+	:ENDCASE;
+
+	oResult := CreateUDObject({
+		{"uri", sURI},
+		{"versionId", sVersionID},
+		{"code", sCode},
+		{"language", sLanguage}
+	});
+
+	oResponse:success := .T.;
+	oResponse:data := oResult;
+:CATCH;
+	:DECLARE Error;
+	Error := GetLastSSLError();
+	UsrMes("ERROR", Error:FullDescription);
+	Response:StatusCode := 400;
+	oResponse:success := .F.;
+	oResponse:data := Error:FullDescription;
+:ENDTRY;
+
+Response:StatusCode := 200;
+:RETURN oResponse;

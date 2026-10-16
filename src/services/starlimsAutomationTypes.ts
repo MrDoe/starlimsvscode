@@ -33,6 +33,33 @@ export interface EnterpriseItemCodeRecord {
   [key: string]: unknown;
 }
 
+/**
+ * One LIMSSOURCECONTROL history entry of an enterprise item (metadata only,
+ * no code snapshot). `done` is the STARLIMS DONE flag: "1" = checked-in
+ * version, "0" = the active checkout row, "9" = aborted/other.
+ */
+export interface EnterpriseHistoryVersionRecord {
+  versionId: string;
+  done?: string;
+  checkedOutBy?: string;
+  checkedOutDate?: string;
+  checkedInBy?: string;
+  checkedInDate?: string;
+  reason?: string;
+  /** Form language of the version row (LANGID), empty for non-form items. */
+  language?: string;
+  /** "MAJOR.MINOR.BUILD" from LIMSVERSIONS, empty when no version row exists. */
+  versionText?: string;
+}
+
+/** Code snapshot of a single enterprise item version (GetHistoryCode). */
+export interface EnterpriseHistoryCodeRecord {
+  uri?: string;
+  versionId: string;
+  code: string;
+  language?: string;
+}
+
 export interface LocalCopyResult {
   code: string;
   language: string;

@@ -12,7 +12,9 @@ import { ExpressServer } from "./services/expressServer";
 import { StarlimsAutomationService } from "./services/starlimsAutomationService";
 import { StarlimsMcpServer } from "./services/starlimsMcpServer";
 import { ItemTransferService, TransferLocalSyncItem } from "./services/itemTransferService";
+import { ItemHistoryService } from "./services/itemHistoryService";
 import { EnterpriseTextDocumentContentProvider } from "./providers/enterpriseTextContentProvider";
+import { HistoryDocumentContentProvider, HISTORY_CONTENT_SCHEME } from "./providers/historyContentProvider";
 import path = require("path");
 import { ResourcesDataViewPanel } from "./panels/ResourcesDataViewPanel";
 import { GenericDataViewPanel } from "./panels/GenericDataViewPanel";
@@ -54,6 +56,7 @@ const OPENCODE_STARTUP_SUPPRESSION_WINDOW_MS = 60_000;
 const OPENCODE_STARTUP_TERMINAL_NAME = "OpenCode";
 const OPENCODE_SERVER_PASSWORD_SECRET_KEY = "starlims.opencode.serverPassword";
 const OPENCODE_GENERATED_SERVER_PASSWORD_SECRET_KEY = "starlims.opencode.generatedServerPassword";
+const BOT_AUTHORED_TICKETS_WORKSPACE_KEY = "starlims.opencode.botAuthoredTickets";
 const DEFAULT_AI_COMMIT_MESSAGE_SYSTEM_PROMPT = [
   "You write STARLIMS check-in and git commit messages.",
   "Return plain text only.",
@@ -937,6 +940,7 @@ export async function activate(context: vscode.ExtensionContext) {
             })) || "Checked in from VSCode";
 
           checkinReason = ensureTicketReferenceInMessage(checkinReason, ticketToSolve);
+          const solveTicketGitIdentity = getBotIdentityForTicket(ticketToSolve.id);
           let checkInFailed = false;
 
           for (const selectedItem of selectedItems) {
@@ -968,7 +972,7 @@ export async function activate(context: vscode.ExtensionContext) {
                   }
 
                   for (const gitFilePath of gitFilePaths) {
-                    await commitAndPushGitFile(checkinReason, gitFilePath);
+                    await commitAndPushGitFile(checkinReason, gitFilePath, solveTicketGitIdentity);
                   }
                 } catch (error) {
                   vscode.window.showErrorMessage(`STARLIMS items were checked in, but Git commit/push failed: ${getGitErrorMessage(error)}`);
@@ -977,6 +981,10 @@ export async function activate(context: vscode.ExtensionContext) {
             }
           }
         }
+
+        // The ticket is being solved; its OpenCode attribution has been (or is
+        // being) consumed by the check-in commits above.
+        await clearTicketBotAuthored(ticketToSolve.id);
 
         const updateResult = await enterpriseService.setTicketFertigResult(ticketToSolve.id);
 
@@ -1016,6 +1024,59 @@ export async function activate(context: vscode.ExtensionContext) {
 
       function getOpenCodeBuildModel(): string {
         return (vscode.workspace.getConfiguration("STARLIMS").get<string>("opencode.buildModel", "qwen3.8-flash-next") || "").trim() || "qwen3.8-flash-next";
+      }
+
+      type GitCommitIdentity = { name: string; email: string };
+
+      /**
+       * The bot Git identity from STARLIMS.opencode.gitIdentity.* - undefined
+       * when disabled or when name/email are not both configured.
+       */
+      function getOpenCodeGitIdentity(): GitCommitIdentity | undefined {
+        const config = vscode.workspace.getConfiguration("STARLIMS");
+        if (!config.get<boolean>("opencode.gitIdentity.enabled", true)) {
+          return undefined;
+        }
+        const name = (config.get<string>("opencode.gitIdentity.name", "") || "").trim();
+        const email = (config.get<string>("opencode.gitIdentity.email", "") || "").trim();
+        return name && email ? { name, email } : undefined;
+      }
+
+      // Tickets whose implementation OpenCode was approved to run. Persisted in
+      // the workspace state so attribution survives window reloads between the
+      // OpenCode run and the later check-in commits; cleared when the ticket's
+      // items were checked in or the OpenCode session is aborted. Human
+      // follow-up edits committed under a flagged ticket are attributed to the
+      // bot too - file-level provenance is not derivable.
+      function getBotAuthoredTickets(): Record<string, number> {
+        return context.workspaceState.get<Record<string, number>>(BOT_AUTHORED_TICKETS_WORKSPACE_KEY, {}) ?? {};
+      }
+
+      async function markTicketBotAuthored(ticketId: number): Promise<void> {
+        const markers = getBotAuthoredTickets();
+        markers[String(ticketId)] = Date.now();
+        await context.workspaceState.update(BOT_AUTHORED_TICKETS_WORKSPACE_KEY, markers);
+        outputChannel.appendLine(`[TicketManagement] Ticket #${ticketId} is flagged as implemented by OpenCode; its Git commits will use the bot identity.`);
+      }
+
+      function isTicketBotAuthored(ticketId: number | undefined): boolean {
+        if (!ticketId) {
+          return false;
+        }
+        return getBotAuthoredTickets()[String(ticketId)] !== undefined;
+      }
+
+      async function clearTicketBotAuthored(ticketId: number): Promise<void> {
+        const markers = getBotAuthoredTickets();
+        if (markers[String(ticketId)] === undefined) {
+          return;
+        }
+        delete markers[String(ticketId)];
+        await context.workspaceState.update(BOT_AUTHORED_TICKETS_WORKSPACE_KEY, markers);
+      }
+
+      function getBotIdentityForTicket(ticketId: number | undefined): GitCommitIdentity | undefined {
+        return isTicketBotAuthored(ticketId) ? getOpenCodeGitIdentity() : undefined;
       }
 
       async function resolveOpenCodeServerServiceOptions(): Promise<
@@ -1069,6 +1130,7 @@ export async function activate(context: vscode.ExtensionContext) {
           workingDirectory,
           password: configuredPassword || persistedGeneratedPassword || undefined,
           hasConfiguredPassword: !!configuredPassword,
+          gitIdentity: getOpenCodeGitIdentity(),
           onGeneratedPassword: async (password: string) => {
             generatedOpenCodeServerPassword = password;
             await context.secrets.store(OPENCODE_GENERATED_SERVER_PASSWORD_SECRET_KEY, password);
@@ -1092,7 +1154,12 @@ export async function activate(context: vscode.ExtensionContext) {
           // Only the user-configured password may force a service rebuild: the
           // generated password appears in the secret store right after the first
           // spawn and must never make us dispose and restart the running server.
-          hasConfiguredPassword: options.hasConfiguredPassword
+          hasConfiguredPassword: options.hasConfiguredPassword,
+          // A changed bot git identity DOES restart our spawned server so the
+          // GIT_AUTHOR/GIT_COMMITTER environment variables handed to OpenCode
+          // always match the current settings (reused foreign servers keep
+          // whatever identity they were spawned with).
+          gitIdentity: options.gitIdentity ?? null
         });
 
         if (!openCodeServerService || signature !== openCodeServerServiceSignature) {
@@ -1233,6 +1300,7 @@ export async function activate(context: vscode.ExtensionContext) {
             { model: getOpenCodeBuildModel() }
           );
           outputChannel.appendLine(`[TicketManagement] Approved the plan for ticket #${ticketToBuild.id}; implementation started in session ${run.sessionId}.`);
+          await markTicketBotAuthored(ticketToBuild.id);
           vscode.window.showInformationMessage(
             `Implementation started for ticket #${ticketToBuild.id}. Watch progress in the OpenCode Web UI.`,
             "Open Web UI"
@@ -1257,6 +1325,7 @@ export async function activate(context: vscode.ExtensionContext) {
         }
 
         run.cancelled = true;
+        await clearTicketBotAuthored(ticketToAbort.id);
         const service = openCodeServerService;
         if (!service) {
           return;
@@ -2491,8 +2560,17 @@ Please provide:
         await activeDocument.save();
       }
 
-      async function runGitCommand(workingDirectory: string, args: string[]): Promise<string> {
-        const result = await execFile("git", ["-C", workingDirectory, ...args], {
+      async function runGitCommand(
+        workingDirectory: string,
+        args: string[],
+        gitIdentity?: GitCommitIdentity
+      ): Promise<string> {
+        // -c overrides must precede the subcommand; they beat repo/global config
+        // for this single invocation (used to commit as the OpenCode bot).
+        const identityArgs = gitIdentity
+          ? ["-c", `user.name=${gitIdentity.name}`, "-c", `user.email=${gitIdentity.email}`]
+          : [];
+        const result = await execFile("git", ["-C", workingDirectory, ...identityArgs, ...args], {
           windowsHide: true,
           maxBuffer: 1024 * 1024
         });
@@ -2551,7 +2629,7 @@ Please provide:
         return gitService.initializeRepository();
       }
 
-      async function commitAndPushGitFile(reason: string, filePath: string | undefined): Promise<void> {
+      async function commitAndPushGitFile(reason: string, filePath: string | undefined, gitIdentity?: GitCommitIdentity): Promise<void> {
         if (!isGitAutomationEnabled() || !filePath || !fs.existsSync(filePath)) {
           return;
         }
@@ -2619,7 +2697,10 @@ Please provide:
               return;
             }
 
-            await runGitCommand(repositoryRoot, ["commit", "-m", reason]);
+            if (gitIdentity) {
+              outputChannel.appendLine(`[Git] Committing ${relativePath} as bot identity "${gitIdentity.name} <${gitIdentity.email}>" (OpenCode-implemented ticket).`);
+            }
+            await runGitCommand(repositoryRoot, ["commit", "-m", reason], gitIdentity);
             if (autoPush) {
               await runGitCommand(repositoryRoot, ["push"]);
             }
@@ -2990,6 +3071,9 @@ Please provide:
         getWorkspaceRoot: () => rootPath
       });
 
+      // Server-side item history (LIMSSOURCECONTROL) + version compare for the trees and the editor.
+      const itemHistoryService = new ItemHistoryService(enterpriseService);
+
       const automationService = new StarlimsAutomationService(enterpriseService, {
         getDefaultFormLanguage: resolveDefaultFormLanguage,
         getMaxCodeCharacters: () => getMcpConfig().get<number>("mcp.maxCodeCharacters", 20000),
@@ -3025,6 +3109,29 @@ Please provide:
             getLocalSyncItemsForTransfer
           );
           return { ...result };
+        },
+        getActiveTicket: () => activeTicket,
+        setActiveTicket: async (ticket: TicketReference | undefined) => {
+          // Same state change the tickets tree selection performs, so MCP-driven and
+          // UI-driven work share one active ticket (checked-out tree filter + check-in measures).
+          const normalizedTicket = ticket ? normalizeTicketReference(ticket) : undefined;
+          await persistActiveTicket(normalizedTicket);
+          if (ticketsTreeDataProvider) {
+            ticketsTreeDataProvider.refresh();
+          }
+          if (checkedOutTreeDataProvider) {
+            if (normalizedTicket) {
+              checkedOutTreeDataProvider.setActiveTicket(normalizedTicket.id, normalizedTicket.title);
+            } else {
+              checkedOutTreeDataProvider.clearActiveTicket();
+            }
+
+            checkedOutTreeDataProvider.refresh();
+          }
+
+          outputChannel.appendLine(normalizedTicket
+            ? `[MCP] Active ticket set to #${normalizedTicket.id} (${normalizedTicket.title}).`
+            : "[MCP] Active ticket selection cleared.");
         }
       });
       const starlimsMcpServer = new StarlimsMcpServer(automationService, {
@@ -3412,6 +3519,14 @@ Please provide:
         )
       );
 
+      // serves LIMSSOURCECONTROL version snapshots for the history compare view
+      context.subscriptions.push(
+        vscode.workspace.registerTextDocumentContentProvider(
+          HISTORY_CONTENT_SCHEME,
+          new HistoryDocumentContentProvider(enterpriseService)
+        )
+      );
+
       ticketStackTraceContentProvider = new TicketStackTraceContentProvider();
       context.subscriptions.push(ticketStackTraceContentProvider);
       context.subscriptions.push(
@@ -3485,8 +3600,12 @@ Please provide:
                 vscode.window.showWarningMessage("STARLIMS items were checked in, but no local files were found to commit in the SLVSCODE Git repository.");
               }
 
+              const allItemsBotIdentity = getBotIdentityForTicket(selectedTicket?.id);
               for (const gitFilePath of gitFilePaths) {
-                await commitAndPushGitFile(checkinReason || "Checked in all items from VSCode", gitFilePath);
+                await commitAndPushGitFile(checkinReason || "Checked in all items from VSCode", gitFilePath, allItemsBotIdentity);
+              }
+              if (allItemsBotIdentity && selectedTicket) {
+                await clearTicketBotAuthored(selectedTicket.id);
               }
             } catch (error) {
               vscode.window.showErrorMessage(`STARLIMS items were checked in, but Git commit/push failed: ${getGitErrorMessage(error)}`);
@@ -4043,6 +4162,14 @@ Please provide:
         }
       );
 
+      // register the item history command (server-side LIMSSOURCECONTROL history + version compare)
+      vscode.commands.registerCommand(
+        "STARLIMS.ShowHistory",
+        async (item: TreeEnterpriseItem | vscode.Uri | undefined) => {
+          await itemHistoryService.showHistory(item);
+        }
+      );
+
       // register the checkout command
       vscode.commands.registerCommand(
         "STARLIMS.CheckOut",
@@ -4133,7 +4260,11 @@ Please provide:
 
           if (bSuccess && gitAutomationReady) {
             try {
-              await commitAndPushGitFile(checkinReason, gitFilePath);
+              const itemBotIdentity = getBotIdentityForTicket(selectedTicket?.id);
+              await commitAndPushGitFile(checkinReason, gitFilePath, itemBotIdentity);
+              if (itemBotIdentity && selectedTicket) {
+                await clearTicketBotAuthored(selectedTicket.id);
+              }
             } catch (error) {
               vscode.window.showErrorMessage(`STARLIMS item was checked in, but Git commit/push failed: ${getGitErrorMessage(error)}`);
             }

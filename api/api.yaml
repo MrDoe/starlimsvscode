@@ -407,6 +407,94 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "500":
           $ref: "#/components/responses/InternalError"
+  /SCM_API.GetHistory.lims:
+    get:
+      tags:
+        - "Code Management"
+      description: |
+        The `SCM_API.GetHistory.lims` endpoint returns the source control history of the
+        item referenced by the specified URI, read from LIMSSOURCECONTROL joined with
+        LIMSVERSIONS (metadata only - no code snapshots). The most recent entry is the
+        active checkout (`done` = 0) when the item is currently checked out.
+      operationId: GetHistory
+      parameters:
+        - in: query
+          name: URI
+          schema:
+            type: string
+          description: The URI indicating the item whose history is retrieved.
+          example: /Applications/TestApplications/MyApp/ServerScripts/Script1
+          required: true
+        - in: query
+          name: MaxItems
+          schema:
+            type: integer
+          description: Optional. Maximum number of history entries returned (default and maximum clamp 500).
+          example: 50
+        - in: header
+          name: Content-Type
+          required: true
+          description: Content-Type header must be set to `application/json`
+          schema:
+            type: string
+            pattern: ^application/json$
+          example: application/json
+      responses:
+        "200":
+          description: The list of history versions of the requested item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /SCM_API.GetHistoryCode.lims:
+    get:
+      tags:
+        - "Code Management"
+      description: |
+        The `SCM_API.GetHistoryCode.lims` endpoint returns the stored code snapshot of one
+        history version (LIMSSOURCECONTROL row identified by VERSIONID and the item GUID
+        resolved from the URI). The document returned depends on the item type: scripts
+        and tables use CODEDOCUMENT, form XML uses XFDDOCUMENT, form resources use
+        RESOURCEDOCUMENT, form guides are extracted from the resources document.
+      operationId: GetHistoryCode
+      parameters:
+        - in: query
+          name: URI
+          schema:
+            type: string
+          description: The URI indicating the item the version belongs to.
+          example: /Applications/TestApplications/MyApp/ServerScripts/Script1
+          required: true
+        - in: query
+          name: VersionID
+          schema:
+            type: string
+          description: The LIMSSOURCECONTROL VERSIONID of the history version.
+          example: 517ff7dd-e2e9-4896-a7c4-a6b38feb2c03
+          required: true
+        - in: header
+          name: Content-Type
+          required: true
+          description: Content-Type header must be set to `application/json`
+          schema:
+            type: string
+            pattern: ^application/json$
+          example: application/json
+      responses:
+        "200":
+          description: The stored code snapshot of the requested history version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryCodeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /SCM_API.GetItemGUID.lims:
     get:
       tags:
@@ -943,6 +1031,84 @@ components:
                 - JS
                 - XML
                 - SLSQL
+    HistoryListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            uri:
+              type: string
+              description: The requested item URI.
+            items:
+              type: array
+              description: History versions, most recent first.
+              items:
+                $ref: "#/components/schemas/HistoryVersion"
+    HistoryVersion:
+      type: object
+      properties:
+        versionId:
+          type: string
+          description: The LIMSSOURCECONTROL VERSIONID identifying this version.
+          example: 517ff7dd-e2e9-4896-a7c4-a6b38feb2c03
+        done:
+          type: string
+          description: Source control DONE flag. "1" = checked-in version, "0" = active checkout, "9" = other/aborted.
+          example: "1"
+        checkedOutBy:
+          type: string
+          description: The user who performed the check out.
+          example: MARIUS
+        checkedOutDate:
+          type: string
+          description: Check-out timestamp (yyyy-mm-dd hh:mm:ss).
+          example: "2026-10-16 09:24:15"
+        checkedInBy:
+          type: string
+          description: The user who performed the check in (empty while the checkout is active).
+          example: DC
+        checkedInDate:
+          type: string
+          description: Check-in timestamp (yyyy-mm-dd hh:mm:ss).
+          example: "2026-10-16 10:02:11"
+        reason:
+          type: string
+          description: The check-out/check-in reason text.
+        language:
+          type: string
+          description: Form language (LANGID) of the version row, empty for non-form items.
+          example: GER
+        versionText:
+          type: string
+          description: The MAJOR.MINOR.BUILD number from LIMSVERSIONS, empty when no version row exists.
+          example: 10.5.11
+    HistoryCodeResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            uri:
+              type: string
+              description: The requested item URI.
+            versionId:
+              type: string
+              description: The requested LIMSSOURCECONTROL VERSIONID.
+            code:
+              type: string
+              description: The stored code snapshot of the requested version.
+              example: |
+                :RETURN .T.;
+            language:
+              type: string
+              description: |
+                Code programming language derived from the item type. One of: SSL, JS, SQL, XML, JSON.
+              example: SSL
     TableDefinitionResponse:
       type: object
       properties:

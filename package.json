@@ -3,7 +3,7 @@
     "displayName": "STARLIMS VS Code Extension",
     "description": "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license": "SEE LICENSE IN LICENSE.md",
-    "version": "1.8.19",
+    "version": "1.8.21",
     "icon": "resources/extension/starlimsvscode.png",
     "publisher": "cdoellinger",
     "author": "Christoph Döllinger <christoph.doellinger@med.uni-heidelberg.de>",
@@ -97,6 +97,10 @@
             {
                 "command": "STARLIMS.Compare",
                 "title": "Compare with Remote Version"
+            },
+            {
+                "command": "STARLIMS.ShowHistory",
+                "title": "Show History"
             },
             {
                 "command": "STARLIMS.RunScript",
@@ -560,6 +564,11 @@
                     "group": "sourceControl"
                 },
                 {
+                    "command": "STARLIMS.ShowHistory",
+                    "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && viewItem =~ /^(SS|APPSS|CS|APPCS|DS|APPDS|TABLE|HTMLFORMXML|HTMLFORMCODE|HTMLFORMGUIDE|HTMLFORMRESOURCES|XFDFORMXML|XFDFORMCODE|XFDFORMRESOURCES)$/",
+                    "group": "sourceControl"
+                },
+                {
                     "command": "STARLIMS.Checkin",
                     "when": "(view == STARLIMSMainTree || view == STARLIMSCheckedOutTree) && viewItem != SERVERLOG && !(viewItem =~ /CAT/) && viewItem != APP && viewItem != ENT_TABLES_DATABASE && viewItem != ENT_TABLES_DICTIONARY",
                     "group": "sourceControl"
@@ -701,6 +710,11 @@
                     "group": "sourceControl"
                 },
                 {
+                    "command": "STARLIMS.ShowHistory",
+                    "when": "resourceDirname =~ /SLVSCODE/",
+                    "group": "sourceControl"
+                },
+                {
                     "command": "STARLIMS.CheckOut",
                     "when": "view == STARLIMSMainTree",
                     "group": "sourceControl"
@@ -715,6 +729,11 @@
                 {
                     "command": "STARLIMS.Compare",
                     "when": "resourceDirname =~ /SLVSCODE/ && !editorReadonly && editorLangId != 'log'",
+                    "group": "sourceControl"
+                },
+                {
+                    "command": "STARLIMS.ShowHistory",
+                    "when": "resourceDirname =~ /SLVSCODE/",
                     "group": "sourceControl"
                 },
                 {
@@ -961,6 +980,21 @@
                         "type": "string",
                         "default": "qwen3.8-flash-next",
                         "description": "Preferred follow-up model shown to the user after the OpenCode plan phase. This extension does not switch to it automatically."
+                    },
+                    "STARLIMS.opencode.gitIdentity.enabled": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Attribute Git commits of OpenCode-solved tickets to a separate bot identity so Git history shows which code parts were written by OpenCode. Applies to commits the extension makes during check-in for tickets flagged as implemented by OpenCode, and to commits made by the OpenCode agent itself (via GIT_AUTHOR/GIT_COMMITTER environment variables on the spawned server)."
+                    },
+                    "STARLIMS.opencode.gitIdentity.name": {
+                        "type": "string",
+                        "default": "OpenCode (AI)",
+                        "description": "Git user.name of the bot identity used for commits produced by OpenCode ticket runs."
+                    },
+                    "STARLIMS.opencode.gitIdentity.email": {
+                        "type": "string",
+                        "default": "opencode-bot@bmbh.local",
+                        "description": "Git user.email of the bot identity used for commits produced by OpenCode ticket runs."
                     },
                     "STARLIMS.opencode.workingDirectory": {
                         "type": "string",

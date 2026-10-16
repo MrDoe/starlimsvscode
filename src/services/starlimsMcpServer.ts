@@ -51,6 +51,13 @@ const getItemCodeInputSchema = z.object({
   maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return. Omit to return the full output without truncation")
 });
 
+const getItemHistoryInputSchema = z.object({
+  uri: z.string().describe("STARLIMS item URI."),
+  versionId: z.string().optional().describe("Optional LIMSSOURCECONTROL version id from the history list. When set, returns the stored code snapshot of that version instead of the version list."),
+  maxItems: z.number().int().positive().optional().describe("Optional maximum number of history versions to return when versionId is omitted."),
+  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters to return when versionId is set. Omit to return the full output without truncation")
+});
+
 const checkoutItemInputSchema = z.object({
   uri: z.string().describe("STARLIMS item URI."),
   language: z.string().optional().describe("Optional form language identifier for form checkout. Defaults to GER for form items when omitted.")
@@ -92,8 +99,9 @@ const executeDataSourceInputSchema = z.object({
 
 const checkinItemInputSchema = z.object({
   uri: z.string().describe("STARLIMS item URI."),
-  reason: z.string().describe("Check-in reason."),
-  language: z.string().optional().describe("Optional form language identifier for form check-in. Defaults to GER for form items when omitted.")
+  reason: z.string().describe("Check-in reason. When a ticket is bound to the check-in this text becomes the ticket measure, so write it as a short, complete change description."),
+  language: z.string().optional().describe("Optional form language identifier for form check-in. Defaults to GER for form items when omitted."),
+  ticketId: z.number().int().min(0).optional().describe("Ticket to create a completed measure for after a successful check-in. Omit to use the active ticket of the workspace (see set_active_ticket); pass 0 to check in without creating a ticket measure.")
 });
 
 const undoCheckoutInputSchema = z.object({
@@ -162,6 +170,70 @@ const readLogInputSchema = z.object({
 const transferItemInputSchema = z.object({
   targetServer: z.string().describe("Name of the configured STARLIMS target server (STARLIMS.servers) to transfer the checked out items to."),
   saveLocalEdits: z.boolean().optional().describe("Set to true to push local working copy edits of the checked out items to the source server before exporting. Defaults to true.")
+});
+
+const listTicketsInputSchema = z.object({
+  mine: z.boolean().optional().describe("Return only tickets assigned to the currently logged-in STARLIMS user."),
+  assignedTo: z.string().optional().describe("Return only tickets assigned to this STARLIMS user name. Ignored when mine is true."),
+  statusGroup: z.string().optional().describe("Return only tickets in this status group: Offen, In Bearbeitung, In Pruefung, Fertig or Zurueckgestellt. Case and umlauts are flexible (Prüfung == Pruefung)."),
+  status: z.string().optional().describe("Return only tickets with this exact status name."),
+  titleContains: z.string().optional().describe("Return only tickets whose title contains this text (case-insensitive)."),
+  modifiedWithinDays: z.number().int().positive().optional().describe("Return only tickets modified within the last N days."),
+  maxItems: z.number().int().positive().optional().describe("Optional maximum number of tickets to return.")
+});
+
+const ticketIdInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id (ORIGREC of BMBH_TICKETS), for example 2210.")
+});
+
+const getTicketDetailsInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id."),
+  maxCharacters: z.number().int().positive().optional().describe("Optional maximum number of characters per text field (description, stack trace, comments). Omit to return the full text.")
+});
+
+const getTicketHistoryInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id."),
+  maxItems: z.number().int().positive().optional().describe("Optional maximum number of change entries to return.")
+});
+
+const createTicketInputSchema = z.object({
+  title: z.string().describe("Ticket title. Short and specific. The server generates a description by AI when none is given."),
+  description: z.string().optional().describe("Detailed description of the request, error or change. Omit to let the server queue an AI job that writes it."),
+  type: z.string().optional().describe("Ticket type name from the ticket dictionary (e.g. Bug, Feature Request, Support-Anfrage). Omit for the server default (Support-Anfrage). get_ticket_lookup_data lists the valid names."),
+  priority: z.string().optional().describe("Ticket priority name from the ticket dictionary (e.g. Niedrig, Mittel, Hoch). Omit for the server default (Nicht definiert)."),
+  username: z.string().optional().describe("Author of the ticket. Defaults to the STARLIMS user configured in the extension."),
+  notifyUser: z.boolean().optional().describe("Set to true to send the author a notification mail about the new ticket. Defaults to false: no mail is sent.")
+});
+
+const undertakeTicketInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id."),
+  username: z.string().optional().describe("User the ticket should be assigned to. Defaults to the STARLIMS user configured in the extension.")
+});
+
+const releaseTicketInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id."),
+  force: z.boolean().optional().describe("Set to true to release the ticket even when it is assigned to a different user than the current one.")
+});
+
+const renameTicketInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id."),
+  title: z.string().describe("New ticket title.")
+});
+
+const addTicketMeasureInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id."),
+  title: z.string().describe("Measure title - what was done, in one line."),
+  description: z.string().optional().describe("Measure details: changed items, reasoning, verification.")
+});
+
+const addTicketCommentInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id."),
+  comment: z.string().describe("Comment text."),
+  author: z.string().optional().describe("Comment author. Defaults to the STARLIMS user configured in the extension.")
+});
+
+const setActiveTicketInputSchema = z.object({
+  ticketId: z.number().int().positive().optional().describe("Ticket that subsequent check-ins should be linked to. Omit to clear the active ticket selection.")
 });
 
 export class StarlimsMcpServer {
@@ -344,6 +416,24 @@ export class StarlimsMcpServer {
     );
 
     server.registerTool(
+      "get_item_history",
+      {
+        annotations: { readOnlyHint: true },
+        description: "Read the source control history of a STARLIMS item from LIMSSOURCECONTROL: the list of check-out/check-in versions (version number, user, date, reason) or, when versionId is set, the stored code snapshot of that version.",
+        inputSchema: getItemHistoryInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ uri, versionId, maxItems, maxCharacters }) => this.executeTool(
+        "get_item_history",
+        { maxCharacters, maxItems, uri, versionId },
+        () => this.automationService.getItemHistory(uri, versionId, maxItems, maxCharacters),
+        (result) => typeof result.code === "string"
+          ? `Retrieved ${this.toCount(result.totalCharacters)} character(s) of code for history version '${result.versionId}' of ${this.toUriLabel(result.uri)}.`
+          : `Found ${this.toCount(result.totalItems)} history version(s) for ${this.toUriLabel(result.uri)}.`
+      )
+    );
+
+    server.registerTool(
       "read_log",
       {
         annotations: { readOnlyHint: true },
@@ -422,15 +512,22 @@ export class StarlimsMcpServer {
     server.registerTool(
       "checkin_item",
       {
-        description: "Check in a STARLIMS enterprise item after local edits are complete.",
+        description: "Check in a STARLIMS enterprise item after local edits are complete. When a ticket is bound (explicit ticketId or the workspace's active ticket) a completed ticket measure is created from the check-in reason; a failing measure never reverts the check-in but is reported as measureError.",
         inputSchema: checkinItemInputSchema,
         outputSchema: toolResultSchema
       },
-      async ({ uri, reason, language }) => this.executeTool(
+      async ({ uri, reason, language, ticketId }) => this.executeTool(
         "checkin_item",
-        { language, reason, uri },
-        () => this.automationService.checkinItem(uri, reason, language),
-        (result) => `Checked in ${this.toUriLabel(result.uri)}.`
+        { language, reason, ticketId, uri },
+        () => this.automationService.checkinItem(uri, reason, language, ticketId),
+        (result) => {
+          const measureText = typeof result.measureId === "number"
+            ? ` Created ticket measure ${result.measureId} for ticket #${this.toCount(result.ticketId)}.`
+            : (result.measureError
+              ? " WARNING: the ticket measure could not be created - see measureError."
+              : "");
+          return `Checked in ${this.toUriLabel(result.uri)}.${measureText}`;
+        }
       )
     );
 
@@ -632,6 +729,227 @@ export class StarlimsMcpServer {
           return warnings.length > 0
             ? `${summary}${localSyncText} ${warnings}`
             : `${summary}${localSyncText}`;
+        }
+      )
+    );
+
+    server.registerTool(
+      "list_tickets",
+      {
+        annotations: { readOnlyHint: true },
+        description: "List STARLIMS tickets of the connected server with status, assignee, priority and dates. Filters are applied to the full ticket list. Sub-tickets of merged tickets are not returned.",
+        inputSchema: listTicketsInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ assignedTo, maxItems, mine, modifiedWithinDays, status, statusGroup, titleContains }) => this.executeTool(
+        "list_tickets",
+        { assignedTo, maxItems, mine, modifiedWithinDays, status, statusGroup, titleContains },
+        () => this.automationService.listTickets({
+          assignedTo,
+          maxItems,
+          mine,
+          modifiedWithinDays,
+          status,
+          statusGroup,
+          titleContains
+        }),
+        (result) => {
+          const total = this.toCount(result.totalItems);
+          const actual = Array.isArray(result.tickets) ? result.tickets.length : 0;
+          return actual < total
+            ? `Found ${actual} of ${total} ticket(s).`
+            : `Found ${actual} ticket(s).`;
+        }
+      )
+    );
+
+    server.registerTool(
+      "get_ticket_details",
+      {
+        annotations: { readOnlyHint: true },
+        description: "Read everything known about one ticket: overview fields, description, stack trace and comments.",
+        inputSchema: getTicketDetailsInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ ticketId, maxCharacters }) => this.executeTool(
+        "get_ticket_details",
+        { maxCharacters, ticketId },
+        () => this.automationService.getTicketDetails(ticketId, maxCharacters),
+        (result) => `Retrieved details for ticket #${this.toCount(result.ticketId)}.`
+      )
+    );
+
+    server.registerTool(
+      "get_ticket_history",
+      {
+        annotations: { readOnlyHint: true },
+        description: "Read the field-level change history of a ticket: which field changed, old and new value, who changed it and when.",
+        inputSchema: getTicketHistoryInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ ticketId, maxItems }) => this.executeTool(
+        "get_ticket_history",
+        { maxItems, ticketId },
+        () => this.automationService.getTicketHistory(ticketId, maxItems),
+        (result) => `Found ${this.toCount(result.totalItems)} change entr(ies|y) for ticket #${this.toCount(result.ticketId)}.`
+      )
+    );
+
+    server.registerTool(
+      "get_ticket_lookup_data",
+      {
+        annotations: { readOnlyHint: true },
+        description: "Read the ticket dictionaries (statuses, types, priorities, severities) as name/code pairs. Use it to pick valid type and priority names for create_ticket.",
+        inputSchema: z.object({}),
+        outputSchema: toolResultSchema
+      },
+      async () => this.executeTool(
+        "get_ticket_lookup_data",
+        {},
+        () => this.automationService.getTicketLookupData(),
+        () => "Retrieved the ticket status/type/priority/severity dictionaries."
+      )
+    );
+
+    server.registerTool(
+      "create_ticket",
+      {
+        description: "Create a ticket in the BMBH ticket management. The ticket gets the server default status (Offen). When no description is given the STARLIMS server queues an AI job that writes one; no mail is sent unless notifyUser is true.",
+        inputSchema: createTicketInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ description, notifyUser, priority, title, type, username }) => this.executeTool(
+        "create_ticket",
+        { description, notifyUser, priority, title, type, username },
+        () => this.automationService.createTicket({ description, notifyUser, priority, title, type, username }),
+        (result) => `Created ticket #${this.toCount(result.ticketId)}${typeof result.title === "string" ? ` '${result.title}'` : ""}.`
+      )
+    );
+
+    server.registerTool(
+      "undertake_ticket",
+      {
+        description: "Move a ticket to 'In Bearbeitung' and assign it to a user (default: the configured STARLIMS user). Call it before starting work on a ticket.",
+        inputSchema: undertakeTicketInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ ticketId, username }) => this.executeTool(
+        "undertake_ticket",
+        { ticketId, username },
+        () => this.automationService.undertakeTicket(ticketId, username),
+        (result) => `Ticket #${this.toCount(result.ticketId)} is now In Bearbeitung${typeof result.assignedTo === "string" ? ` (assigned to ${result.assignedTo})` : ""}.`
+      )
+    );
+
+    server.registerTool(
+      "release_ticket",
+      {
+        description: "Release a ticket back to 'Offen' and clear its assignee. Refused when the ticket is assigned to a different user unless force is true.",
+        inputSchema: releaseTicketInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ ticketId, force }) => this.executeTool(
+        "release_ticket",
+        { force, ticketId },
+        () => this.automationService.releaseTicket(ticketId, force),
+        (result) => `Ticket #${this.toCount(result.ticketId)} was released back to Offen.`
+      )
+    );
+
+    server.registerTool(
+      "solve_ticket",
+      {
+        description: "Mark a ticket as 'Fertig' (solved). Record what was done as a measure first (add_ticket_measure, or checkin_item with a ticketId), because a solved ticket should not need follow-up questions.",
+        inputSchema: ticketIdInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ ticketId }) => this.executeTool(
+        "solve_ticket",
+        { ticketId },
+        () => this.automationService.solveTicket(ticketId),
+        (result) => `Ticket #${this.toCount(result.ticketId)} was marked as Fertig.`
+      )
+    );
+
+    server.registerTool(
+      "rename_ticket",
+      {
+        description: "Change the title of a ticket.",
+        inputSchema: renameTicketInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ ticketId, title }) => this.executeTool(
+        "rename_ticket",
+        { ticketId, title },
+        () => this.automationService.renameTicket(ticketId, title),
+        (result) => `Renamed ticket #${this.toCount(result.ticketId)}.`
+      )
+    );
+
+    server.registerTool(
+      "add_ticket_measure",
+      {
+        description: "Add a completed measure to a ticket - the record of what was actually done. checkin_item does this automatically for bound tickets; use this tool for work that did not go through a check-in.",
+        inputSchema: addTicketMeasureInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ description, ticketId, title }) => this.executeTool(
+        "add_ticket_measure",
+        { description, ticketId, title },
+        () => this.automationService.addTicketMeasure(ticketId, title, description ?? ""),
+        (result) => `Added measure ${this.toCount(result.measureId)} to ticket #${this.toCount(result.ticketId)}.`
+      )
+    );
+
+    server.registerTool(
+      "add_ticket_comment",
+      {
+        description: "Add a comment to a ticket thread (questions, status updates, information for the ticket author).",
+        inputSchema: addTicketCommentInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ author, comment, ticketId }) => this.executeTool(
+        "add_ticket_comment",
+        { author, comment, ticketId },
+        () => this.automationService.addTicketComment(ticketId, comment, author),
+        (result) => `Added a comment to ticket #${this.toCount(result.ticketId)}.`
+      )
+    );
+
+    server.registerTool(
+      "set_active_ticket",
+      {
+        description: "Set the ticket this workspace works on - the same selection the tickets tree makes. The active ticket filters the checked-out tree, appears in the status bar, and is used by checkin_item when no ticketId is passed. Omit ticketId to clear it.",
+        inputSchema: setActiveTicketInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ ticketId }) => this.executeTool(
+        "set_active_ticket",
+        { ticketId },
+        () => this.automationService.setActiveTicket(ticketId),
+        (result) => result.cleared === true
+          ? "Cleared the active ticket selection."
+          : `Ticket #${this.toCount(result.ticketId)} is now the active ticket.`
+      )
+    );
+
+    server.registerTool(
+      "get_active_ticket",
+      {
+        annotations: { readOnlyHint: true },
+        description: "Show the ticket that is currently selected as active for this workspace and server.",
+        inputSchema: z.object({}),
+        outputSchema: toolResultSchema
+      },
+      async () => this.executeTool(
+        "get_active_ticket",
+        {},
+        async () => this.automationService.getActiveTicket(),
+        (result) => {
+          const activeTicket = result.activeTicket as { id?: number } | undefined;
+          return activeTicket
+            ? `The active ticket is #${this.toCount(activeTicket.id)}.`
+            : "No active ticket is set.";
         }
       )
     );

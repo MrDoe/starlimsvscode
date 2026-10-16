@@ -3,7 +3,7 @@ import * as path from "path";
 import { EnterpriseItemType } from "../providers/enterpriseTreeDataProvider";
 import { EnterpriseService } from "./enterpriseService";
 import { CheckedOutItemRecord, EnterpriseItemRecord } from "./starlimsAutomationTypes";
-import { RemoteScriptOutputType } from "./ticketManagementTypes";
+import { RemoteScriptOutputType, TicketHistoryEntry, TicketListFilter, TicketLookupOption, TicketOverview, TicketReference } from "./ticketManagementTypes";
 
 type StarlimsLanguageOption = {
   label: string;
@@ -20,6 +20,10 @@ export type StarlimsAutomationOptions = {
   refreshCheckoutTree: (includeAllUsers: boolean) => Promise<void>;
   listCheckedOutItems?: (includeAllUsers: boolean) => Promise<CheckedOutItemRecord[]>;
   transferToServer?: (targetServer: string, saveLocalEdits: boolean) => Promise<StarlimsAutomationResult>;
+  /** Returns the ticket the user (or an MCP tool) has selected as active for the current server. */
+  getActiveTicket?: () => TicketReference | undefined;
+  /** Persists the active ticket for the current server; pass undefined to clear it. */
+  setActiveTicket?: (ticket: TicketReference | undefined) => Promise<void>;
 };
 
 export type StarlimsAutomationResult = {
@@ -53,6 +57,11 @@ const FOLDER_ITEM_TYPES = new Set<string>([
   EnterpriseItemType.DataSourceCategory,
   EnterpriseItemType.ClientScriptCategory
 ]);
+
+/** BMBH_TICKET_TYPE ORIGREC of "Support-Anfrage" - used when the caller does not name a ticket type. */
+const DEFAULT_TICKET_TYPE_CODE = 4;
+/** BMBH_TICKET_PRIORITY ORIGREC of "Nicht definiert" - used when the caller does not name a priority. */
+const DEFAULT_TICKET_PRIORITY_CODE = 1;
 
 export class StarlimsAutomationService {
   constructor(
@@ -323,6 +332,87 @@ export class StarlimsAutomationService {
       truncated: bounded.truncated,
       uri: normalizedUri
     };
+  }
+
+  /**
+   * Reads the server-side source control history (LIMSSOURCECONTROL joined with
+   * LIMSVERSIONS) of an item. Without versionId the version metadata list is
+   * returned; with versionId the stored code snapshot of that version is
+   * returned instead. History is STARLIMS designer history - never git.
+   * @param uri enterprise item URI
+   * @param versionId optional LIMSSOURCECONTROL version id whose code to fetch
+   * @param maxItems optional cap for the version list
+   * @param maxCharacters optional cap for a returned code snapshot
+   */
+  public async getItemHistory(
+    uri: string,
+    versionId?: string,
+    maxItems?: number,
+    maxCharacters?: number
+  ): Promise<StarlimsAutomationResult> {
+    const normalizedUri = uri.trim();
+    if (!normalizedUri) {
+      return {
+        ok: false,
+        error: "The item URI cannot be empty."
+      };
+    }
+
+    const effectiveVersionId = (versionId ?? "").trim();
+    if (effectiveVersionId) {
+      const codeResult = await this.enterpriseService.getHistoryVersionCodeResult(normalizedUri, effectiveVersionId);
+      if (!codeResult.ok || !codeResult.data) {
+        return {
+          ok: false,
+          error: codeResult.error ?? "Could not retrieve history version code.",
+          serverName: this.enterpriseService.getCurrentServerName(),
+          uri: normalizedUri,
+          versionId: effectiveVersionId
+        };
+      }
+
+      const bounded = this.limitCode(codeResult.data.code, maxCharacters);
+      return {
+        ok: true,
+        code: bounded.code,
+        language: codeResult.data.language,
+        maxCharacters: bounded.maxCharacters,
+        serverName: this.enterpriseService.getCurrentServerName(),
+        totalCharacters: bounded.totalCharacters,
+        truncated: bounded.truncated,
+        uri: normalizedUri,
+        versionId: effectiveVersionId
+      };
+    }
+
+    const historyResult = await this.enterpriseService.getItemHistoryResult(normalizedUri);
+    if (!historyResult.ok) {
+      return {
+        ok: false,
+        error: historyResult.error ?? "Could not retrieve item history.",
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: normalizedUri
+      };
+    }
+
+    const bounded = this.limitItems(historyResult.data ?? [], maxItems);
+    const result: StarlimsAutomationResult = {
+      ok: true,
+      items: bounded.items,
+      limit: bounded.limit,
+      serverName: this.enterpriseService.getCurrentServerName(),
+      totalItems: bounded.totalItems,
+      truncated: bounded.truncated,
+      uri: normalizedUri
+    };
+
+    if (bounded.truncated) {
+      result.note = `Results limited to ${bounded.limit} of ${bounded.totalItems} history entries. Pass a larger maxItems to get all of them.`;
+    } else if (bounded.totalItems === 0) {
+      result.note = `No source control history exists for '${normalizedUri}'. The item has no check-out/check-in versions on this server.`;
+    }
+
+    return result;
   }
 
 
@@ -897,10 +987,18 @@ export class StarlimsAutomationService {
     return createResult;
   }
 
+  /**
+   * Checks in one item. When a ticket is bound to the check-in - either an explicit
+   * `ticketId` or the workspace's active ticket - a completed ticket measure is created
+   * from the check-in reason afterwards (the same way the VS Code check-in flow does).
+   * A failed measure never reverts the check-in; it is reported as `measureError`.
+   * @param ticketId ticket to create the measure for; 0 keeps the check-in unlinked
+   */
   public async checkinItem(
     uri: string,
     reason: string,
-    language: string | undefined
+    language: string | undefined,
+    ticketId?: number
   ): Promise<StarlimsAutomationResult> {
     const normalizedUri = uri.trim();
     const normalizedReason = reason.trim();
@@ -937,13 +1035,48 @@ export class StarlimsAutomationService {
       };
     }
 
-    return {
-      ok: true,
+    const response: StarlimsAutomationResult = {
       item: item ? this.mapItem(item) : undefined,
       language: resolvedLanguage.language,
+      ok: true,
       reason: normalizedReason,
       serverName: this.enterpriseService.getCurrentServerName(),
       uri: normalizedUri
+    };
+
+    const activeTicketId = this.options.getActiveTicket?.()?.id ?? 0;
+    const measureTicketId = ticketId !== undefined ? ticketId : activeTicketId;
+    if (!(measureTicketId > 0)) {
+      response.note = "No ticket measure was created. Set an active ticket with set_active_ticket or pass ticketId; pass ticketId 0 to keep this check-in deliberately unlinked.";
+      return response;
+    }
+
+    const measureDraft = this.buildCheckInTicketMeasureDraft(normalizedReason, normalizedUri);
+    const measureResult = await this.enterpriseService.addTicketMeasureResult(
+      measureTicketId,
+      measureDraft.title,
+      measureDraft.description
+    );
+    if (!measureResult.ok || !measureResult.data) {
+      response.measureError = measureResult.error ?? "Could not create the ticket measure.";
+      response.note = `The item was checked in, but the ticket measure for ticket #${measureTicketId} could not be created: ${response.measureError}`;
+      return response;
+    }
+
+    response.measureId = measureResult.data;
+    response.ticketId = measureTicketId;
+    response.note = `Created ticket measure ${measureResult.data} for ticket #${measureTicketId}.`;
+    return response;
+  }
+
+  /** Derives the ticket measure of an MCP check-in from the check-in reason and the item URI. */
+  private buildCheckInTicketMeasureDraft(reason: string, uri: string): { description: string; title: string } {
+    const firstLine = (reason.split(/\r?\n/)[0] || "").trim() || "Check-in";
+    const user = this.enterpriseService.getCurrentUser() || "unknown user";
+    const serverName = this.enterpriseService.getCurrentServerName() || "unknown server";
+    return {
+      description: `${reason}\n\nChecked in by ${user} on ${serverName}:\n- ${uri}`,
+      title: firstLine.length > 200 ? `${firstLine.slice(0, 197)}...` : firstLine
     };
   }
 
@@ -1059,6 +1192,630 @@ export class StarlimsAutomationService {
     }
 
     return checkoutResultResponse;
+  }
+
+  /**
+   * Lists tickets of the current server. The backend script always returns all
+   * tickets; assignment/status/title/age filters are applied here client-side.
+   */
+  public async listTickets(filter: TicketListFilter = {}): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    const ticketsResult = await this.enterpriseService.getTicketsResult();
+    if (!ticketsResult.ok) {
+      return {
+        error: ticketsResult.error ?? "Could not retrieve tickets.",
+        ok: false,
+        serverName
+      };
+    }
+
+    let tickets = ticketsResult.data ?? [];
+    const currentUser = this.enterpriseService.getCurrentUser();
+    if (filter.mine) {
+      if (!currentUser) {
+        return {
+          error: "Cannot filter by the current user: no STARLIMS user is configured in STARLIMS.user.",
+          ok: false,
+          serverName
+        };
+      }
+
+      tickets = tickets.filter((ticket) => this.isSameUser(ticket.assignedTo, currentUser));
+    } else if (filter.assignedTo) {
+      const wantedUser = this.normalizeCompareKey(filter.assignedTo);
+      tickets = tickets.filter((ticket) => this.normalizeCompareKey(ticket.assignedTo) === wantedUser);
+    }
+
+    if (filter.statusGroup) {
+      const wantedGroup = this.normalizeCompareKey(filter.statusGroup);
+      tickets = tickets.filter((ticket) => this.normalizeCompareKey(ticket.statusGroupName) === wantedGroup);
+    }
+
+    if (filter.status) {
+      const wantedStatus = this.normalizeCompareKey(filter.status);
+      tickets = tickets.filter((ticket) => this.normalizeCompareKey(ticket.statusName) === wantedStatus);
+    }
+
+    const titleFilter = this.normalizeOptionalString(filter.titleContains);
+    if (titleFilter) {
+      const needle = titleFilter.toLocaleLowerCase();
+      tickets = tickets.filter((ticket) => ticket.title.toLocaleLowerCase().includes(needle));
+    }
+
+    if (filter.modifiedWithinDays !== undefined && Number.isFinite(filter.modifiedWithinDays)) {
+      const cutoff = Date.now() - Math.max(0, Math.floor(filter.modifiedWithinDays)) * 24 * 60 * 60 * 1000;
+      tickets = tickets.filter((ticket) => {
+        const timestamp = this.parseTicketDate(ticket.modifiedOn);
+        // Tickets without a parseable modification date are kept.
+        return timestamp === undefined || timestamp >= cutoff;
+      });
+    }
+
+    const bounded = this.limitItems(tickets, filter.maxItems);
+    const result: StarlimsAutomationResult = {
+      limit: bounded.limit,
+      ok: true,
+      serverName,
+      tickets: bounded.items,
+      totalItems: bounded.totalItems,
+      truncated: bounded.truncated
+    };
+
+    if (bounded.truncated) {
+      result.note = `Results limited to ${bounded.limit} of ${bounded.totalItems} matching tickets. Narrow with mine/assignedTo/statusGroup or raise maxItems.`;
+    } else if (bounded.totalItems === 0) {
+      result.note = "No tickets matched the given filters.";
+    }
+
+    return result;
+  }
+
+  /**
+   * Full details of one ticket: overview row plus description, stack trace and
+   * comments from the ticket app scripts.
+   */
+  public async getTicketDetails(ticketId: number, maxCharacters?: number): Promise<StarlimsAutomationResult> {
+    const found = await this.findTicket(ticketId);
+    if (!found.ticket) {
+      return {
+        error: found.error,
+        ok: false,
+        serverName: found.serverName,
+        ticketId
+      };
+    }
+
+    const fullInfo = await this.enterpriseService.getTicketFullInfo(ticketId);
+    if (!fullInfo) {
+      return {
+        note: `The ticket exists but its detail record (description/stack trace/comments) could not be loaded.`,
+        ok: true,
+        serverName: found.serverName,
+        ticket: found.ticket,
+        ticketId
+      };
+    }
+
+    const description = this.limitCode(fullInfo.description || "", maxCharacters);
+    const stackTrace = this.limitCode(fullInfo.stackTrace || "", maxCharacters);
+    const comments = this.limitCode(fullInfo.comments || "", maxCharacters);
+    return {
+      comments: comments.code,
+      description: description.code,
+      maxCharacters: description.maxCharacters,
+      ok: true,
+      serverName: found.serverName,
+      stackTrace: stackTrace.code,
+      ticket: found.ticket,
+      ticketId,
+      totalCharacters: description.totalCharacters + stackTrace.totalCharacters + comments.totalCharacters,
+      truncated: description.truncated || stackTrace.truncated || comments.truncated
+    };
+  }
+
+  /** Field-level change history of a ticket (who changed what, when). */
+  public async getTicketHistory(ticketId: number, maxItems?: number): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    if (!(ticketId > 0)) {
+      return { ok: false, error: "A positive ticket id is required.", serverName };
+    }
+
+    const historyResult = await this.enterpriseService.getTicketHistoryResult(ticketId);
+    if (!historyResult.ok) {
+      return {
+        error: historyResult.error ?? `Could not retrieve history for ticket #${ticketId}.`,
+        ok: false,
+        serverName,
+        ticketId
+      };
+    }
+
+    const bounded = this.limitItems<TicketHistoryEntry>(historyResult.data ?? [], maxItems);
+    const result: StarlimsAutomationResult = {
+      entries: bounded.items,
+      limit: bounded.limit,
+      ok: true,
+      serverName,
+      ticketId,
+      totalItems: bounded.totalItems,
+      truncated: bounded.truncated
+    };
+
+    if (bounded.truncated) {
+      result.note = `Results limited to ${bounded.limit} of ${bounded.totalItems} history entries.`;
+    } else if (bounded.totalItems === 0) {
+      result.note = `No change history is recorded for ticket #${ticketId}.`;
+    }
+
+    return result;
+  }
+
+  /** Ticket status/type/priority/severity dictionaries (name -> code) from the SCM_API backend. */
+  public async getTicketLookupData(): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    const lookupResult = await this.enterpriseService.getTicketLookupDataResult();
+    if (!lookupResult.ok || !lookupResult.data) {
+      return {
+        error: `${lookupResult.error ?? "Could not read the ticket lookup data."} The server needs SCM_API >= 1.8.20 (TicketManagement.GetTicketLookupData); the extension updates the backend automatically on activation.`,
+        ok: false,
+        serverName
+      };
+    }
+
+    return {
+      ok: true,
+      priorities: lookupResult.data.priorities,
+      serverName,
+      severities: lookupResult.data.severities,
+      statuses: lookupResult.data.statuses,
+      types: lookupResult.data.types
+    };
+  }
+
+  /**
+   * Creates a ticket through the BMBH ticket app. Type and priority accept lookup
+   * names (case/umlaut insensitive); omitted values fall back to the server defaults.
+   */
+  public async createTicket(options: {
+    title: string;
+    description?: string;
+    priority?: string;
+    type?: string;
+    username?: string;
+    notifyUser?: boolean;
+  }): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    const title = this.normalizeOptionalString(options.title);
+    if (!title) {
+      return { ok: false, error: "A ticket title is required.", serverName };
+    }
+
+    const username = this.normalizeOptionalString(options.username) ?? this.enterpriseService.getCurrentUser();
+    if (!username) {
+      return {
+        error: "No STARLIMS user is configured (STARLIMS.user) and no username was passed.",
+        ok: false,
+        serverName
+      };
+    }
+
+    const typeName = this.normalizeOptionalString(options.type);
+    const priorityName = this.normalizeOptionalString(options.priority);
+    let typeCode = DEFAULT_TICKET_TYPE_CODE;
+    let priorityCode = DEFAULT_TICKET_PRIORITY_CODE;
+    let typeOption: TicketLookupOption | undefined;
+    let priorityOption: TicketLookupOption | undefined;
+
+    if (typeName || priorityName) {
+      const lookupResult = await this.enterpriseService.getTicketLookupDataResult();
+      if (!lookupResult.ok || !lookupResult.data) {
+        return {
+          error: `Cannot resolve '${typeName ?? priorityName}': the ticket lookup data could not be read (${lookupResult.error ?? "unknown error"}). Deploy the current SCM_API package, or omit type/priority to use the server defaults.`,
+          ok: false,
+          serverName
+        };
+      }
+
+      if (typeName) {
+        typeOption = this.resolveLookupOption(lookupResult.data.types, typeName);
+        if (!typeOption) {
+          return {
+            error: `Unknown ticket type '${typeName}'. Valid types: ${this.formatLookupOptions(lookupResult.data.types)}.`,
+            ok: false,
+            serverName
+          };
+        }
+
+        typeCode = typeOption.code;
+      }
+
+      if (priorityName) {
+        priorityOption = this.resolveLookupOption(lookupResult.data.priorities, priorityName);
+        if (!priorityOption) {
+          return {
+            error: `Unknown ticket priority '${priorityName}'. Valid priorities: ${this.formatLookupOptions(lookupResult.data.priorities)}.`,
+            ok: false,
+            serverName
+          };
+        }
+
+        priorityCode = priorityOption.code;
+      }
+    }
+
+    const description = this.normalizeOptionalString(options.description) ?? "";
+    const notifyUser = options.notifyUser === true;
+    const createResult = await this.enterpriseService.createTicketResult(
+      username,
+      title,
+      description,
+      typeCode,
+      priorityCode,
+      notifyUser
+    );
+    if (!createResult.ok || !createResult.data) {
+      return {
+        error: createResult.error ?? "Could not create the ticket.",
+        ok: false,
+        serverName
+      };
+    }
+
+    const result: StarlimsAutomationResult = {
+      author: username,
+      ok: true,
+      priority: priorityOption ?? { code: priorityCode, name: "Nicht definiert (default)" },
+      serverName,
+      ticketId: createResult.data,
+      title,
+      type: typeOption ?? { code: typeCode, name: "Support-Anfrage (default)" }
+    };
+
+    if (notifyUser) {
+      result.note = "notifyUser was true: the STARLIMS server sends the author a notification mail about the new ticket.";
+    } else if (description.length === 0) {
+      result.note = "No description was given - the server queues an AI job that generates one for the new ticket.";
+    }
+
+    return result;
+  }
+
+  /** Marks a ticket as "In Bearbeitung" and assigns it to a user (defaults to the current user). */
+  public async undertakeTicket(ticketId: number, username?: string): Promise<StarlimsAutomationResult> {
+    const found = await this.findTicket(ticketId);
+    if (!found.ticket) {
+      return { error: found.error, ok: false, serverName: found.serverName, ticketId };
+    }
+
+    const targetUser = this.normalizeOptionalString(username) ?? this.enterpriseService.getCurrentUser();
+    if (!targetUser) {
+      return {
+        error: "No STARLIMS user is configured (STARLIMS.user) and no username was passed.",
+        ok: false,
+        serverName: found.serverName,
+        ticketId
+      };
+    }
+
+    const updateResult = await this.enterpriseService.setTicketInProgressResult(ticketId, targetUser);
+    if (!updateResult.ok) {
+      return {
+        error: updateResult.error ?? `Could not move ticket #${ticketId} to In Bearbeitung.`,
+        ok: false,
+        serverName: found.serverName,
+        ticketId
+      };
+    }
+
+    const result: StarlimsAutomationResult = {
+      assignedTo: targetUser,
+      ok: true,
+      previousStatusName: found.ticket.statusName,
+      serverName: found.serverName,
+      statusName: "In Bearbeitung",
+      ticketId
+    };
+
+    if (found.ticket.assignedTo && !this.isSameUser(found.ticket.assignedTo, targetUser)) {
+      result.warning = `Ticket #${ticketId} was previously assigned to ${found.ticket.assignedTo}.`;
+    }
+
+    return result;
+  }
+
+  /** Releases a ticket back to "Offen" and clears its assignee. */
+  public async releaseTicket(ticketId: number, force?: boolean): Promise<StarlimsAutomationResult> {
+    const found = await this.findTicket(ticketId);
+    if (!found.ticket) {
+      return { error: found.error, ok: false, serverName: found.serverName, ticketId };
+    }
+
+    const currentUser = this.enterpriseService.getCurrentUser();
+    const assignedToOtherUser = Boolean(found.ticket.assignedTo) && !this.isSameUser(found.ticket.assignedTo, currentUser);
+    if (assignedToOtherUser && force !== true) {
+      return {
+        error: `Ticket #${ticketId} is assigned to ${found.ticket.assignedTo}, not to ${currentUser || "the current user"}. Pass force: true to release it anyway.`,
+        ok: false,
+        serverName: found.serverName,
+        ticketId
+      };
+    }
+
+    const updateResult = await this.enterpriseService.setTicketOpenResult(ticketId);
+    if (!updateResult.ok) {
+      return {
+        error: updateResult.error ?? `Could not release ticket #${ticketId}.`,
+        ok: false,
+        serverName: found.serverName,
+        ticketId
+      };
+    }
+
+    const result: StarlimsAutomationResult = {
+      ok: true,
+      previousStatusName: found.ticket.statusName,
+      serverName: found.serverName,
+      statusName: "Offen",
+      ticketId
+    };
+
+    if (assignedToOtherUser) {
+      result.warning = `Released ticket #${ticketId} although it was assigned to ${found.ticket.assignedTo}.`;
+    }
+
+    return result;
+  }
+
+  /** Marks a ticket as "Fertig" (solved). */
+  public async solveTicket(ticketId: number): Promise<StarlimsAutomationResult> {
+    const found = await this.findTicket(ticketId);
+    if (!found.ticket) {
+      return { error: found.error, ok: false, serverName: found.serverName, ticketId };
+    }
+
+    const updateResult = await this.enterpriseService.setTicketFertigResult(ticketId);
+    if (!updateResult.ok) {
+      return {
+        error: updateResult.error ?? `Could not mark ticket #${ticketId} as solved.`,
+        ok: false,
+        serverName: found.serverName,
+        ticketId
+      };
+    }
+
+    const result: StarlimsAutomationResult = {
+      ok: true,
+      previousStatusName: found.ticket.statusName,
+      serverName: found.serverName,
+      statusName: "Fertig",
+      ticketId
+    };
+
+    if (found.ticket.assignedTo && !this.isSameUser(found.ticket.assignedTo, this.enterpriseService.getCurrentUser())) {
+      result.warning = `Ticket #${ticketId} was assigned to ${found.ticket.assignedTo}.`;
+    }
+
+    return result;
+  }
+
+  /** Changes the title of a ticket. */
+  public async renameTicket(ticketId: number, title: string): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    const normalizedTitle = this.normalizeOptionalString(title);
+    if (!normalizedTitle) {
+      return { ok: false, error: "The new ticket title cannot be empty.", serverName, ticketId };
+    }
+
+    const updateResult = await this.enterpriseService.renameTicketResult(ticketId, normalizedTitle);
+    if (!updateResult.ok) {
+      return {
+        error: updateResult.error ?? `Could not rename ticket #${ticketId}.`,
+        ok: false,
+        serverName,
+        ticketId
+      };
+    }
+
+    return {
+      ok: true,
+      serverName,
+      ticketId,
+      title: normalizedTitle
+    };
+  }
+
+  /** Adds a completed measure to a ticket (the same record the check-in flow creates). */
+  public async addTicketMeasure(ticketId: number, title: string, description: string): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    const normalizedTitle = this.normalizeOptionalString(title);
+    if (!normalizedTitle) {
+      return { ok: false, error: "The measure title cannot be empty.", serverName, ticketId };
+    }
+
+    const measureResult = await this.enterpriseService.addTicketMeasureResult(
+      ticketId,
+      normalizedTitle,
+      (description || "").trim()
+    );
+    if (!measureResult.ok || !measureResult.data) {
+      return {
+        error: measureResult.error ?? `Could not add a measure to ticket #${ticketId}.`,
+        ok: false,
+        serverName,
+        ticketId
+      };
+    }
+
+    return {
+      measureId: measureResult.data,
+      ok: true,
+      serverName,
+      ticketId,
+      title: normalizedTitle
+    };
+  }
+
+  /** Adds a comment to a ticket. The author defaults to the currently logged-in user. */
+  public async addTicketComment(ticketId: number, comment: string, author?: string): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    const normalizedComment = this.normalizeOptionalString(comment);
+    if (!normalizedComment) {
+      return { ok: false, error: "The comment text cannot be empty.", serverName, ticketId };
+    }
+
+    const commentAuthor = this.normalizeOptionalString(author) ?? this.enterpriseService.getCurrentUser();
+    const commentResult = await this.enterpriseService.insertTicketCommentResult(ticketId, normalizedComment, commentAuthor);
+    if (!commentResult.ok) {
+      return {
+        error: commentResult.error ?? `Could not add a comment to ticket #${ticketId}.`,
+        ok: false,
+        serverName,
+        ticketId
+      };
+    }
+
+    return {
+      author: commentAuthor,
+      ok: true,
+      serverName,
+      ticketId
+    };
+  }
+
+  /** Reports the active ticket of this workspace and server (the ticket check-ins are linked to). */
+  public getActiveTicket(): StarlimsAutomationResult {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    if (!this.options.getActiveTicket) {
+      return {
+        error: "Active ticket support is not available in this workspace.",
+        ok: false,
+        serverName
+      };
+    }
+
+    const activeTicket = this.options.getActiveTicket();
+    if (!activeTicket) {
+      return {
+        activeTicket: undefined,
+        note: "No active ticket is set. Use set_active_ticket to bind check-ins to a ticket.",
+        ok: true,
+        serverName
+      };
+    }
+
+    return {
+      activeTicket,
+      ok: true,
+      serverName
+    };
+  }
+
+  /**
+   * Sets (or clears, when ticketId is omitted) the active ticket of this workspace and
+   * server. This is the state the VS Code UI uses: checked-out tree filter, status bar
+   * and the ticket measure created by checkin_item.
+   */
+  public async setActiveTicket(ticketId?: number): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    if (!this.options.setActiveTicket) {
+      return {
+        error: "Active ticket support is not available in this workspace.",
+        ok: false,
+        serverName
+      };
+    }
+
+    if (ticketId === undefined) {
+      await this.options.setActiveTicket(undefined);
+      return {
+        cleared: true,
+        ok: true,
+        serverName
+      };
+    }
+
+    const found = await this.findTicket(ticketId);
+    if (!found.ticket) {
+      return { error: found.error, ok: false, serverName, ticketId };
+    }
+
+    const reference: TicketReference = {
+      assignedTo: found.ticket.assignedTo,
+      id: found.ticket.id,
+      priorityName: found.ticket.priorityName,
+      serverName,
+      statusName: found.ticket.statusName,
+      title: found.ticket.title,
+      typeName: found.ticket.typeName
+    };
+
+    await this.options.setActiveTicket(reference);
+    return {
+      activeTicket: reference,
+      ok: true,
+      serverName,
+      ticketId
+    };
+  }
+
+  private async findTicket(ticketId: number): Promise<{
+    error?: string;
+    serverName: string;
+    ticket?: TicketOverview;
+  }> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    if (!(ticketId > 0)) {
+      return { error: "A positive ticket id is required.", serverName };
+    }
+
+    const ticketsResult = await this.enterpriseService.getTicketsResult();
+    if (!ticketsResult.ok) {
+      return { error: ticketsResult.error ?? "Could not retrieve tickets.", serverName };
+    }
+
+    const ticket = (ticketsResult.data ?? []).find((entry) => entry.id === ticketId);
+    if (!ticket) {
+      return {
+        error: `Ticket #${ticketId} was not found on this server. Sub-tickets of merged tickets are not listed; use list_tickets to see what is available.`,
+        serverName
+      };
+    }
+
+    return { serverName, ticket };
+  }
+
+  private isSameUser(left: string | undefined, right: string | undefined): boolean {
+    const normalizedLeft = this.normalizeCompareKey(left);
+    const normalizedRight = this.normalizeCompareKey(right);
+    return normalizedLeft.length > 0 && normalizedLeft === normalizedRight;
+  }
+
+  /** Umlaut- and case-insensitive comparison key for ticket status names and user names. */
+  private normalizeCompareKey(value: string | undefined): string {
+    return (value ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLocaleLowerCase();
+  }
+
+  private parseTicketDate(value: string | undefined): number | undefined {
+    const normalizedValue = this.normalizeOptionalString(value);
+    if (!normalizedValue) {
+      return undefined;
+    }
+
+    const timestamp = Date.parse(normalizedValue);
+    return Number.isFinite(timestamp) ? timestamp : undefined;
+  }
+
+  private resolveLookupOption(options: TicketLookupOption[], name: string): TicketLookupOption | undefined {
+    const wanted = this.normalizeCompareKey(name);
+    return options.find((option) => this.normalizeCompareKey(option.name) === wanted);
+  }
+
+  private formatLookupOptions(options: TicketLookupOption[]): string {
+    return options.map((option) => `${option.name} (${option.code})`).join(", ");
   }
 
   private async executeRemoteItem(
