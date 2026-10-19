@@ -18,6 +18,7 @@ STARLIMS VS Code is an unofficial Visual Studio Code extension for working with 
 - Initialize a Git repository for the local SLVSCODE mirror, configure a remote, and optionally auto-commit and auto-push local STARLIMS changes during check-in
 - Optionally detect new Git commits in the SLVSCODE repository and check matching checked-out STARLIMS script and data source files in with the Git commit message
 - Manage STARLIMS tickets (BMBH only) from VS Code by filtering queues, selecting an active ticket, undertaking, releasing, solving, and renaming tickets, and creating ticket measures during check-in
+- Review and edit the measures and comments of a ticket in a panel, and manage them through the MCP tools
 - Launch a selected STARLIMS ticket as an OpenCode session through the OpenCode server API — plan mode first, then build after you approve the plan
 - SSL and SLSQL language support with syntax highlighting, code completion, hover documentation, go-to-definition, find references, document symbols, and folding ranges
 - Use a local MCP endpoint and Copilot-facing workspace files to enable agents to use the STARLIMS MCP for browse, search, code retrieval, checkout/check-in, transfer to another server, runtime execution, and table operations when working with STARLIMS assets
@@ -105,6 +106,8 @@ Additional Git message settings are available to control detail level, prefixes,
 The Tickets view groups STARLIMS tickets by status and supports title filtering, active ticket selection, ticket undertaking and release, marking tickets as solved, and renaming tickets.
 
 When an active ticket is selected, STARLIMS check-in commands can reuse ticket-aware reasons and automatically create ticket measures. Ticket measure text can use the same fast local generator or Copilot-assisted generation that is used for Git and check-in messages.
+
+The ticket context menu also offers **View ticket measures and comments**. It opens a panel with the measures recorded for the ticket (what was actually done) and the comment thread of the ticket. Both lists can be added to, edited and deleted - a measure keeps its finished date, a comment keeps its author and creation date. The panel refreshes itself when a check-in creates a measure for the open ticket.
 
 The ticket context menu also includes `Solve ticket with OpenCode`. It always drives OpenCode through the OpenCode v2 server API (OpenCode 1.x is not supported): the extension reuses an OpenCode server running on `STARLIMS.opencode.serverHostname:STARLIMS.opencode.serverPort` or spawns `opencode serve` there itself. If the spawned server generates a random access password, the extension captures it from the server output; a foreign password-protected server on that port is reported and can be reused by storing its password via `STARLIMS: Set OpenCode server password`. For each ticket it creates a session titled `Ticket #<id> - <title>`, sends the ticket prompt (plan agent when the server provides one), and shows an `Approve & Implement` notification once the plan is ready. Approving continues the same session with the build model. Sessions can be aborted from the ticket context menu, and the OpenCode Web UI (served by the same port) is opened from the ticket context menu or the `Approve & Implement`/`Open Web UI` notifications.
 

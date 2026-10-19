@@ -5,7 +5,13 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import { IEnterpriseService } from "./iEnterpriseService";
-import { EnterpriseHistoryCodeRecord, EnterpriseHistoryVersionRecord, EnterpriseItemCodeRecord, EnterpriseItemRecord, EnterpriseOperationResult, LocalCopyResult } from "./starlimsAutomationTypes";
+import { EnterpriseHistoryCodeRecord, EnterpriseHistoryVersionRecord, EnterpriseItemCodeRecord, EnterpriseItemRecord, EnterpriseOperationResult, ExportedCheckoutPackage, LocalCopyResult } from "./starlimsAutomationTypes";
+import {
+  findTransferFilterViolation,
+  hasTransferFilter,
+  ItemTransferFilter,
+  normalizeTransferItemNames
+} from "./itemTransferFilter";
 import { connectBridge } from "../utilities/bridge";
 import { clampValueToEncodedBudget, cleanUrl, isJson, MAX_STARLIMS_QUERY_URL_LENGTH } from "../utilities/miscUtils";
 import { normalizeColumnKey, normalizeScriptResultRows } from "../utilities/scriptResultRows";
@@ -14,6 +20,7 @@ import * as crypto from 'crypto';
 import {
   RemoteScriptExecutionOptions,
   RemoteScriptOutputType,
+  TicketComment,
   TicketDataDetails,
   TicketFullInfo,
   TicketHistoryEntry,
@@ -27,6 +34,8 @@ const TICKET_MANAGEMENT_APP_ROOT = "/Applications/BMBH_Modules/BMBH_Ticketmanage
 const TICKETS_SERVERSCRIPT_URI = `/ServerScripts/SCM_API/GetTickets`;
 /** Columns selected by TicketManagement.GetTicketMeasures, in SELECT order (results have no header row). */
 const TICKET_MEASURE_COLUMNS = ["ORIGREC", "TITLE", "DESCRIPTION", "STATUS", "PRIORITY", "TICKET_ID", "DATE_FINISHED"];
+/** Columns selected by TicketManagement.GetTicketComments, in SELECT order (results have no header row). */
+const TICKET_COMMENT_COLUMNS = ["ORIGREC", "COMMENT_TEXT", "AUTHOR", "CREATED_ON"];
 /** Columns selected by the ticket history script scGetTicketTnx, in SELECT order. */
 const TICKET_HISTORY_COLUMNS = ["OLD_VALUE", "NEW_VALUE", "CHANGED_FIELD", "CHANGED_ON", "MODIFIED_BY"];
 /** Shape of the `[ORIGREC, NAME]` pairs the ticket lookup dictionaries return. */
@@ -848,6 +857,193 @@ export class EnterpriseService implements IEnterpriseService {
     return {
       ok: true,
       data: measures
+    };
+  }
+
+  /**
+   * Comments of a ticket (BMBH_TICKET_COMMENTS), oldest first, through
+   * SCM_API TicketManagement.GetTicketComments. Backends without that procedure
+   * return an error; the extension upgrades SCM_API automatically on activation.
+   */
+  public async getTicketCommentsResult(ticketId: number): Promise<EnterpriseOperationResult<TicketComment[]>> {
+    if (!(ticketId > 0)) {
+      return {
+        ok: false,
+        error: "A positive ticket id is required."
+      };
+    }
+
+    const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+      parameters: [ticketId],
+      outputType: "ARRAY",
+      entryPoint: "GetTicketComments"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not retrieve comments for ticket #${ticketId}.`
+      };
+    }
+
+    const comments = normalizeScriptResultRows(result.data, TICKET_COMMENT_COLUMNS)
+      .map<TicketComment | undefined>((row) => {
+        const id = this.normalizeNumber(this.getRecordValue(row, ["ORIGREC"]));
+        if (!id) {
+          return undefined;
+        }
+
+        return {
+          id,
+          ticketId: this.normalizeNumber(this.getRecordValue(row, ["TICKET_ID"])) ?? ticketId,
+          text: this.normalizeString(this.getRecordValue(row, ["COMMENT_TEXT"])) ?? "",
+          author: this.normalizeString(this.getRecordValue(row, ["AUTHOR"])) ?? "",
+          createdOn: this.normalizeString(this.getRecordValue(row, ["CREATED_ON"]))
+        };
+      })
+      .filter((comment): comment is TicketComment => comment !== undefined);
+
+    return {
+      ok: true,
+      data: comments
+    };
+  }
+
+  /**
+   * Changes the title of a ticket measure. The description is only written when
+   * one is given - omitting it keeps the stored description.
+   */
+  public async updateTicketMeasureResult(
+    ticketId: number,
+    measureId: number,
+    title: string,
+    description?: string
+  ): Promise<EnterpriseOperationResult<boolean>> {
+    const normalizedTitle = (title || "").trim();
+    if (!(measureId > 0)) {
+      return {
+        ok: false,
+        error: "A positive measure id is required."
+      };
+    }
+
+    if (!normalizedTitle) {
+      return {
+        ok: false,
+        error: "The measure title cannot be empty."
+      };
+    }
+
+    const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+      // The backend takes the description flag as 1/0 (a number, not a JSON boolean).
+      parameters: [ticketId, measureId, normalizedTitle, description ?? "", description === undefined ? 0 : 1],
+      entryPoint: "UpdateMeasure"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not update measure ${measureId} of ticket #${ticketId}.`
+      };
+    }
+
+    return {
+      ok: true,
+      data: true
+    };
+  }
+
+  /** Removes a ticket measure. */
+  public async deleteTicketMeasureResult(
+    ticketId: number,
+    measureId: number
+  ): Promise<EnterpriseOperationResult<boolean>> {
+    if (!(measureId > 0)) {
+      return {
+        ok: false,
+        error: "A positive measure id is required."
+      };
+    }
+
+    const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+      parameters: [ticketId, measureId],
+      entryPoint: "DeleteMeasure"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not delete measure ${measureId} of ticket #${ticketId}.`
+      };
+    }
+
+    return {
+      ok: true,
+      data: true
+    };
+  }
+
+  /** Changes the text of an existing ticket comment (author and date stay untouched). */
+  public async updateTicketCommentResult(
+    ticketId: number,
+    commentId: number,
+    text: string
+  ): Promise<EnterpriseOperationResult<boolean>> {
+    const normalizedText = (text || "").trim();
+    if (!(commentId > 0)) {
+      return {
+        ok: false,
+        error: "A positive comment id is required."
+      };
+    }
+
+    if (!normalizedText) {
+      return {
+        ok: false,
+        error: "The comment text cannot be empty."
+      };
+    }
+
+    const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+      parameters: [ticketId, commentId, normalizedText],
+      entryPoint: "UpdateComment"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not update comment ${commentId} of ticket #${ticketId}.`
+      };
+    }
+
+    return {
+      ok: true,
+      data: true
+    };
+  }
+
+  /** Removes a ticket comment. */
+  public async deleteTicketCommentResult(
+    ticketId: number,
+    commentId: number
+  ): Promise<EnterpriseOperationResult<boolean>> {
+    if (!(commentId > 0)) {
+      return {
+        ok: false,
+        error: "A positive comment id is required."
+      };
+    }
+
+    const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+      parameters: [ticketId, commentId],
+      entryPoint: "DeleteComment"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not delete comment ${commentId} of ticket #${ticketId}.`
+      };
+    }
+
+    return {
+      ok: true,
+      data: true
     };
   }
 
@@ -2935,24 +3131,70 @@ export class EnterpriseService implements IEnterpriseService {
 
   /**
    * Export all checked out items to an SDP package file
+   * @param filter optional filter that narrows the export down to a checkout user and/or item names
    * @returns downloaded SDP package and file name if successful, null otherwise
    */
-  public async exportAllCheckouts(): Promise<{ fileName: string; content: Buffer } | null> {
-    const url = `${this.baseUrl}/SCM_API.ExportPackage.${this.urlSuffix}`;
-    return this.downloadSdpPackage(url);
+  public async exportAllCheckouts(filter?: ItemTransferFilter): Promise<ExportedCheckoutPackage | null> {
+    const result = await this.exportAllCheckoutsResult(filter);
+    return result.ok && result.data ? result.data : null;
+  }
+
+  /**
+   * Export the checked out items to an SDP package file and report the concrete error.
+   *
+   * A filtered export is verified against the items the server actually put into the package:
+   * a server whose backend API is too old ignores the filter and would transfer far more
+   * items than requested, so the export is aborted instead of silently over-transferring.
+   * @param filter optional filter that narrows the export down to a checkout user and/or item names
+   * @returns the exported package or the error that prevented the export
+   */
+  public async exportAllCheckoutsResult(
+    filter?: ItemTransferFilter
+  ): Promise<EnterpriseOperationResult<ExportedCheckoutPackage>> {
+    const activeFilter = hasTransferFilter(filter) ? filter : undefined;
+    const url = this.buildApiUrl("ExportPackage", activeFilter ? { Body: "1" } : undefined);
+    // The filter travels in the POST body: a list of item names easily exceeds the
+    // ASP.NET query string limit (maxQueryStringLength, 2048 characters by default).
+    const body = activeFilter
+      ? JSON.stringify({
+        itemNames: normalizeTransferItemNames(activeFilter.itemNames),
+        user: (activeFilter.user ?? "").trim()
+      })
+      : undefined;
+
+    const downloaded = await this.downloadSdpPackage(url, body);
+    if (!downloaded.ok || !downloaded.data) {
+      return { ok: false, error: downloaded.error ?? "Could not export the checked out items." };
+    }
+
+    const violation = findTransferFilterViolation(downloaded.data, activeFilter);
+    if (violation) {
+      console.error("[EnterpriseService] Filtered export rejected:", violation);
+      vscode.window.showErrorMessage(violation);
+      return { ok: false, error: violation };
+    }
+
+    return { ok: true, data: downloaded.data };
   }
 
   /**
    * Downloads the SDP package generated by the export service.
    * @param url the export service URL
-   * @returns downloaded SDP package and file name if successful, null otherwise
+   * @param body optional JSON body (sent as POST); the filter of a filtered export
+   * @returns downloaded SDP package and file name if successful, the error otherwise
    */
-  private async downloadSdpPackage(url: string): Promise<{ fileName: string; content: Buffer } | null> {
+  private async downloadSdpPackage(
+    url: string,
+    body?: string
+  ): Promise<{ ok: boolean; data?: ExportedCheckoutPackage; error?: string }> {
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
-      method: "GET",
+      method: body ? "POST" : "GET",
       headers
     };
+    if (body) {
+      options.body = body;
+    }
 
     try {
       const response = await fetch(url, options);
@@ -2977,7 +3219,7 @@ export class EnterpriseService implements IEnterpriseService {
             `Export failed: server returned invalid JSON (${response.status} ${response.statusText}). ${parseMessage}`
           );
           console.error("Export returned invalid JSON", { status: response.status, statusText: response.statusText, body: truncatedBody });
-          return null;
+          return { ok: false, error: `The server returned invalid JSON (${response.status} ${response.statusText}). ${parseMessage}` };
         }
       }
 
@@ -2989,18 +3231,30 @@ export class EnterpriseService implements IEnterpriseService {
         && typeof (payload.data as { fileName?: unknown }).fileName === "string"
         && typeof (payload.data as { content?: unknown }).content === "string"
       ) {
-        const directPayload = payload.data as { fileName: string; content: string };
+        const directPayload = payload.data as {
+          fileName: string;
+          content: string;
+          itemNames?: string;
+          itemUsers?: string;
+        };
         const downloadedContent = Buffer.from(directPayload.content, "base64");
 
         if (downloadedContent.length < 4 || downloadedContent[0] !== 0x50 || downloadedContent[1] !== 0x4b) {
           vscode.window.showErrorMessage("Export succeeded, but returned content is not a valid SDP/ZIP file.");
           console.error("Invalid direct SDP export content", { fileName: directPayload.fileName });
-          return null;
+          return { ok: false, error: "The export succeeded, but the returned content is not a valid SDP/ZIP file." };
         }
 
         return {
-          fileName: directPayload.fileName,
-          content: downloadedContent
+          ok: true,
+          data: {
+            fileName: directPayload.fileName,
+            content: downloadedContent,
+            // The server reports the items it put into the package (pipe separated).
+            // Older backend versions do not send them - then a filtered export cannot be verified.
+            itemNames: parseSeparatedList(directPayload.itemNames),
+            itemUsers: parseSeparatedList(directPayload.itemUsers)
+          }
         };
       }
 
@@ -3012,7 +3266,7 @@ export class EnterpriseService implements IEnterpriseService {
         if (!packageIdMatch) {
           vscode.window.showErrorMessage(`Export failed: could not determine package id from '${fileName}'`);
           console.error("Export returned unexpected package name", { fileName });
-          return null;
+          return { ok: false, error: `Could not determine the package id from '${fileName}'.` };
         }
 
         const packageId = packageIdMatch[1];
@@ -3047,7 +3301,7 @@ export class EnterpriseService implements IEnterpriseService {
             body: downloadError,
             downloadUrl
           });
-          return null;
+          return { ok: false, error: `The export succeeded, but the download failed: ${errorMessage}` };
         }
 
         const downloadedContent = await downloadResponse.buffer();
@@ -3065,12 +3319,15 @@ export class EnterpriseService implements IEnterpriseService {
             responsePreview,
             downloadUrl
           });
-          return null;
+          return { ok: false, error: `The export succeeded, but the downloaded file is not a valid SDP/ZIP: ${errorMessage}` };
         }
 
         return {
-          fileName,
-          content: downloadedContent
+          ok: true,
+          data: {
+            fileName,
+            content: downloadedContent
+          }
         };
       }
 
@@ -3083,11 +3340,11 @@ export class EnterpriseService implements IEnterpriseService {
 
       vscode.window.showErrorMessage(`Export failed: ${errorMessage}`);
       console.error("Export failed", { status: response.status, statusText: response.statusText, payload, body: responseText });
-      return null;
+      return { ok: false, error: errorMessage };
     } catch (e: any) {
       vscode.window.showErrorMessage(`Could not export checked out items: ${e?.message ?? String(e)}`);
       console.error(e);
-      return null;
+      return { ok: false, error: `Could not export the checked out items: ${e?.message ?? String(e)}` };
     }
   }
 
@@ -3132,5 +3389,22 @@ export class EnterpriseService implements IEnterpriseService {
       return null;
     }
   }
+}
+
+/**
+ * Splits a separated list that the backend sends as a single string.
+ * The backend uses a pipe as the separator (SSL has no backslash escapes, so a
+ * newline cannot be embedded in a string literal).
+ * @param value the raw value
+ * @returns the entries of the list, or undefined when the value was not sent at all
+ */
+function parseSeparatedList(value: unknown): string[] | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  return value
+    .split("|")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }
 

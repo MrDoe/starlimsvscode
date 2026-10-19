@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import * as z from "zod/v4";
 import { StarlimsAutomationResult, StarlimsAutomationService } from "./starlimsAutomationService";
+import { describeTransferFilter, hasTransferFilter, ItemTransferFilter } from "./itemTransferFilter";
 import { RemoteScriptOutputType } from "./ticketManagementTypes";
 
 type StarlimsMcpOptions = {
@@ -177,7 +178,9 @@ const readLogInputSchema = z.object({
 
 const transferItemInputSchema = z.object({
   targetServer: z.string().describe("Name of the configured STARLIMS target server (STARLIMS.servers) to transfer the checked out items to."),
-  saveLocalEdits: z.boolean().optional().describe("Set to true to push local working copy edits of the checked out items to the source server before exporting. Defaults to true.")
+  saveLocalEdits: z.boolean().optional().describe("Set to true to push local working copy edits of the checked out items to the source server before exporting. Defaults to true."),
+  user: z.string().optional().describe("STARLIMS user whose checked out items are transferred. Defaults to the current user. Use 'all' to transfer the checkouts of every user."),
+  itemNames: z.array(z.string()).optional().describe("Names of the checked out items to transfer (case-insensitive). Omit to transfer all items of the selected user. list_checked_out_items shows the available names.")
 });
 
 const listTicketsInputSchema = z.object({
@@ -207,6 +210,11 @@ const getTicketHistoryInputSchema = z.object({
 const getTicketMeasuresInputSchema = z.object({
   ticketId: z.number().int().positive().describe("Ticket id."),
   maxItems: z.number().int().positive().optional().describe("Optional maximum number of measures to return.")
+});
+
+const getTicketCommentsInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id."),
+  maxItems: z.number().int().positive().optional().describe("Optional maximum number of comments to return.")
 });
 
 const createTicketInputSchema = z.object({
@@ -243,6 +251,29 @@ const addTicketCommentInputSchema = z.object({
   ticketId: z.number().int().positive().describe("Ticket id."),
   comment: z.string().describe("Comment text."),
   author: z.string().optional().describe("Comment author. Defaults to the STARLIMS user configured in the extension.")
+});
+
+const updateTicketMeasureInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id the measure belongs to."),
+  measureId: z.number().int().positive().describe("Measure id (ORIGREC of BMBH_TICKET_MEASURES), as returned by get_ticket_measures."),
+  title: z.string().describe("New measure title - what was done, in one line."),
+  description: z.string().optional().describe("New measure details. Omit to keep the current description.")
+});
+
+const deleteTicketMeasureInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id the measure belongs to."),
+  measureId: z.number().int().positive().describe("Measure id (ORIGREC of BMBH_TICKET_MEASURES), as returned by get_ticket_measures.")
+});
+
+const updateTicketCommentInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id the comment belongs to."),
+  commentId: z.number().int().positive().describe("Comment id (ORIGREC of BMBH_TICKET_COMMENTS), as returned by get_ticket_comments."),
+  comment: z.string().describe("New comment text. The author and the creation date stay unchanged.")
+});
+
+const deleteTicketCommentInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id the comment belongs to."),
+  commentId: z.number().int().positive().describe("Comment id (ORIGREC of BMBH_TICKET_COMMENTS), as returned by get_ticket_comments.")
 });
 
 const setActiveTicketInputSchema = z.object({
@@ -724,22 +755,24 @@ export class StarlimsMcpServer {
     server.registerTool(
       "transfer_item_to_server",
       {
-        description: "Transfer all checked out items of the current user to another configured STARLIMS server. Exports an SDP package from the source server and imports it on the target server, automatically generating a new version of each item on the target. Optionally pushes local working copy edits to the source server first. Items on the source server remain checked out. After a successful import the transferred items are fetched back from the target server and written as local working copies into the target server's SLVSCODE workspace folder.",
+        description: "Transfer checked out items to another configured STARLIMS server. By default all checked out items of the current user are transferred; the optional user and itemNames arguments narrow the transfer down to the checkouts of another user and/or to single items. Exports an SDP package from the source server and imports it on the target server, automatically generating a new version of each item on the target. Optionally pushes local working copy edits to the source server first. Items on the source server remain checked out. After a successful import the transferred items are fetched back from the target server and written as local working copies into the target server's SLVSCODE workspace folder.",
         inputSchema: transferItemInputSchema,
         outputSchema: toolResultSchema
       },
-      async ({ targetServer, saveLocalEdits }) => this.executeTool(
+      async ({ targetServer, saveLocalEdits, itemNames, user }) => this.executeTool(
         "transfer_item_to_server",
-        { saveLocalEdits, targetServer },
-        () => this.automationService.transferItems(targetServer, saveLocalEdits),
+        { itemNames, saveLocalEdits, targetServer, user },
+        () => this.automationService.transferItems(targetServer, saveLocalEdits, { itemNames, user }),
         (result) => {
           const targetLabel = typeof result.targetServer === "string" && result.targetServer.length > 0
             ? result.targetServer
             : "the target server";
+          const filter = result.filter as ItemTransferFilter | undefined;
+          const scope = hasTransferFilter(filter) ? ` (${describeTransferFilter(filter)})` : "";
           const itemCount = this.toCount(result.totalItems);
           const summary = itemCount > 0
-            ? `Transferred ${itemCount} checked-out item(s) to '${targetLabel}'. New versions were created on the target server.`
-            : `Transferred the checked out items to '${targetLabel}'. New versions were created on the target server.`;
+            ? `Transferred ${itemCount} checked-out item(s) to '${targetLabel}'${scope}. New versions were created on the target server.`
+            : `Transferred the checked out items to '${targetLabel}'${scope}. New versions were created on the target server.`;
           const localSyncCount = Array.isArray(result.localSyncedFiles) ? result.localSyncedFiles.length : 0;
           const localSyncText = localSyncCount > 0
             ? ` Updated ${localSyncCount} local file copy(ies) in the '${targetLabel}' SLVSCODE folder.`
@@ -751,6 +784,12 @@ export class StarlimsMcpServer {
           const unconfirmed = Array.isArray(result.unconfirmedItems)
             ? result.unconfirmedItems.filter((name): name is string => typeof name === "string" && name.trim().length > 0)
             : [];
+          const exported = Array.isArray(result.exportedItemNames)
+            ? result.exportedItemNames.filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+            : [];
+          const exportedText = exported.length > 0 && exported.length <= 10
+            ? ` Exported item(s): ${exported.join(", ")}.`
+            : "";
           const warnings = [
             unconfirmed.length > 0
               ? `WARNING: the import log does not mention ${unconfirmed.length} transferred item(s); they may not have arrived: ${unconfirmed.join(", ")}. Verify them on the target server.`
@@ -758,8 +797,8 @@ export class StarlimsMcpServer {
             localSyncErrorText.trim()
           ].filter((warning) => warning.length > 0).join(" ");
           return warnings.length > 0
-            ? `${summary}${localSyncText} ${warnings}`
-            : `${summary}${localSyncText}`;
+            ? `${summary}${localSyncText}${exportedText} ${warnings}`
+            : `${summary}${localSyncText}${exportedText}`;
         }
       )
     );
@@ -855,6 +894,22 @@ export class StarlimsMcpServer {
         {},
         () => this.automationService.getTicketLookupData(),
         () => "Retrieved the ticket status/type/priority/severity dictionaries."
+      )
+    );
+
+    server.registerTool(
+      "get_ticket_comments",
+      {
+        annotations: { readOnlyHint: true },
+        description: "Read the comments of a ticket thread (author, text, creation date), oldest first. Use it to find the comment id for update_ticket_comment or delete_ticket_comment.",
+        inputSchema: getTicketCommentsInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ maxItems, ticketId }) => this.executeTool(
+        "get_ticket_comments",
+        { maxItems, ticketId },
+        () => this.automationService.getTicketComments(ticketId, maxItems),
+        (result) => `Found ${this.toCount(result.totalItems)} comment(s) for ticket #${this.toCount(result.ticketId)}.`
       )
     );
 
@@ -960,6 +1015,66 @@ export class StarlimsMcpServer {
         { author, comment, ticketId },
         () => this.automationService.addTicketComment(ticketId, comment, author),
         (result) => `Added a comment to ticket #${this.toCount(result.ticketId)}.`
+      )
+    );
+
+    server.registerTool(
+      "update_ticket_measure",
+      {
+        description: "Change the title of an existing ticket measure - the record of what was actually done. The description is only written when it is given, the finished date always stays unchanged.",
+        inputSchema: updateTicketMeasureInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ description, measureId, ticketId, title }) => this.executeTool(
+        "update_ticket_measure",
+        { description, measureId, ticketId, title },
+        () => this.automationService.updateTicketMeasure(ticketId, measureId, title, description),
+        (result) => `Updated measure ${this.toCount(result.measureId)} of ticket #${this.toCount(result.ticketId)}.`
+      )
+    );
+
+    server.registerTool(
+      "delete_ticket_measure",
+      {
+        description: "Delete a ticket measure. Use it to remove a wrong or duplicated measure - the audit trail cannot be restored afterwards.",
+        inputSchema: deleteTicketMeasureInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ measureId, ticketId }) => this.executeTool(
+        "delete_ticket_measure",
+        { measureId, ticketId },
+        () => this.automationService.deleteTicketMeasure(ticketId, measureId),
+        (result) => `Deleted measure ${this.toCount(result.measureId)} of ticket #${this.toCount(result.ticketId)}.`
+      )
+    );
+
+    server.registerTool(
+      "update_ticket_comment",
+      {
+        description: "Change the text of an existing ticket comment. The author and the creation date stay unchanged.",
+        inputSchema: updateTicketCommentInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ comment, commentId, ticketId }) => this.executeTool(
+        "update_ticket_comment",
+        { comment, commentId, ticketId },
+        () => this.automationService.updateTicketComment(ticketId, commentId, comment),
+        (result) => `Updated comment ${this.toCount(result.commentId)} of ticket #${this.toCount(result.ticketId)}.`
+      )
+    );
+
+    server.registerTool(
+      "delete_ticket_comment",
+      {
+        description: "Delete a ticket comment. Use it to remove a wrong or duplicated comment - it cannot be restored afterwards.",
+        inputSchema: deleteTicketCommentInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ commentId, ticketId }) => this.executeTool(
+        "delete_ticket_comment",
+        { commentId, ticketId },
+        () => this.automationService.deleteTicketComment(ticketId, commentId),
+        (result) => `Deleted comment ${this.toCount(result.commentId)} of ticket #${this.toCount(result.ticketId)}.`
       )
     );
 

@@ -112,3 +112,35 @@ describe('scriptResultRows normalizeColumnKey', () => {
     assert.strictEqual(normalizeColumnKey("TÄTIGKEIT"), normalizeColumnKey("Tatigkeit"));
   });
 });
+
+describe('scriptResultRows ticket comments', () => {
+  const COMMENT_COLUMNS = ["ORIGREC", "COMMENT_TEXT", "AUTHOR", "CREATED_ON"];
+
+  // Captured live from SCM_API TicketManagement.GetTicketComments(2209), Production,
+  // 2026-10-19: SQLExecute results come back WITHOUT a column-name header row.
+  const COMMENT_RESULT_WITHOUT_HEADER = [
+    [1209, "Fix auf Production umgesetzt.", "opencode", "2026-10-16 09:26:30.347000"],
+    [1210, "Production laeuft ab sofort mit V2.", "opencode", "2026-10-16 16:07:21.820000"]
+  ];
+
+  it('maps comment rows positionally when the result has no header row', () => {
+    const rows = normalizeScriptResultRows(COMMENT_RESULT_WITHOUT_HEADER, COMMENT_COLUMNS);
+
+    assert.strictEqual(rows.length, 2, 'no row may be consumed as a header row');
+    assert.deepStrictEqual(rows.map((row) => row.ORIGREC), [1209, 1210]);
+    assert.strictEqual(rows[0].COMMENT_TEXT, "Fix auf Production umgesetzt.");
+    assert.strictEqual(rows[0].AUTHOR, "opencode");
+    assert.strictEqual(rows[0].CREATED_ON, "2026-10-16 09:26:30.347000");
+  });
+
+  it('maps a single comment row instead of consuming it as a header', () => {
+    const rows = normalizeScriptResultRows(
+      [[1211, "Vermutlich ist hier die Browser-Session abgelaufen.", "DC", "2026-10-19 09:33:35.423000"]],
+      COMMENT_COLUMNS
+    );
+
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].ORIGREC, 1211);
+    assert.strictEqual(rows[0].AUTHOR, "DC");
+  });
+});

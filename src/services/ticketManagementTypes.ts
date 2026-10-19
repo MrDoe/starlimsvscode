@@ -64,6 +64,20 @@ export type TicketMeasure = {
   dateFinished?: string;
 };
 
+/**
+ * One comment of a ticket (a BMBH_TICKET_COMMENTS row): a message in the
+ * ticket thread. The author and the creation date are not editable, only the
+ * comment text itself.
+ */
+export type TicketComment = {
+  id: number;
+  ticketId: number;
+  text: string;
+  author: string;
+  /** CREATED_ON as the server serialises it, for example "2026-10-19 09:33:35.423000". */
+  createdOn?: string;
+};
+
 export type TicketDataDetails = {
   description: string;
   stackTrace: string;

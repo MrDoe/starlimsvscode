@@ -12,6 +12,12 @@ import { ExpressServer } from "./services/expressServer";
 import { StarlimsAutomationService } from "./services/starlimsAutomationService";
 import { StarlimsMcpServer } from "./services/starlimsMcpServer";
 import { ItemTransferService, TransferLocalSyncItem } from "./services/itemTransferService";
+import {
+  getTransferItemName,
+  ItemTransferFilter,
+  selectTransferScope,
+  stripTransferItemTypeSuffix
+} from "./services/itemTransferFilter";
 import { ItemHistoryService } from "./services/itemHistoryService";
 import { EnterpriseTextDocumentContentProvider } from "./providers/enterpriseTextContentProvider";
 import { HistoryDocumentContentProvider, HISTORY_CONTENT_SCHEME } from "./providers/historyContentProvider";
@@ -19,7 +25,7 @@ import path = require("path");
 import { ResourcesDataViewPanel } from "./panels/ResourcesDataViewPanel";
 import { GenericDataViewPanel } from "./panels/GenericDataViewPanel";
 import { TableDesignerPanel } from "./panels/TableDesignerPanel";
-import { TicketMeasuresPanel } from "./panels/TicketMeasuresPanel";
+import { TicketActivityPanel } from "./panels/TicketActivityPanel";
 import { cleanUrl, executeWithProgress } from "./utilities/miscUtils";
 import { CheckedOutTreeDataProvider } from "./providers/checkedOutTreeDataProvider";
 import { TicketTreeItem, TicketsTreeDataProvider } from "./providers/ticketsTreeDataProvider";
@@ -899,7 +905,9 @@ export async function activate(context: vscode.ExtensionContext) {
         // Parse checked out items and show a picker with actual item labels instead of raw XML.
         const checkedOutItemsXml = await enterpriseService.getCheckedOutItems(false);
         if (typeof checkedOutItemsXml === "string" && checkedOutItemsXml.length > 0) {
-          const checkedOutItemsProvider = new CheckedOutTreeDataProvider(checkedOutItemsXml, enterpriseService);
+          // The transient provider only reads the checkouts - it must not change
+          // the checkout state of the workspace.
+          const checkedOutItemsProvider = new CheckedOutTreeDataProvider(checkedOutItemsXml, enterpriseService, false);
           const items = checkedOutItemsProvider.getLeafItems();
           const selectedItems = await vscode.window.showQuickPick(
             items.map((checkedOutItem) => ({
@@ -1510,10 +1518,10 @@ Please provide:
       }
 
       /**
-       * Opens the measures panel (what was done for a ticket) for the clicked ticket,
+       * Opens the activity panel (measures and comments) for the clicked ticket,
        * the selected ticket in the tickets tree, or the active ticket.
        */
-      async function showTicketMeasures(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
+      async function showTicketActivity(item?: TicketTreeItem | TicketOverview | TicketReference): Promise<void> {
         const selectedTreeItem = ticketsTreeView?.selection?.[0];
         const selectedTicket = item instanceof TicketTreeItem
           ? item.ticket
@@ -1525,8 +1533,8 @@ Please provide:
         }
 
         const ticketToInspect = normalizeTicketReference(selectedTicket);
-        TicketMeasuresPanel.render(context.extensionUri, enterpriseService, ticketToInspect);
-        outputChannel.appendLine(`[TicketManagement] Opened measures view for ticket #${ticketToInspect.id}`);
+        TicketActivityPanel.render(context.extensionUri, enterpriseService, ticketToInspect);
+        outputChannel.appendLine(`[TicketManagement] Opened measures and comments view for ticket #${ticketToInspect.id}`);
       }
 
       async function setActiveTicketSelection(ticket: TicketOverview | TicketReference, silent: boolean = false): Promise<void> {
@@ -2034,7 +2042,9 @@ Please provide:
       }
 
       async function getCheckedOutLeafItems(xmlData: string): Promise<TreeEnterpriseItem[]> {
-        const treeDataProvider = new CheckedOutTreeDataProvider(xmlData, enterpriseService);
+        // The transient provider only reads the checkouts - it must not change
+        // the checkout state of the workspace.
+        const treeDataProvider = new CheckedOutTreeDataProvider(xmlData, enterpriseService, false);
         const roots = (await treeDataProvider.getChildren()) ?? [];
         const itemsToVisit = [...roots];
         const leafItems: TreeEnterpriseItem[] = [];
@@ -2539,7 +2549,7 @@ Please provide:
         }
 
         outputChannel.appendLine(`Created STARLIMS ticket measure ${result.data} for ticket #${ticket.id}.`);
-        TicketMeasuresPanel.refreshIfOpen(ticket.id);
+        TicketActivityPanel.refreshIfOpen(ticket.id);
         return undefined;
       }
 
@@ -3028,25 +3038,52 @@ Please provide:
 
       // Checked out leaves of the current user (transfers are limited to the user's own checkouts).
       function getCurrentUserCheckedOutItems(): TreeEnterpriseItem[] {
-        const currentUser = getCurrentStarlimsUser();
+        const currentUser = getCurrentStarlimsUser().trim().toLowerCase();
+        // The comparison is case-insensitive, like the checkout user filter of the
+        // server side pending checkins.
         return (checkedOutTreeDataProvider?.getLeafItems() ?? []).filter(
-          (item) => !item.checkedOutBy || item.checkedOutBy === currentUser
+          (item) => !item.checkedOutBy || item.checkedOutBy.trim().toLowerCase() === currentUser
         );
+      }
+
+      // Leaves of the transfer scope: the checkouts of the current user by default,
+      // narrowed down by the transfer filter (checkout user and/or item names).
+      // Throws when the checkouts of the server cannot be read: a transfer with an
+      // unknown scope would export items the caller did not ask for.
+      async function getTransferItems(filter?: ItemTransferFilter): Promise<TreeEnterpriseItem[]> {
+        const user = (filter?.user ?? "").trim();
+
+        // A user filter may name another user: the checked-out tree only holds the
+        // items of the current user unless it was refreshed with all users.
+        let allUserItems: TreeEnterpriseItem[] | undefined;
+        if (user) {
+          const checkedOutItemsXml = await enterpriseService.getCheckedOutItems(true);
+          // getCheckedOutItems returns an empty array when the request failed.
+          if (Array.isArray(checkedOutItemsXml)) {
+            throw new Error("Could not retrieve the checked out items from the server - the transfer was not started.");
+          }
+          // The transient provider only reads the checkouts - it must not change
+          // the checkout state of the workspace: the items of another user are
+          // not checked out by this user.
+          allUserItems = new CheckedOutTreeDataProvider(checkedOutItemsXml, enterpriseService, false).getLeafItems();
+        }
+
+        return selectTransferScope(getCurrentUserCheckedOutItems(), allUserItems, filter);
       }
 
       // Names of the items a transfer is expected to deliver; the target
       // import log must mention each of them, or the item did not arrive.
-      function getCheckedOutItemNamesForTransfer(): string[] {
-        return getCurrentUserCheckedOutItems().map(
-          (item) => (typeof item.label === "string" ? item.label : item.uri || "")
-        );
+      // The type suffix of the tree labels ("frmTest [XML]") is removed: the
+      // import log only mentions the plain item name.
+      function getCheckedOutItemNamesForTransfer(items: TreeEnterpriseItem[]): string[] {
+        return items.map((item) => stripTransferItemTypeSuffix(getTransferItemName(item)));
       }
 
       // Items whose local working copies get refreshed from the target server
       // after a successful transfer (written under the target's SLVSCODE folder).
-      function getLocalSyncItemsForTransfer(): TransferLocalSyncItem[] {
-        return getCurrentUserCheckedOutItems().map((item) => ({
-          name: typeof item.label === "string" ? item.label : item.uri || "",
+      function getLocalSyncItemsForTransfer(items: TreeEnterpriseItem[]): TransferLocalSyncItem[] {
+        return items.map((item) => ({
+          name: stripTransferItemTypeSuffix(getTransferItemName(item)),
           uri: item.uri,
           language: item.language || item.scriptLanguage,
           isTable: item.type === EnterpriseItemType.Table
@@ -3054,9 +3091,16 @@ Please provide:
       }
 
       // Pushes local working copy edits of all checked out items to the source server before exporting.
-      async function saveLocalEditsForTransfer(): Promise<void> {
-        const leafItems = getCurrentUserCheckedOutItems();
+      async function saveLocalEditsForTransfer(leafItems: TreeEnterpriseItem[]): Promise<void> {
+        const currentUser = getCurrentStarlimsUser().trim().toLowerCase();
         for (const item of leafItems) {
+          // The local working copies belong to the current user: never push the
+          // local edits of an item that another user has checked out. The
+          // comparison is case-insensitive, like the scope filter.
+          const owner = (item.checkedOutBy ?? "").trim().toLowerCase();
+          if (owner && owner !== currentUser) {
+            continue;
+          }
           const itemLanguage = item.language || item.scriptLanguage;
           const localPath = getSavedLocalPath(item, itemLanguage);
           if (!localPath) {
@@ -3112,7 +3156,10 @@ Please provide:
             return [];
           }
 
-          const checkedOutItemsProvider = new CheckedOutTreeDataProvider(checkedOutItemsXml, enterpriseService);
+          // The transient provider only reads the checkouts - it must not change
+          // the checkout state of the workspace (the items of other users are
+          // not checked out by this user).
+          const checkedOutItemsProvider = new CheckedOutTreeDataProvider(checkedOutItemsXml, enterpriseService, false);
           return checkedOutItemsProvider.getLeafItems().map((item) => ({
             name: typeof item.label === "string" ? item.label : item.uri,
             type: item.type ?? "",
@@ -3122,14 +3169,28 @@ Please provide:
             language: item.language
           }));
         },
-        transferToServer: async (targetServer: string, saveLocalEdits: boolean) => {
-          const result = await itemTransferService.transferAllCheckouts(
-            targetServer,
-            saveLocalEdits ? saveLocalEditsForTransfer : undefined,
-            () => getCurrentUserCheckedOutItems().length,
-            getCheckedOutItemNamesForTransfer,
-            getLocalSyncItemsForTransfer
-          );
+        transferToServer: async (targetServer: string, saveLocalEdits: boolean, filter?: ItemTransferFilter) => {
+          // The client side filter decides which items are transferred, which
+          // local edits are pushed and which working copies are refreshed - the
+          // same filter is applied on the source server when the package is built.
+          let transferItems: TreeEnterpriseItem[];
+          try {
+            transferItems = await getTransferItems(filter);
+          } catch (error) {
+            // The scope could not be resolved (the checkouts of the server are
+            // unreadable) - the transfer is not started with an unknown scope.
+            const message = error instanceof Error ? error.message : String(error);
+            console.error("[Transfer] Could not resolve the transfer scope:", error);
+            return { ok: false, error: message };
+          }
+          const result = await itemTransferService.transferAllCheckouts({
+            filter,
+            getExpectedItemNames: () => getCheckedOutItemNamesForTransfer(transferItems),
+            getItemCount: () => transferItems.length,
+            getLocalSyncItems: () => getLocalSyncItemsForTransfer(transferItems),
+            saveLocalEdits: saveLocalEdits ? () => saveLocalEditsForTransfer(transferItems) : undefined,
+            targetServer
+          });
           return { ...result };
         },
         getActiveTicket: () => activeTicket,
@@ -3425,9 +3486,17 @@ Please provide:
       );
 
       vscode.commands.registerCommand(
+        "STARLIMS.ViewTicketActivity",
+        async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
+          await showTicketActivity(item);
+        }
+      );
+
+      // Alias for the former command id - user keybindings keep working.
+      vscode.commands.registerCommand(
         "STARLIMS.ViewTicketMeasures",
         async (item: TicketTreeItem | TicketOverview | TicketReference | undefined) => {
-          await showTicketMeasures(item);
+          await showTicketActivity(item);
         }
       );
 
@@ -3736,13 +3805,14 @@ Please provide:
             },
             async (progress) => {
               progress.report({ increment: 0, message: "Saving local edits..." });
-              const result = await itemTransferService.transferAllCheckouts(
-                targetServer.label,
-                saveLocalEditsForTransfer,
-                () => getCurrentUserCheckedOutItems().length,
-                getCheckedOutItemNamesForTransfer,
-                getLocalSyncItemsForTransfer
-              );
+              const transferItems = getCurrentUserCheckedOutItems();
+              const result = await itemTransferService.transferAllCheckouts({
+                getExpectedItemNames: () => getCheckedOutItemNamesForTransfer(transferItems),
+                getItemCount: () => transferItems.length,
+                getLocalSyncItems: () => getLocalSyncItemsForTransfer(transferItems),
+                saveLocalEdits: () => saveLocalEditsForTransfer(transferItems),
+                targetServer: targetServer.label
+              });
               progress.report({ increment: 100, message: "Done." });
 
               if (!result.ok) {

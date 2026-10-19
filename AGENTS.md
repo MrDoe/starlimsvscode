@@ -95,11 +95,12 @@ All tools are defined in `src/services/starlimsMcpServer.ts` and implemented in 
 | `create_table` | `tableName`, `dsn` | Create table |
 | `edit_table` | `uri`, `tableXml` | Save table XML |
 | `run_integration_tests` | `reason?`, `maxCharacters?` | Run `npm test` (prompts user) |
-| `transfer_item_to_server` | `targetServer`, `saveLocalEdits?` | Transfer all checked out items to another configured server (new versions on target; after success, local copies are refreshed from the target into its `SLVSCODE\<Target>` folder) |
+| `transfer_item_to_server` | `targetServer`, `saveLocalEdits?`, `user?`, `itemNames?` | Transfer checked out items to another configured server (new versions on target; after success, local copies are refreshed from the target into its `SLVSCODE\<Target>` folder). `user` = checkout user (omit = current user, `"all"` = every user), `itemNames` = item names to transfer (case-insensitive); the filter is applied on the source server too - needs a current SCM_API package on the source (filtered export) |
 | `list_tickets` | `mine?`, `assignedTo?`, `statusGroup?`, `status?`, `titleContains?`, `modifiedWithinDays?`, `maxItems?` | List BMBH tickets (filters are client-side; umlauts/case flexible) |
 | `get_ticket_details` | `ticketId`, `maxCharacters?` | Ticket overview + description, stack trace, comments |
 | `get_ticket_history` | `ticketId`, `maxItems?` | Ticket field-change history (app script `scGetTicketTnx`) |
 | `get_ticket_measures` | `ticketId`, `maxItems?` | Recorded measures of a ticket (what was actually done), newest first (SCM_API `TicketManagement.GetTicketMeasures`) |
+| `get_ticket_comments` | `ticketId`, `maxItems?` | Comments of a ticket thread, oldest first (SCM_API `TicketManagement.GetTicketComments`) |
 | `get_ticket_lookup_data` | – | Status/type/priority/severity name→code dictionaries (needs SCM_API >= 1.8.21) |
 | `create_ticket` | `title`, `description?`, `type?`, `priority?`, `username?`, `notifyUser?` | Create ticket via `scTicketUtils.CreateTicketExt` (names resolved via lookup; `notifyUser` default false = no mail; empty description queues an AI job) |
 | `undertake_ticket` | `ticketId`, `username?` | Set ticket to "In Bearbeitung" and assign (default: current user) |
@@ -108,6 +109,10 @@ All tools are defined in `src/services/starlimsMcpServer.ts` and implemented in 
 | `rename_ticket` | `ticketId`, `title` | Change ticket title |
 | `add_ticket_measure` | `ticketId`, `title`, `description?` | Add a completed measure |
 | `add_ticket_comment` | `ticketId`, `comment`, `author?` | Add a comment (author defaults to current user) |
+| `update_ticket_measure` | `ticketId`, `measureId`, `title`, `description?` | Change the title of a measure and optionally its description (id from `get_ticket_measures`; omit `description` to keep the stored one) |
+| `delete_ticket_measure` | `ticketId`, `measureId` | Delete a measure (id from `get_ticket_measures`) |
+| `update_ticket_comment` | `ticketId`, `commentId`, `comment` | Change the text of a comment (id from `get_ticket_comments`; author/date stay) |
+| `delete_ticket_comment` | `ticketId`, `commentId` | Delete a comment (id from `get_ticket_comments`) |
 | `set_active_ticket` | `ticketId?` | Set/clear the workspace active ticket (same state the tickets tree uses: status-bar/tree filter + check-in measures) |
 | `get_active_ticket` | – | Show the active ticket of this workspace/server |
 
@@ -131,7 +136,8 @@ Development work is tracked in STARLIMS tickets: `list_tickets` (`mine: true`) �
 completed measure from the reason automatically) → `solve_ticket`. Use `add_ticket_comment` to keep the author
 informed and `release_ticket` to hand a ticket back. Never `solve_ticket` without a measure that says what was
 actually done. Type/priority names for `create_ticket` come from `get_ticket_lookup_data`. In the GUI the same
-measures are shown by "View ticket measures" on a ticket in the Tickets tree.
+measures and comments are shown - and can be added, edited and deleted - by "View ticket measures and comments"
+on a ticket in the Tickets tree.
 
 **Important:** Every MCP tool response has two parts:
 - `content`: summary string plus the full payload as JSON under `--- Structured result ---` (when `STARLIMS.mcp.includeStructuredDataInText` is on, default) and a `TRUNCATED:` note when the result was cut off
@@ -162,6 +168,8 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 | `src/extension.ts` | Entry point, commands |
 | `src/services/enterpriseService.ts` | STARLIMS HTTP client |
 | `src/services/starlimsAutomationService.ts` | Backing impl for all MCP tools |
+| `src/services/itemTransferService.ts` | Shared core for transfer-to-server (button + MCP) |
+| `src/services/itemTransferFilter.ts` | Transfer filter (checkout user, item names) + matching rules used by client and server side |
 | `src/services/starlimsMcpServer.ts` | MCP tool registration/handling |
 | `src/services/expressServer.ts` | Local loopback server (MCP + form callbacks) |
 | `src/services/gitService.ts` | Git integration for check-in |
@@ -171,7 +179,7 @@ Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`
 | `src/lsp/server/` | SSL language server (lexer, parser, diagnostics, style rules, quick fixes, formatter, hover, refs, navigation). Design: `starlims-lsp.md` |
 | `src/lsp/js/` | Separate TS-powered JS IntelliSense LSP (`starlimsJsLsp.enabled`, default true) |
 | `src/providers/` | Tree data providers (enterprise, checked-out, tickets), file decorations, server-selector webview |
-| `src/panels/` | Webview panels (table designer, data view, ticket measures) |
+| `src/panels/` | Webview panels (table designer, data view, ticket activity) |
 | `src/webview/` | Webview UI built separately by webpack |
 | `src/backend/SCM_API/` | Backend package → `SCM_API.sdp` |
 

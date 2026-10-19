@@ -65,3 +65,20 @@ export interface LocalCopyResult {
   language: string;
   localFilePath: string;
 }
+
+/**
+ * An SDP package with the checked out items of a STARLIMS server.
+ */
+export interface ExportedCheckoutPackage {
+  fileName: string;
+  content: Buffer;
+  /**
+   * Names of the items that were put into the package. Undefined when the
+   * backend API of the server is too old to report them.
+   */
+  itemNames?: string[];
+  /**
+   * Checkout users of the items in the package, in the same order as itemNames.
+   */
+  itemUsers?: string[];
+}

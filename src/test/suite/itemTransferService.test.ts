@@ -2,8 +2,44 @@ import * as assert from 'assert';
 import { EnterpriseService } from '../../services/enterpriseService';
 import { findUnimportedItems, ItemTransferService } from '../../services/itemTransferService';
 import { ServerConfig } from '../../providers/serverSelectorWebviewProvider';
+import {
+  findTransferFilterViolation,
+  hasTransferFilter,
+  isAllUsersTransferFilter,
+  matchesTransferItemName,
+  matchesTransferUser,
+  normalizeTransferFilter,
+  normalizeTransferItemName,
+  selectTransferScope,
+  stripTransferItemTypeSuffix
+} from '../../services/itemTransferFilter';
 
 const targetConfig = { name: 'PROD', url: 'https://prod/star' } as unknown as ServerConfig;
+
+type ExportResult = {
+  ok: boolean;
+  data?: { fileName: string; content: Buffer; itemNames?: string[]; itemUsers?: string[] };
+  error?: string;
+};
+
+function createSourceService(exportResult: ExportResult) {
+  const calls = { filters: [] as unknown[] };
+  const sourceService = {
+    getCurrentServerName: () => 'QA',
+    exportAllCheckoutsResult: async (filter?: unknown) => {
+      calls.filters.push(filter);
+      return exportResult;
+    }
+  } as unknown as EnterpriseService;
+  return { sourceService, calls };
+}
+
+function createDefaultExportResult(): ExportResult {
+  return {
+    ok: true,
+    data: { fileName: 'CheckedOutItems_x.sdp', content: Buffer.from('zip') }
+  };
+}
 
 suite('ItemTransferService', () => {
   test('findUnimportedItems reports names the import log never mentions', () => {
@@ -30,17 +66,18 @@ suite('ItemTransferService', () => {
       getCurrentServerName: () => 'PROD',
       importPackage: async () => ({ success: true, log: importLog })
     } as unknown as EnterpriseService;
-    const sourceService = {
-      getCurrentServerName: () => 'QA',
-      exportAllCheckouts: async () => ({ fileName: 'CheckedOutItems_x.sdp', content: Buffer.from('zip') })
-    } as unknown as EnterpriseService;
+    const { sourceService } = createSourceService(createDefaultExportResult());
 
     const service = new ItemTransferService(sourceService, {
       getServerConfigs: () => [targetConfig],
       createTargetService: () => targetService
     });
 
-    const result = await service.transferAllCheckouts('PROD', undefined, () => 2, () => ['scArrived', 'HTML_GenericMetadata']);
+    const result = await service.transferAllCheckouts({
+      targetServer: 'PROD',
+      getItemCount: () => 2,
+      getExpectedItemNames: () => ['scArrived', 'HTML_GenericMetadata']
+    });
     assert.strictEqual(result.ok, true);
     assert.deepStrictEqual(result.unconfirmedItems, ['HTML_GenericMetadata']);
   });
@@ -51,20 +88,97 @@ suite('ItemTransferService', () => {
       getCurrentServerName: () => 'PROD',
       importPackage: async () => ({ success: true, log: importLog })
     } as unknown as EnterpriseService;
-    const sourceService = {
-      getCurrentServerName: () => 'QA',
-      exportAllCheckouts: async () => ({ fileName: 'CheckedOutItems_x.sdp', content: Buffer.from('zip') })
-    } as unknown as EnterpriseService;
+    const { sourceService } = createSourceService(createDefaultExportResult());
 
     const service = new ItemTransferService(sourceService, {
       getServerConfigs: () => [targetConfig],
       createTargetService: () => targetService
     });
 
-    const result = await service.transferAllCheckouts('PROD', undefined, () => 1, () => ['scArrived']);
+    const result = await service.transferAllCheckouts({
+      targetServer: 'PROD',
+      getItemCount: () => 1,
+      getExpectedItemNames: () => ['scArrived']
+    });
     assert.strictEqual(result.ok, true);
     assert.deepStrictEqual(result.unconfirmedItems, []);
     assert.strictEqual(result.localSyncedFiles, undefined);
+  });
+
+  test('transferAllCheckouts passes the filter to the source server export', async () => {
+    const importLog = ' - Importing server script scA (Customizations layer)\r\n - Import ended successfully.\r\n';
+    const targetService = {
+      getCurrentServerName: () => 'PROD',
+      importPackage: async () => ({ success: true, log: importLog })
+    } as unknown as EnterpriseService;
+    const { sourceService, calls } = createSourceService({
+      ok: true,
+      data: {
+        fileName: 'CheckedOutItems_x.sdp',
+        content: Buffer.from('zip'),
+        itemNames: ['scA'],
+        itemUsers: ['maria']
+      }
+    });
+
+    const service = new ItemTransferService(sourceService, {
+      getServerConfigs: () => [targetConfig],
+      createTargetService: () => targetService
+    });
+
+    const result = await service.transferAllCheckouts({
+      targetServer: 'PROD',
+      filter: { user: 'maria', itemNames: ['scA'] },
+      getExpectedItemNames: () => ['scA']
+    });
+
+    assert.strictEqual(result.ok, true);
+    assert.deepStrictEqual(calls.filters, [{ user: 'maria', itemNames: ['scA'] }]);
+    assert.deepStrictEqual(result.exportedItemNames, ['scA']);
+    assert.deepStrictEqual(result.filter, { user: 'maria', itemNames: ['scA'] });
+  });
+
+  test('transferAllCheckouts reports the export error of a filtered transfer', async () => {
+    const { sourceService } = createSourceService({
+      ok: false,
+      error: 'The STARLIMS server ignored the transfer filter.'
+    });
+    const service = new ItemTransferService(sourceService, {
+      getServerConfigs: () => [targetConfig],
+      createTargetService: () => ({ getCurrentServerName: () => 'PROD' } as unknown as EnterpriseService)
+    });
+
+    const result = await service.transferAllCheckouts({
+      targetServer: 'PROD',
+      filter: { itemNames: ['scA'] }
+    });
+
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.error, 'The STARLIMS server ignored the transfer filter.');
+  });
+
+  test('transferAllCheckouts fails when no checked out item matches the filter', async () => {
+    const { sourceService } = createSourceService({
+      ok: true,
+      data: {
+        fileName: 'CheckedOutItems_x.sdp',
+        content: Buffer.from('zip'),
+        itemNames: [],
+        itemUsers: []
+      }
+    });
+    const service = new ItemTransferService(sourceService, {
+      getServerConfigs: () => [targetConfig],
+      createTargetService: () => ({ getCurrentServerName: () => 'PROD' } as unknown as EnterpriseService)
+    });
+
+    const result = await service.transferAllCheckouts({
+      targetServer: 'PROD',
+      filter: { itemNames: ['scUnknown'] }
+    });
+
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /matched the transfer filter/i);
   });
 
   function createSyncTargetService(importLog: string) {
@@ -95,10 +209,7 @@ suite('ItemTransferService', () => {
   }
 
   function createSyncSourceService() {
-    return {
-      getCurrentServerName: () => 'QA',
-      exportAllCheckouts: async () => ({ fileName: 'CheckedOutItems_x.sdp', content: Buffer.from('zip') })
-    } as unknown as EnterpriseService;
+    return createSourceService(createDefaultExportResult()).sourceService;
   }
 
   test('transferAllCheckouts refreshes local copies from the target after a successful import', async () => {
@@ -110,16 +221,15 @@ suite('ItemTransferService', () => {
       getWorkspaceRoot: () => 'C:/SLVSCODE'
     });
 
-    const result = await service.transferAllCheckouts(
-      'PROD',
-      undefined,
-      () => 2,
-      () => ['scA', 'tblX'],
-      () => [
+    const result = await service.transferAllCheckouts({
+      targetServer: 'PROD',
+      getItemCount: () => 2,
+      getExpectedItemNames: () => ['scA', 'tblX'],
+      getLocalSyncItems: () => [
         { name: 'scA', uri: '/ServerScripts/util/scA', language: 'SSL' },
         { name: 'tblX', uri: '/DICT/tblX', isTable: true }
       ]
-    );
+    });
 
     assert.strictEqual(result.ok, true);
     assert.deepStrictEqual(result.localSyncedFiles, [
@@ -142,16 +252,15 @@ suite('ItemTransferService', () => {
       getWorkspaceRoot: () => 'C:/SLVSCODE'
     });
 
-    const result = await service.transferAllCheckouts(
-      'PROD',
-      undefined,
-      () => 2,
-      () => ['scA', 'HTML_Missing'],
-      () => [
+    const result = await service.transferAllCheckouts({
+      targetServer: 'PROD',
+      getItemCount: () => 2,
+      getExpectedItemNames: () => ['scA', 'HTML_Missing'],
+      getLocalSyncItems: () => [
         { name: 'scA', uri: '/ServerScripts/util/scA', language: 'SSL' },
         { name: 'HTML_Missing', uri: '/Applications/App/HTMLForms/HTML_Missing', language: 'GER' }
       ]
-    );
+    });
 
     assert.strictEqual(result.ok, true);
     assert.deepStrictEqual(result.unconfirmedItems, ['HTML_Missing']);
@@ -174,13 +283,12 @@ suite('ItemTransferService', () => {
       getWorkspaceRoot: () => 'C:/SLVSCODE'
     });
 
-    const result = await service.transferAllCheckouts(
-      'PROD',
-      undefined,
-      () => 1,
-      () => ['scA'],
-      () => [{ name: 'scA', uri: '/ServerScripts/util/scA', language: 'SSL' }]
-    );
+    const result = await service.transferAllCheckouts({
+      targetServer: 'PROD',
+      getItemCount: () => 1,
+      getExpectedItemNames: () => ['scA'],
+      getLocalSyncItems: () => [{ name: 'scA', uri: '/ServerScripts/util/scA', language: 'SSL' }]
+    });
 
     assert.strictEqual(result.ok, true);
     assert.deepStrictEqual(result.localSyncedFiles, []);
@@ -195,16 +303,165 @@ suite('ItemTransferService', () => {
       createTargetService: () => targetService
     });
 
-    const result = await service.transferAllCheckouts(
-      'PROD',
-      undefined,
-      () => 1,
-      () => ['scA'],
-      () => [{ name: 'scA', uri: '/ServerScripts/util/scA', language: 'SSL' }]
-    );
+    const result = await service.transferAllCheckouts({
+      targetServer: 'PROD',
+      getItemCount: () => 1,
+      getExpectedItemNames: () => ['scA'],
+      getLocalSyncItems: () => [{ name: 'scA', uri: '/ServerScripts/util/scA', language: 'SSL' }]
+    });
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.localSyncedFiles, undefined);
     assert.strictEqual(calls.localCopy.length, 0);
+  });
+});
+
+suite('ItemTransferFilter', () => {
+  test('the type suffix of the tree labels is ignored when items are compared', () => {
+    assert.strictEqual(stripTransferItemTypeSuffix('frmTest [XML]'), 'frmTest');
+    assert.strictEqual(stripTransferItemTypeSuffix('frmTest [Code Behind]'), 'frmTest');
+    assert.strictEqual(stripTransferItemTypeSuffix('scArrived'), 'scArrived');
+    assert.strictEqual(normalizeTransferItemName('frmTest [XML]'), 'frmtest');
+    assert.strictEqual(normalizeTransferItemName('FRMTEST'), 'frmtest');
+  });
+
+  test('item names are matched case-insensitively and ignore the type suffix', () => {
+    const filter = { itemNames: ['FRMTEST'] };
+    assert.strictEqual(matchesTransferItemName('frmTest', filter), true);
+    assert.strictEqual(matchesTransferItemName('frmTest [XML]', filter), true);
+    assert.strictEqual(matchesTransferItemName('frmOther', filter), false);
+    assert.strictEqual(matchesTransferItemName('frmTest', undefined), true);
+  });
+
+  test('the user filter matches the checkout user case-insensitively', () => {
+    assert.strictEqual(matchesTransferUser('maria', { user: 'Maria' }), true);
+    assert.strictEqual(matchesTransferUser('maria', { user: 'hans' }), false);
+    assert.strictEqual(matchesTransferUser('maria', { user: 'all' }), true);
+    assert.strictEqual(matchesTransferUser('maria', undefined), true);
+    assert.strictEqual(isAllUsersTransferFilter('ALL'), true);
+    assert.strictEqual(isAllUsersTransferFilter('*'), true);
+    assert.strictEqual(isAllUsersTransferFilter('maria'), false);
+  });
+
+  test('an empty filter does not narrow the transfer down', () => {
+    assert.strictEqual(hasTransferFilter(undefined), false);
+    assert.strictEqual(hasTransferFilter({}), false);
+    assert.strictEqual(hasTransferFilter({ user: '  ' }), false);
+    assert.strictEqual(hasTransferFilter({ itemNames: [] }), false);
+    assert.strictEqual(hasTransferFilter({ user: 'maria' }), true);
+    assert.strictEqual(hasTransferFilter({ itemNames: ['scA'] }), true);
+  });
+
+  test('normalizeTransferFilter drops empty values', () => {
+    assert.strictEqual(normalizeTransferFilter(undefined), undefined);
+    assert.strictEqual(normalizeTransferFilter({ user: '  ', itemNames: [] }), undefined);
+    assert.deepStrictEqual(normalizeTransferFilter({ user: ' maria ', itemNames: [' scA ', ''] }), {
+      itemNames: ['scA'],
+      user: 'maria'
+    });
+  });
+
+  test('an export that ignores the filter is detected', () => {
+    // The server did not report the items it exported: its backend API is too old.
+    assert.match(
+      String(findTransferFilterViolation({ itemNames: undefined }, { itemNames: ['scA'] })),
+      /does not support filtered transfers/i
+    );
+    // The server exported an item that the filter does not allow.
+    assert.match(
+      String(findTransferFilterViolation({ itemNames: ['scOther'] }, { itemNames: ['scA'] })),
+      /outside the requested filter/i
+    );
+    // The server exported an item of another user.
+    assert.match(
+      String(findTransferFilterViolation({ itemNames: ['scA'], itemUsers: ['hans'] }, { user: 'maria' })),
+      /outside the requested filter/i
+    );
+    // Everything matches.
+    assert.strictEqual(findTransferFilterViolation({ itemNames: ['scA'], itemUsers: ['maria'] }, { user: 'maria' }), undefined);
+    // Without a filter nothing has to match.
+    assert.strictEqual(findTransferFilterViolation({ itemNames: ['scA'] }, undefined), undefined);
+  });
+
+  test('without a filter the checkouts of the current user are the transfer scope', () => {
+    const currentUserItems = [
+      { label: 'scA', uri: '/ServerScripts/util/scA', checkedOutBy: 'maria' },
+      { label: 'scB', uri: '/ServerScripts/util/scB', checkedOutBy: 'maria' }
+    ];
+
+    assert.deepStrictEqual(selectTransferScope(currentUserItems, undefined, undefined), currentUserItems);
+    assert.deepStrictEqual(selectTransferScope(currentUserItems, undefined, {}), currentUserItems);
+  });
+
+  test('a name filter without a user filter only covers the checkouts of the current user', () => {
+    // The server exports the checkouts of the current user when no user is named,
+    // so the scope must not contain the items of another user.
+    const currentUserItems = [
+      { label: 'scA', uri: '/ServerScripts/util/scA', checkedOutBy: 'maria' }
+    ];
+    const allUserItems = [
+      ...currentUserItems,
+      { label: 'scB', uri: '/ServerScripts/util/scB', checkedOutBy: 'hans' }
+    ];
+
+    assert.deepStrictEqual(
+      selectTransferScope(currentUserItems, allUserItems, { itemNames: ['scA'] }),
+      [currentUserItems[0]]
+    );
+    // The item of the other user is not part of the scope, even by name.
+    assert.deepStrictEqual(
+      selectTransferScope(currentUserItems, allUserItems, { itemNames: ['scB'] }),
+      []
+    );
+  });
+
+  test('a user filter selects the items of that user', () => {
+    const allUserItems = [
+      { label: 'scA', uri: '/ServerScripts/util/scA', checkedOutBy: 'maria' },
+      { label: 'scB', uri: '/ServerScripts/util/scB', checkedOutBy: 'hans' },
+      { label: 'scC', uri: '/ServerScripts/util/scC', checkedOutBy: 'maria' }
+    ];
+
+    assert.deepStrictEqual(
+      selectTransferScope([], allUserItems, { user: 'maria' }).map((item) => item.label),
+      ['scA', 'scC']
+    );
+    // The checkout user is matched case-insensitively.
+    assert.deepStrictEqual(
+      selectTransferScope([], allUserItems, { user: 'MARIA' }).map((item) => item.label),
+      ['scA', 'scC']
+    );
+    // "all" covers the checkouts of every user.
+    assert.deepStrictEqual(
+      selectTransferScope([], allUserItems, { user: 'all' }).map((item) => item.label),
+      ['scA', 'scB', 'scC']
+    );
+    // A user filter and item names are combined.
+    assert.deepStrictEqual(
+      selectTransferScope([], allUserItems, { user: 'maria', itemNames: ['scC'] }).map((item) => item.label),
+      ['scC']
+    );
+  });
+
+  test('a user filter needs the checkouts of all users', () => {
+    assert.throws(
+      () => selectTransferScope([], undefined, { user: 'maria' }),
+      /checkouts of all users/i
+    );
+  });
+
+  test('the type suffix of the tree labels is ignored when the scope is built', () => {
+    const currentUserItems = [
+      { label: 'frmTest [XML]', uri: '/Applications/App/HTMLForms/XML/frmTest', checkedOutBy: 'maria' }
+    ];
+
+    assert.deepStrictEqual(
+      selectTransferScope(currentUserItems, undefined, { itemNames: ['frmTest'] }),
+      currentUserItems
+    );
+    assert.deepStrictEqual(
+      selectTransferScope(currentUserItems, undefined, { itemNames: ['frmTest [XML]'] }),
+      currentUserItems
+    );
   });
 });

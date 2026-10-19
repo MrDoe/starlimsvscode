@@ -140,3 +140,119 @@ aMeasures := SQLExecute("SELECT ORIGREC, TITLE, DESCRIPTION, STATUS, PRIORITY, T
 
 :RETURN aMeasures;
 :ENDPROC;
+
+:PROCEDURE GetTicketComments;
+:PARAMETERS nTicketId;
+:DEFAULT nTicketId, -1;
+
+:IF nTicketId < 0;
+	RaiseError("TicketId must be provided.", "SCM_API.TicketManagement.GetTicketComments", -1);
+:ENDIF;
+
+/* Comments of one ticket, oldest first - ORIGSTS is deliberately not filtered because its default constraint writes N for every inserted row;
+:DECLARE aComments;
+aComments := SQLExecute("SELECT ORIGREC, COMMENT_TEXT, AUTHOR, CREATED_ON FROM BMBH_TICKET_COMMENTS WHERE TICKET_ID = ?nTicketId? ORDER BY CREATED_ON ASC, ORIGREC ASC");
+
+:RETURN aComments;
+:ENDPROC;
+
+:PROCEDURE UpdateMeasure;
+:PARAMETERS nTicketId, nMeasureId, sMeasureTitle, sMeasureDescription, nUpdateDescription;
+:DEFAULT nTicketId, -1;
+:DEFAULT nMeasureId, -1;
+:DEFAULT sMeasureTitle, "";
+:DEFAULT sMeasureDescription, "";
+:DEFAULT nUpdateDescription, 1;
+
+:IF nMeasureId < 0;
+	RaiseError("MeasureId must be provided.", "SCM_API.TicketManagement.UpdateMeasure", -1);
+:ENDIF;
+
+:IF Empty(AllTrim(sMeasureTitle));
+	RaiseError("Measure title must be provided.", "SCM_API.TicketManagement.UpdateMeasure", -1);
+:ENDIF;
+
+:DECLARE aMeasureRows;
+aMeasureRows := SQLExecute("SELECT ORIGREC FROM BMBH_TICKET_MEASURES WHERE ORIGREC = ?nMeasureId? AND TICKET_ID = ?nTicketId?");
+
+:IF Empty(aMeasureRows) .OR. Len(aMeasureRows) == 0;
+	RaiseError("Measure not found for this ticket.", "SCM_API.TicketManagement.UpdateMeasure", -1);
+:ENDIF;
+
+/* nUpdateDescription = 0 keeps the stored description - the client omits the description then - a number, not a boolean, because the client sends 0/1;
+:IF nUpdateDescription == 1;
+	SQLExecute("UPDATE BMBH_TICKET_MEASURES SET TITLE = ?sMeasureTitle?, DESCRIPTION = ?sMeasureDescription? WHERE ORIGREC = ?nMeasureId? AND TICKET_ID = ?nTicketId?");
+:ELSE;
+	SQLExecute("UPDATE BMBH_TICKET_MEASURES SET TITLE = ?sMeasureTitle? WHERE ORIGREC = ?nMeasureId? AND TICKET_ID = ?nTicketId?");
+:ENDIF;
+
+:RETURN 1;
+:ENDPROC;
+
+:PROCEDURE DeleteMeasure;
+:PARAMETERS nTicketId, nMeasureId;
+:DEFAULT nTicketId, -1;
+:DEFAULT nMeasureId, -1;
+
+:IF nMeasureId < 0;
+	RaiseError("MeasureId must be provided.", "SCM_API.TicketManagement.DeleteMeasure", -1);
+:ENDIF;
+
+:DECLARE aMeasureRows;
+aMeasureRows := SQLExecute("SELECT ORIGREC FROM BMBH_TICKET_MEASURES WHERE ORIGREC = ?nMeasureId? AND TICKET_ID = ?nTicketId?");
+
+:IF Empty(aMeasureRows) .OR. Len(aMeasureRows) == 0;
+	RaiseError("Measure not found for this ticket.", "SCM_API.TicketManagement.DeleteMeasure", -1);
+:ENDIF;
+
+SQLExecute("DELETE FROM BMBH_TICKET_MEASURES WHERE ORIGREC = ?nMeasureId? AND TICKET_ID = ?nTicketId?");
+
+:RETURN 1;
+:ENDPROC;
+
+:PROCEDURE UpdateComment;
+:PARAMETERS nTicketId, nCommentId, sCommentText;
+:DEFAULT nTicketId, -1;
+:DEFAULT nCommentId, -1;
+:DEFAULT sCommentText, "";
+
+:IF nCommentId < 0;
+	RaiseError("CommentId must be provided.", "SCM_API.TicketManagement.UpdateComment", -1);
+:ENDIF;
+
+:IF Empty(AllTrim(sCommentText));
+	RaiseError("Comment text must be provided.", "SCM_API.TicketManagement.UpdateComment", -1);
+:ENDIF;
+
+:DECLARE aCommentRows;
+aCommentRows := SQLExecute("SELECT ORIGREC FROM BMBH_TICKET_COMMENTS WHERE ORIGREC = ?nCommentId? AND TICKET_ID = ?nTicketId?");
+
+:IF Empty(aCommentRows) .OR. Len(aCommentRows) == 0;
+	RaiseError("Comment not found for this ticket.", "SCM_API.TicketManagement.UpdateComment", -1);
+:ENDIF;
+
+SQLExecute("UPDATE BMBH_TICKET_COMMENTS SET COMMENT_TEXT = ?sCommentText? WHERE ORIGREC = ?nCommentId? AND TICKET_ID = ?nTicketId?");
+
+:RETURN 1;
+:ENDPROC;
+
+:PROCEDURE DeleteComment;
+:PARAMETERS nTicketId, nCommentId;
+:DEFAULT nTicketId, -1;
+:DEFAULT nCommentId, -1;
+
+:IF nCommentId < 0;
+	RaiseError("CommentId must be provided.", "SCM_API.TicketManagement.DeleteComment", -1);
+:ENDIF;
+
+:DECLARE aCommentRows;
+aCommentRows := SQLExecute("SELECT ORIGREC FROM BMBH_TICKET_COMMENTS WHERE ORIGREC = ?nCommentId? AND TICKET_ID = ?nTicketId?");
+
+:IF Empty(aCommentRows) .OR. Len(aCommentRows) == 0;
+	RaiseError("Comment not found for this ticket.", "SCM_API.TicketManagement.DeleteComment", -1);
+:ENDIF;
+
+SQLExecute("DELETE FROM BMBH_TICKET_COMMENTS WHERE ORIGREC = ?nCommentId? AND TICKET_ID = ?nTicketId?");
+
+:RETURN 1;
+:ENDPROC;

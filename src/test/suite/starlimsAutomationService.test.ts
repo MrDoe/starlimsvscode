@@ -1273,4 +1273,165 @@ suite('StarlimsAutomationService', () => {
     assert.strictEqual(receivedAuthor, 'DC');
     assert.strictEqual(result.author, 'DC');
   });
+
+  test('getTicketComments caps the number of comments', async () => {
+    const automationService = createTicketAutomationService({
+      getTicketCommentsResult: async () => ({
+        ok: true,
+        data: [
+          { author: 'DC', createdOn: '2026-10-16 09:26:30.347', id: 1209, text: 'erster', ticketId: 12 },
+          { author: 'opencode', createdOn: '2026-10-16 16:07:21.820', id: 1210, text: 'zweiter', ticketId: 12 }
+        ]
+      })
+    });
+
+    const result = await automationService.getTicketComments(12, 1);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual((result.comments as unknown[]).length, 1);
+    assert.strictEqual(result.totalItems, 2);
+    assert.strictEqual(result.truncated, true);
+    assert.match(String(result.note), /limited to 1 of 2 comments/i);
+  });
+
+  test('getTicketComments points at the SCM_API backend when the read fails', async () => {
+    const automationService = createTicketAutomationService({
+      getTicketCommentsResult: async () => ({ ok: false, error: 'Could not execute remote script.' })
+    });
+
+    const result = await automationService.getTicketComments(12);
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /Could not execute remote script\./);
+    assert.match(String(result.error), /GetTicketComments/);
+  });
+
+  test('getTicketComments rejects a missing ticket id', async () => {
+    const automationService = createTicketAutomationService();
+
+    const result = await automationService.getTicketComments(0);
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /positive ticket id/i);
+  });
+
+  test('updateTicketMeasure sends the new title and description', async () => {
+    let receivedArgs: { description: string | undefined; measureId: number; ticketId: number; title: string } | undefined;
+    const automationService = createTicketAutomationService({
+      updateTicketMeasureResult: async (ticketId, measureId, title, description) => {
+        receivedArgs = { description, measureId, ticketId, title };
+        return { ok: true, data: true };
+      }
+    });
+
+    const result = await automationService.updateTicketMeasure(12, 495, 'Korrigierter Titel', 'Neue Beschreibung');
+    assert.strictEqual(result.ok, true);
+    assert.deepStrictEqual(receivedArgs, {
+      description: 'Neue Beschreibung',
+      measureId: 495,
+      ticketId: 12,
+      title: 'Korrigierter Titel'
+    });
+    assert.strictEqual(result.measureId, 495);
+  });
+
+  test('updateTicketMeasure rejects an empty title', async () => {
+    const automationService = createTicketAutomationService();
+
+    const result = await automationService.updateTicketMeasure(12, 495, '   ', 'Beschreibung');
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /title cannot be empty/i);
+  });
+
+  test('updateTicketMeasure keeps the stored description when none is given', async () => {
+    let receivedDescription: string | undefined = 'not called';
+    const automationService = createTicketAutomationService({
+      updateTicketMeasureResult: async (_ticketId, _measureId, _title, description) => {
+        receivedDescription = description;
+        return { ok: true, data: true };
+      }
+    });
+
+    const result = await automationService.updateTicketMeasure(12, 495, 'Neuer Titel');
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(receivedDescription, undefined, 'an omitted description must not be written');
+  });
+
+  test('updateTicketMeasure reports a failed update', async () => {
+    const automationService = createTicketAutomationService({
+      updateTicketMeasureResult: async () => ({ ok: false, error: 'Measure not found for this ticket.' })
+    });
+
+    const result = await automationService.updateTicketMeasure(12, 495, 'Titel', 'Beschreibung');
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /Measure not found for this ticket\./);
+  });
+
+  test('deleteTicketMeasure deletes the measure of the given ticket', async () => {
+    let receivedArgs: { measureId: number; ticketId: number } | undefined;
+    const automationService = createTicketAutomationService({
+      deleteTicketMeasureResult: async (ticketId, measureId) => {
+        receivedArgs = { measureId, ticketId };
+        return { ok: true, data: true };
+      }
+    });
+
+    const result = await automationService.deleteTicketMeasure(12, 495);
+    assert.strictEqual(result.ok, true);
+    assert.deepStrictEqual(receivedArgs, { measureId: 495, ticketId: 12 });
+    assert.strictEqual(result.measureId, 495);
+  });
+
+  test('deleteTicketMeasure rejects a missing measure id', async () => {
+    const automationService = createTicketAutomationService();
+
+    const result = await automationService.deleteTicketMeasure(12, 0);
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /positive measure id/i);
+  });
+
+  test('updateTicketComment sends the new text', async () => {
+    let receivedArgs: { commentId: number; text: string; ticketId: number } | undefined;
+    const automationService = createTicketAutomationService({
+      updateTicketCommentResult: async (ticketId, commentId, text) => {
+        receivedArgs = { commentId, text, ticketId };
+        return { ok: true, data: true };
+      }
+    });
+
+    const result = await automationService.updateTicketComment(12, 1209, 'Korrigierter Kommentar');
+    assert.strictEqual(result.ok, true);
+    assert.deepStrictEqual(receivedArgs, { commentId: 1209, text: 'Korrigierter Kommentar', ticketId: 12 });
+    assert.strictEqual(result.commentId, 1209);
+  });
+
+  test('updateTicketComment rejects empty text', async () => {
+    const automationService = createTicketAutomationService();
+
+    const result = await automationService.updateTicketComment(12, 1209, '  ');
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /text cannot be empty/i);
+  });
+
+  test('deleteTicketComment deletes the comment of the given ticket', async () => {
+    let receivedArgs: { commentId: number; ticketId: number } | undefined;
+    const automationService = createTicketAutomationService({
+      deleteTicketCommentResult: async (ticketId, commentId) => {
+        receivedArgs = { commentId, ticketId };
+        return { ok: true, data: true };
+      }
+    });
+
+    const result = await automationService.deleteTicketComment(12, 1209);
+    assert.strictEqual(result.ok, true);
+    assert.deepStrictEqual(receivedArgs, { commentId: 1209, ticketId: 12 });
+    assert.strictEqual(result.commentId, 1209);
+  });
+
+  test('deleteTicketComment reports a failed delete', async () => {
+    const automationService = createTicketAutomationService({
+      deleteTicketCommentResult: async () => ({ ok: false, error: 'Comment not found for this ticket.' })
+    });
+
+    const result = await automationService.deleteTicketComment(12, 1209);
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /Comment not found for this ticket\./);
+  });
 });

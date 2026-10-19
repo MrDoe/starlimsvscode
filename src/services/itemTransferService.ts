@@ -1,5 +1,6 @@
 import { ServerConfig } from "../providers/serverSelectorWebviewProvider";
 import { EnterpriseService } from "./enterpriseService";
+import { hasTransferFilter, ItemTransferFilter } from "./itemTransferFilter";
 
 export type TransferResult = {
   ok: boolean;
@@ -26,6 +27,15 @@ export type TransferResult = {
    * from the target server. They do not fail the transfer itself.
    */
   localSyncErrors?: string[];
+  /**
+   * The filter the transfer was executed with. Undefined means that every
+   * checked out item of the current user was transferred.
+   */
+  filter?: ItemTransferFilter;
+  /**
+   * Names of the items the source server put into the SDP package.
+   */
+  exportedItemNames?: string[];
 };
 
 /**
@@ -48,6 +58,34 @@ export type ItemTransferOptions = {
   createTargetService: (config: ServerConfig) => EnterpriseService;
   /** Optional SLVSCODE workspace root; enables the post-transfer local file sync. */
   getWorkspaceRoot?: () => string | undefined;
+};
+
+/**
+ * Everything one transfer run needs to know. The callbacks describe the items
+ * that are transferred (they are resolved by the caller, so the client side
+ * filter and the server side export always cover the same items).
+ */
+export type ItemTransferRequest = {
+  /** Name of the configured target server. */
+  targetServer: string;
+  /** Optional callback that pushes local working copy edits to the source server before exporting. */
+  saveLocalEdits?: () => Promise<void>;
+  /** Optional callback returning the number of transferred items for reporting. */
+  getItemCount?: () => number;
+  /** Optional callback returning the names of the items that are expected to arrive on the target. */
+  getExpectedItemNames?: () => string[];
+  /**
+   * Optional callback returning the transferred items whose local working copies
+   * are refreshed from the target server (into the target's SLVSCODE folder)
+   * after a successful import; requires the getWorkspaceRoot option.
+   */
+  getLocalSyncItems?: () => TransferLocalSyncItem[];
+  /**
+   * Optional filter that narrows the transfer down to a checkout user and/or
+   * item names. The filter is applied on the source server when the SDP package
+   * is created.
+   */
+  filter?: ItemTransferFilter;
 };
 
 /**
@@ -86,25 +124,13 @@ export class ItemTransferService {
   ) { }
 
   /**
-   * Exports all checked out items from the source server and imports the
+   * Exports the checked out items from the source server and imports the
    * resulting SDP package on the target server.
-   * @param targetServerName name of the configured target server
-   * @param saveLocalEdits optional callback that pushes local working copy edits to the source server before exporting
-   * @param getItemCount optional callback returning the number of checked out items for reporting
-   * @param getExpectedItemNames optional callback returning the names of the items that are expected to arrive on the target
-   * @param getLocalSyncItems optional callback returning the transferred items whose local working
-   * copies are refreshed from the target server (into the target's SLVSCODE folder) after a
-   * successful import; requires the getWorkspaceRoot option
+   * @param request the target server, the filter and the callbacks that describe the transferred items
    */
-  public async transferAllCheckouts(
-    targetServerName: string,
-    saveLocalEdits?: () => Promise<void>,
-    getItemCount?: () => number,
-    getExpectedItemNames?: () => string[],
-    getLocalSyncItems?: () => TransferLocalSyncItem[]
-  ): Promise<TransferResult> {
+  public async transferAllCheckouts(request: ItemTransferRequest): Promise<TransferResult> {
     const sourceServer = this.sourceService.getCurrentServerName();
-    const targetServer = targetServerName.trim();
+    const targetServer = (request.targetServer ?? "").trim();
 
     if (!targetServer) {
       return {
@@ -125,17 +151,30 @@ export class ItemTransferService {
       };
     }
 
-    const expectedItemNames = getExpectedItemNames ? getExpectedItemNames() : [];
+    const filter = hasTransferFilter(request.filter) ? request.filter : undefined;
+    const expectedItemNames = request.getExpectedItemNames ? request.getExpectedItemNames() : [];
 
-    if (saveLocalEdits) {
-      await saveLocalEdits();
+    if (request.saveLocalEdits) {
+      await request.saveLocalEdits();
     }
 
-    const exportedPackage = await this.sourceService.exportAllCheckouts();
-    if (!exportedPackage) {
+    const exportResult = await this.sourceService.exportAllCheckoutsResult(filter);
+    if (!exportResult.ok || !exportResult.data) {
       return {
         ok: false,
-        error: "Could not export the checked out items from the source server.",
+        error: exportResult.error ?? "Could not export the checked out items from the source server.",
+        filter,
+        sourceServer,
+        targetServer
+      };
+    }
+    const exportedPackage = exportResult.data;
+
+    if (filter && (exportedPackage.itemNames?.length ?? 0) === 0) {
+      return {
+        ok: false,
+        error: "No checked out item on the source server matched the transfer filter.",
+        filter,
         sourceServer,
         targetServer
       };
@@ -148,6 +187,7 @@ export class ItemTransferService {
         ok: false,
         error: "Could not import the package on the target server.",
         fileName: exportedPackage.fileName,
+        filter,
         sourceServer,
         targetServer,
         unconfirmedItems: expectedItemNames.length > 0 ? expectedItemNames : undefined
@@ -163,6 +203,7 @@ export class ItemTransferService {
         ok: false,
         error: `Import on '${targetServer}' ended with errors. See the import log for details.`,
         fileName: exportedPackage.fileName,
+        filter,
         importLog: importResult.log,
         sourceServer,
         targetServer,
@@ -172,20 +213,22 @@ export class ItemTransferService {
 
     const result: TransferResult = {
       ok: true,
+      exportedItemNames: exportedPackage.itemNames,
       fileName: exportedPackage.fileName,
+      filter,
       importLog: importResult.log,
       sourceServer,
       targetServer,
-      totalItems: getItemCount ? getItemCount() : undefined,
+      totalItems: request.getItemCount ? request.getItemCount() : undefined,
       unconfirmedItems
     };
 
     // Mirror the target's freshly imported versions into the target server's
     // SLVSCODE folder so the local file copies match what actually arrived.
-    if (getLocalSyncItems && this.options.getWorkspaceRoot) {
+    if (request.getLocalSyncItems && this.options.getWorkspaceRoot) {
       const localSync = await this.updateLocalCopiesFromTarget(
         targetService,
-        getLocalSyncItems(),
+        request.getLocalSyncItems(),
         unconfirmedItems ?? []
       );
       result.localSyncedFiles = localSync.files;

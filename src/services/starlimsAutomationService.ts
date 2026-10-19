@@ -2,8 +2,9 @@ import * as fs from "fs";
 import * as path from "path";
 import { EnterpriseItemType } from "../providers/enterpriseTreeDataProvider";
 import { EnterpriseService } from "./enterpriseService";
+import { ItemTransferFilter, normalizeTransferFilter } from "./itemTransferFilter";
 import { CheckedOutItemRecord, EnterpriseItemRecord } from "./starlimsAutomationTypes";
-import { RemoteScriptOutputType, TicketHistoryEntry, TicketListFilter, TicketLookupOption, TicketMeasure, TicketOverview, TicketReference } from "./ticketManagementTypes";
+import { RemoteScriptOutputType, TicketComment, TicketHistoryEntry, TicketListFilter, TicketLookupOption, TicketMeasure, TicketOverview, TicketReference } from "./ticketManagementTypes";
 import { createLineDiff } from "../utilities/textDiff";
 
 type StarlimsLanguageOption = {
@@ -20,7 +21,7 @@ export type StarlimsAutomationOptions = {
   getWorkspaceRoot: () => string | undefined;
   refreshCheckoutTree: (includeAllUsers: boolean) => Promise<void>;
   listCheckedOutItems?: (includeAllUsers: boolean) => Promise<CheckedOutItemRecord[]>;
-  transferToServer?: (targetServer: string, saveLocalEdits: boolean) => Promise<StarlimsAutomationResult>;
+  transferToServer?: (targetServer: string, saveLocalEdits: boolean, filter?: ItemTransferFilter) => Promise<StarlimsAutomationResult>;
   /** Returns the ticket the user (or an MCP tool) has selected as active for the current server. */
   getActiveTicket?: () => TicketReference | undefined;
   /** Persists the active ticket for the current server; pass undefined to clear it. */
@@ -173,13 +174,18 @@ export class StarlimsAutomationService {
   }
 
   /**
-   * Transfers all checked out items of the current user to another configured
-   * STARLIMS server. The source server exports the items to an SDP package and
-   * the target server imports it, generating a new version of each item there.
+   * Transfers the checked out items to another configured STARLIMS server. The
+   * source server exports the items to an SDP package and the target server
+   * imports it, generating a new version of each item there.
    * @param targetServer name of the configured target server (STARLIMS.servers)
    * @param saveLocalEdits true to push local working copy edits to the source server before exporting
+   * @param filter optional filter that narrows the transfer down to a checkout user and/or item names
    */
-  public async transferItems(targetServer: string, saveLocalEdits: boolean | undefined): Promise<StarlimsAutomationResult> {
+  public async transferItems(
+    targetServer: string,
+    saveLocalEdits: boolean | undefined,
+    filter?: ItemTransferFilter
+  ): Promise<StarlimsAutomationResult> {
     const normalizedTargetServer = targetServer.trim();
     if (!normalizedTargetServer) {
       return {
@@ -196,7 +202,8 @@ export class StarlimsAutomationService {
       };
     }
 
-    return this.options.transferToServer(normalizedTargetServer, saveLocalEdits === true);
+    const normalizedFilter = normalizeTransferFilter(filter);
+    return this.options.transferToServer(normalizedTargetServer, saveLocalEdits === true, normalizedFilter);
   }
 
   public async searchByName(
@@ -1827,6 +1834,164 @@ export class StarlimsAutomationService {
 
     return {
       author: commentAuthor,
+      ok: true,
+      serverName,
+      ticketId
+    };
+  }
+
+  /** Comments of a ticket, oldest first. */
+  public async getTicketComments(ticketId: number, maxItems?: number): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    if (!(ticketId > 0)) {
+      return { ok: false, error: "A positive ticket id is required.", serverName };
+    }
+
+    const commentsResult = await this.enterpriseService.getTicketCommentsResult(ticketId);
+    if (!commentsResult.ok) {
+      return {
+        error: `${commentsResult.error ?? `Could not retrieve comments for ticket #${ticketId}.`} Reading comments needs a SCM_API backend with TicketManagement.GetTicketComments; the extension updates the backend automatically on activation, so reload the window if this error persists.`,
+        ok: false,
+        serverName,
+        ticketId
+      };
+    }
+
+    const bounded = this.limitItems<TicketComment>(commentsResult.data ?? [], maxItems);
+    const result: StarlimsAutomationResult = {
+      comments: bounded.items,
+      limit: bounded.limit,
+      ok: true,
+      serverName,
+      ticketId,
+      totalItems: bounded.totalItems,
+      truncated: bounded.truncated
+    };
+
+    if (bounded.truncated) {
+      result.note = `Results limited to ${bounded.limit} of ${bounded.totalItems} comments.`;
+    } else if (bounded.totalItems === 0) {
+      result.note = `No comments are recorded for ticket #${ticketId}.`;
+    }
+
+    return result;
+  }
+
+  /** Changes the title of a ticket measure. Omitting the description keeps the stored one. */
+  public async updateTicketMeasure(
+    ticketId: number,
+    measureId: number,
+    title: string,
+    description?: string
+  ): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    const normalizedTitle = this.normalizeOptionalString(title);
+    if (!(measureId > 0)) {
+      return { ok: false, error: "A positive measure id is required.", serverName, ticketId };
+    }
+
+    if (!normalizedTitle) {
+      return { ok: false, error: "The measure title cannot be empty.", serverName, ticketId };
+    }
+
+    const measureResult = await this.enterpriseService.updateTicketMeasureResult(
+      ticketId,
+      measureId,
+      normalizedTitle,
+      description === undefined ? undefined : description.trim()
+    );
+    if (!measureResult.ok) {
+      return {
+        error: measureResult.error ?? `Could not update measure ${measureId} of ticket #${ticketId}.`,
+        ok: false,
+        serverName,
+        ticketId
+      };
+    }
+
+    return {
+      measureId,
+      ok: true,
+      serverName,
+      ticketId,
+      title: normalizedTitle
+    };
+  }
+
+  /** Deletes a ticket measure. */
+  public async deleteTicketMeasure(ticketId: number, measureId: number): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    if (!(measureId > 0)) {
+      return { ok: false, error: "A positive measure id is required.", serverName, ticketId };
+    }
+
+    const measureResult = await this.enterpriseService.deleteTicketMeasureResult(ticketId, measureId);
+    if (!measureResult.ok) {
+      return {
+        error: measureResult.error ?? `Could not delete measure ${measureId} of ticket #${ticketId}.`,
+        ok: false,
+        serverName,
+        ticketId
+      };
+    }
+
+    return {
+      measureId,
+      ok: true,
+      serverName,
+      ticketId
+    };
+  }
+
+  /** Changes the text of an existing ticket comment (author and date stay untouched). */
+  public async updateTicketComment(ticketId: number, commentId: number, text: string): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    const normalizedText = this.normalizeOptionalString(text);
+    if (!(commentId > 0)) {
+      return { ok: false, error: "A positive comment id is required.", serverName, ticketId };
+    }
+
+    if (!normalizedText) {
+      return { ok: false, error: "The comment text cannot be empty.", serverName, ticketId };
+    }
+
+    const commentResult = await this.enterpriseService.updateTicketCommentResult(ticketId, commentId, normalizedText);
+    if (!commentResult.ok) {
+      return {
+        error: commentResult.error ?? `Could not update comment ${commentId} of ticket #${ticketId}.`,
+        ok: false,
+        serverName,
+        ticketId
+      };
+    }
+
+    return {
+      commentId,
+      ok: true,
+      serverName,
+      ticketId
+    };
+  }
+
+  /** Deletes a ticket comment. */
+  public async deleteTicketComment(ticketId: number, commentId: number): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    if (!(commentId > 0)) {
+      return { ok: false, error: "A positive comment id is required.", serverName, ticketId };
+    }
+
+    const commentResult = await this.enterpriseService.deleteTicketCommentResult(ticketId, commentId);
+    if (!commentResult.ok) {
+      return {
+        error: commentResult.error ?? `Could not delete comment ${commentId} of ticket #${ticketId}.`,
+        ok: false,
+        serverName,
+        ticketId
+      };
+    }
+
+    return {
+      commentId,
       ok: true,
       serverName,
       ticketId

@@ -372,6 +372,15 @@ vscode-data-grid-cell[grid-column="1"] {
   background: var(--vscode-button-secondaryHoverBackground, #45494e);
 }
 
+.tm-btn-danger {
+  color: var(--vscode-button-foreground, #ffffff);
+  background: var(--vscode-errorForeground, #f48771);
+}
+
+.tm-btn-danger:hover {
+  filter: brightness(1.1);
+}
+
 .tm-section {
   background: var(--vscode-editor-background, #1e1e1e);
   border: 1px solid var(--vscode-panel-border, #3c3c3c);
@@ -476,4 +485,11 @@ vscode-data-grid-cell[grid-column="1"] {
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--vscode-foreground, #cccccc);
+}
+
+.tm-card-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
 }

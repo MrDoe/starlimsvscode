@@ -41,12 +41,63 @@ oResponse := CreateUDObject({
 
 :TRY;
 	:DECLARE sItemID, sItemType, sItemContent, sPackageDate, packageDTO, manifestContent, aPackageLangs, sLangId, sDefaultLangId;
+	:DECLARE sFilterUser, aFilterNames, bAllUsers, oFilterPayload, sFilterBody, sFilterFile, aRows, aExportedNames, aExportedUsers, sExportedNames, sExportedUsers;
 	sPackageDate := SubStr(DToS(Today()), 1, 4) + "-" + SubStr(DToS(Today()), 5, 2) + "-" + SubStr(DToS(Today()), 7, 2) + "T" + Time();
-	
-	/* Get all checked out items for current user;
-	aResult := DoProc("Enterprise_Data_Providers.CheckInProvider.GetPendingCheckins", {.F.});
+
+	/* Read the transfer filter (checkout user and/or item names). The client sends
+	   it in the JSON request body because a list of item names easily exceeds the
+	   ASP.NET query string limit. The query string is accepted as a fallback;
+	oFilterPayload := NIL;
+	sFilterBody := "";
+	sFilterUser := "";
+	aFilterNames := {};
+
+	:IF Request:QueryString:IsProperty("Body");
+		:TRY;
+			sFilterFile := Request:SaveInputStream();
+			:IF !Empty(sFilterFile);
+				sFilterBody := ReadText(sFilterFile);
+				FileSupport(sFilterFile, "DELETE");
+			:ENDIF;
+			:IF !Empty(sFilterBody);
+				oFilterPayload := FromJSON(sFilterBody);
+			:ENDIF;
+		:CATCH;
+			oFilterPayload := NIL;
+		:ENDTRY;
+	:ENDIF;
+
+	:IF !Empty(oFilterPayload) .AND. oFilterPayload:IsProperty("user");
+		sFilterUser := DoProc("_SafeText", {oFilterPayload:user});
+	:ELSE;
+		:IF Request:QueryString:IsProperty("user");
+			sFilterUser := DoProc("_SafeText", {Request:QueryString:user});
+		:ENDIF;
+	:ENDIF;
+
+	:IF !Empty(oFilterPayload) .AND. oFilterPayload:IsProperty("itemNames");
+		:IF LimsTypeEx(oFilterPayload:itemNames) == "ARRAY";
+			aFilterNames := oFilterPayload:itemNames;
+		:ENDIF;
+	:ELSE;
+		:IF Request:QueryString:IsProperty("itemNames");
+			aFilterNames := BuildArray(Request:QueryString:itemNames, , ",");
+		:ENDIF;
+	:ENDIF;
+
+	/* Get the checked out items to export. Without a user filter the checkouts of
+	   the current user are exported. With a user filter the checkouts of all users
+	   are read and narrowed down to that user;
+	bAllUsers := .F.;
+	:IF !Empty(sFilterUser);
+		bAllUsers := .T.;
+	:ENDIF;
+	aResult := DoProc("Enterprise_Data_Providers.CheckInProvider.GetPendingCheckins", {bAllUsers});
 	ds := DoProc("Enterprise_Data_Providers.Utils.ConvertXMLStringToDataset", {aResult});
-	
+
+	/* Narrow the checkouts down to the requested items;
+	aRows := DoProc("_SelectRows", {ds, sFilterUser, aFilterNames});
+
 	/* Create package ID and name;
 	sPackageId := CreateGuid();
 	sPackageName := "CheckedOutItems_" + sPackageId;
@@ -67,9 +118,11 @@ oResponse := CreateUDObject({
 	   STARLIMS Designer does). The pending-checkins dataset does not always
 	   carry the checkout language, so fall back to the source control table;
 	aPackageLangs := {};
-	:FOR i:=0 :TO ds:Tables[0]:Rows:Count - 1;
-		:DECLARE langRow;
-		langRow := ds:Tables[0]:Rows[i];
+	:FOR i:=1 :TO Len(aRows);
+		:DECLARE langRow, nLangIndex;
+		/* the array holds the zero based index of the matching dataset row;
+		nLangIndex := aRows[i];
+		langRow := ds:Tables[0]:Rows[nLangIndex];
 		:IF AScanExact({"FORM", "Form", "HTMLFORMXML", "HTMLFORMCODE", "XFDFORMXML", "XFDFORMCODE"}, langRow["CHILDTYPE"]) > 0;
 			sLangId := langRow["LANGID"];
 			:IF Empty(sLangId);
@@ -92,9 +145,13 @@ oResponse := CreateUDObject({
 	packageDTO := DoProc("_CreatePackageDTO", {sPackageId, sPackageName, sPackageDate, aPackageLangs});
 	
 	/* Export each checked out item and add it to the package manifest DTO;
-	:FOR i:=0 :TO ds:Tables[0]:Rows:Count - 1;
-		:DECLARE row;
-		row := ds:Tables[0]:Rows[i];
+	aExportedNames := {};
+	aExportedUsers := {};
+	:FOR i:=1 :TO Len(aRows);
+		:DECLARE row, nRowIndex;
+		/* the array holds the zero based index of the matching dataset row;
+		nRowIndex := aRows[i];
+		row := ds:Tables[0]:Rows[nRowIndex];
 		sItemID := row["CHILDID"];
 		sItemType := row["CHILDTYPE"];
 		sItemContent := "";
@@ -147,6 +204,10 @@ oResponse := CreateUDObject({
 
 		:IF !Empty(sItemContent);
 			DoProc("_AddExportedItemToPackage", {packageDTO, row, sItemContent});
+			/* Report the exported items so that the client can verify that the
+			   server really applied the requested filter;
+			AAdd(aExportedNames, DoProc("_RowName", {row}));
+			AAdd(aExportedUsers, DoProc("_RowUser", {row}));
 		:ENDIF;
 	:NEXT;
 
@@ -172,9 +233,29 @@ oResponse := CreateUDObject({
 	fileContent := fileUtils:ReadAllBytes(sPackageFile);
 	convert := LimsNetConnect("", "System.Convert");
 
+	/* The exported items are reported as pipe separated lists so that the
+	   client can check the export against the requested filter. SSL has no
+	   backslash escapes, so a pipe is used as the separator;
+	sExportedNames := "";
+	:FOR i:=1 :TO Len(aExportedNames);
+		:IF i > 1;
+			sExportedNames += "|";
+		:ENDIF;
+		sExportedNames += aExportedNames[i];
+	:NEXT;
+	sExportedUsers := "";
+	:FOR i:=1 :TO Len(aExportedUsers);
+		:IF i > 1;
+			sExportedUsers += "|";
+		:ENDIF;
+		sExportedUsers += aExportedUsers[i];
+	:NEXT;
+
 	oExportData := CreateUDObject({
 		{"fileName", sPackageName + ".sdp"},
-		{"content", convert:ToBase64String(fileContent)}
+		{"content", convert:ToBase64String(fileContent)},
+		{"itemNames", sExportedNames},
+		{"itemUsers", sExportedUsers}
 	});
 	
 	Response:StatusCode := 200;
@@ -190,6 +271,129 @@ oResponse := CreateUDObject({
 :ENDTRY;
 
 :RETURN ToJson(oResponse);
+
+/* Selects the indexes of the pending checkins that match the transfer filter;
+:PROCEDURE _SelectRows;
+:PARAMETERS ds, sUser, aNames;
+
+	:DECLARE aIndexes, i, oRow;
+	aIndexes := {};
+
+	:FOR i:=0 :TO ds:Tables[0]:Rows:Count - 1;
+		oRow := ds:Tables[0]:Rows[i];
+		:IF DoProc("_RowMatchesFilter", {oRow, sUser, aNames});
+			AAdd(aIndexes, i);
+		:ENDIF;
+	:NEXT;
+
+	:RETURN aIndexes;
+:ENDPROC;
+
+/* Checks a pending checkin against the transfer filter. The checkout user and
+   the item name have to match, an empty filter matches every checkout;
+:PROCEDURE _RowMatchesFilter;
+:PARAMETERS oRow, sUser, aNames;
+
+	:DECLARE sRowUser, sRowName, j, bMatch;
+
+	:IF !Empty(sUser) .AND. Upper(sUser) != "ALL" .AND. sUser != "*";
+		sRowUser := DoProc("_RowUser", {oRow});
+		:IF Upper(sRowUser) != Upper(sUser);
+			:RETURN .F.;
+		:ENDIF;
+	:ENDIF;
+
+	:IF Len(aNames) > 0;
+		sRowName := DoProc("_RowName", {oRow});
+		:FOR j:=1 :TO Len(aNames);
+			bMatch := DoProc("_NameMatches", {aNames[j], sRowName});
+			:IF bMatch;
+				:RETURN .T.;
+			:ENDIF;
+		:NEXT;
+		:RETURN .F.;
+	:ENDIF;
+
+	:RETURN .T.;
+:ENDPROC;
+
+/* Reads the name of a checked out item;
+:PROCEDURE _RowName;
+:PARAMETERS oRow;
+	:DECLARE sName;
+	sName := "";
+	:TRY;
+		sName := AllTrim(oRow["CHILDNAME"]);
+	:CATCH;
+		sName := "";
+	:ENDTRY;
+	:RETURN sName;
+:ENDPROC;
+
+/* Reads the user a checked out item belongs to;
+:PROCEDURE _RowUser;
+:PARAMETERS oRow;
+	:DECLARE sUser;
+	sUser := "";
+	:TRY;
+		sUser := AllTrim(oRow["CHECKEDOUTBY"]);
+	:CATCH;
+		sUser := "";
+	:ENDTRY;
+	:RETURN sUser;
+:ENDPROC;
+
+/* Converts a value into trimmed text, anything that is not text becomes "";
+:PROCEDURE _SafeText;
+:PARAMETERS vValue;
+	:DECLARE sText;
+	sText := "";
+	:TRY;
+		sText := AllTrim(vValue);
+	:CATCH;
+		sText := "";
+	:ENDTRY;
+	:RETURN sText;
+:ENDPROC;
+
+/* Compares a requested item name with the name of a checked out item. The client
+   may pass the label of the checked-out tree ("frmTest [XML]"), so a name that
+   starts with the item name and ends with a bracketed suffix counts as a match;
+:PROCEDURE _NameMatches;
+:PARAMETERS sRequested, sItemName;
+
+	:DECLARE sReq, sName;
+	sReq := DoProc("_SafeText", {sRequested});
+	sName := DoProc("_SafeText", {sItemName});
+	sReq := Upper(sReq);
+	sName := Upper(sName);
+
+	:IF Empty(sReq) .OR. Empty(sName);
+		:RETURN .F.;
+	:ENDIF;
+
+	:IF sReq == sName;
+		:RETURN .T.;
+	:ENDIF;
+
+	/* The client may pass the label of the checked-out tree ("frmTest [XML]"),
+	   with or without a space before the bracket. The client side rule is
+	   stripTransferItemTypeSuffix in src/services/itemTransferFilter.ts;
+	:IF Len(sReq) > Len(sName) + 1;
+		:IF Left(sReq, Len(sName)) == sName;
+			:IF Right(sReq, 1) == "]";
+				:IF Left(sReq, Len(sName) + 1) == sName + "[";
+					:RETURN .T.;
+				:ENDIF;
+				:IF Left(sReq, Len(sName) + 2) == sName + " [";
+					:RETURN .T.;
+				:ENDIF;
+			:ENDIF;
+		:ENDIF;
+	:ENDIF;
+
+	:RETURN .F.;
+:ENDPROC;
 
 :PROCEDURE _CreatePackageDTO;
 :PARAMETERS sPackageId, sPackageName, sPackageDate, aPackageLangs;
