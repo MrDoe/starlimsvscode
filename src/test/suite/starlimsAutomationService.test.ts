@@ -9,6 +9,8 @@ import { TicketLookupData, TicketOverview, TicketReference } from '../../service
 function createEnterpriseServiceMock(overrides: Partial<EnterpriseService> = {}): EnterpriseService {
   return {
     languages: [],
+    addItem: async () => "added",
+    addItemResult: async () => ({ ok: true, data: "added" }),
     checkInItem: async () => true,
     checkOutItemResult: async () => ({ ok: true, data: true }),
     getCurrentServerName: () => 'QA',
@@ -818,7 +820,7 @@ suite('StarlimsAutomationService', () => {
     let checkoutCalled = false;
     const automationService = new StarlimsAutomationService(
       createEnterpriseServiceMock({
-        addItem: async () => undefined,
+        addItemResult: async () => ({ ok: false, error: "Application not found: BMBH_Modules.NoSuchApp" }),
         checkOutItemResult: async () => {
           checkoutCalled = true;
           return { ok: true, data: true };
@@ -833,19 +835,97 @@ suite('StarlimsAutomationService', () => {
       }
     );
 
-    const result = await automationService.createItem('dsBroken', 'APPDS', 'SQL', 'app', 'BMBH_Ticketmanagement');
+    const result = await automationService.createItem('dsBroken', 'APPDS', 'SQL', 'BMBH_Modules', 'NoSuchApp');
     assert.strictEqual(result.ok, false);
-    assert.match(String(result.error), /could not create enterprise item/i);
+    assert.match(String(result.error), /Application not found: BMBH_Modules.NoSuchApp/);
     assert.strictEqual(checkoutCalled, false);
+  });
+
+  test('createItem rejects an unsupported item type before it reaches the server', async () => {
+    let addCalled = false;
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        addItemResult: async () => {
+          addCalled = true;
+          return { ok: true, data: "added" };
+        }
+      }),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.createItem('frmBroken', 'HTMLFORMCODE', 'GER', 'BMBH_Modules', 'BMBH_Ticketmanagement');
+    assert.strictEqual(result.ok, false);
+    assert.match(String(result.error), /Unsupported item type "HTMLFORMCODE"/i);
+    assert.match(String(result.error), /HTMLFORMXML/);
+    assert.strictEqual(addCalled, false);
+  });
+
+  test('createItem creates an application without a checkout and reports its uri', async () => {
+    let checkoutCalled = false;
+    let receivedType: string | undefined;
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        addItemResult: async (_name, itemType) => {
+          receivedType = itemType;
+          return { ok: true, data: "added" };
+        },
+        checkOutItemResult: async () => {
+          checkoutCalled = true;
+          return { ok: true, data: true };
+        }
+      }),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.createItem('MyNewApp', 'APP', 'N/A', 'BMBH_Modules', 'N/A');
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(receivedType, 'APP');
+    assert.strictEqual(result.uri, '/Applications/BMBH_Modules/MyNewApp');
+    assert.strictEqual(checkoutCalled, false);
+  });
+
+  test('createItem normalizes the item type to upper case for the server', async () => {
+    let receivedType: string | undefined;
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        addItemResult: async (_name, itemType) => {
+          receivedType = itemType;
+          return { ok: true, data: "added" };
+        }
+      }),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.createItem('dsLower', 'appds', 'N/A', 'BMBH_Modules', 'BMBH_Ticketmanagement');
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(receivedType, 'APPDS');
   });
 
   test('createItem defaults data source language to SQL when N/A is passed', async () => {
     let receivedLanguage: string | undefined;
     const automationService = new StarlimsAutomationService(
       createEnterpriseServiceMock({
-        addItem: async (_name, _type, language) => {
+        addItemResult: async (_name, _type, language) => {
           receivedLanguage = language;
-          return JSON.stringify({ success: true });
+          return { ok: true, data: "added" };
         }
       }),
       {
@@ -867,9 +947,9 @@ suite('StarlimsAutomationService', () => {
     let receivedLanguage: string | undefined;
     const automationService = new StarlimsAutomationService(
       createEnterpriseServiceMock({
-        addItem: async (_name, _type, language) => {
+        addItemResult: async (_name, _type, language) => {
           receivedLanguage = language;
-          return JSON.stringify({ success: true });
+          return { ok: true, data: "added" };
         }
       }),
       {

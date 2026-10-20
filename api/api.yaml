@@ -921,28 +921,30 @@ components:
           type: string
           example: NewScript
         ItemType:
-          description: The type of code item (application category, application, application server scritpt, etc.)
+          description: The type of code item (application category, application, application server script, etc.). Case insensitive; APPCAT is an alias for APPCATEGORY. The form parts (HTMLFORMCODE, HTMLFORMGUIDE, HTMLFORMRESOURCES) are not creatable - a form is created as HTMLFORMXML or XFDFORMXML.
           type: string
           enum:
+            - APPCATEGORY
             - APPCAT
             - APP
             - APPSS
+            - APPDS
+            - APPCS
             - HTMLFORMXML
             - XFDFORMXML
-            - APPDS
-            - SSCAT
             - SS
-            - DSCAT
-            - CSCAT
+            - SSCAT
+            - SSCATEGORY
             - DS
+            - DSCAT
+            - DSCATEGORY
             - CS
+            - CSCAT
+            - CSCATEGORY
           example: APPSS
         Language:
-          description: The code item language e.g. STARLIMS Scripting Language or JavaScript
+          description: The code item language e.g. STARLIMS Scripting Language or JavaScript. SQL for data sources, SSL for server scripts, JS for client scripts, a form language (GER/ENG) for forms, N/A for containers.
           type: string
-          enum:
-            - SSL
-            - JS
           example: SSL
         Category:
           type: string

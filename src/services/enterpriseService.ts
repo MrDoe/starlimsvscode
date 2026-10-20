@@ -1666,6 +1666,21 @@ export class EnterpriseService implements IEnterpriseService {
    * @param language the language of the new item
    */
   async addItem(itemName: string, itemType: string, language: string, categoryName: string, appName: string): Promise<string | undefined> {
+    const result = await this.addItemResult(itemName, itemType, language, categoryName, appName);
+    return result.ok ? result.data : undefined;
+  }
+
+  /**
+   * Adds a new enterprise item and keeps the server error message.
+   * @returns ok with the server confirmation, or the server error (e.g. "Application not found: cat.app")
+   */
+  public async addItemResult(
+    itemName: string,
+    itemType: string,
+    language: string,
+    categoryName: string,
+    appName: string
+  ): Promise<EnterpriseOperationResult<string>> {
     const url = `${this.baseUrl}/SCM_API.Add.${this.urlSuffix}`;
     const headers = new Headers(await this.getAPIHeaders());
     const options: any = {
@@ -1685,19 +1700,20 @@ export class EnterpriseService implements IEnterpriseService {
       const result = await this.safeParseJsonInternal(response, true);
       if (!result) {
         vscode.window.showErrorMessage("Failed to execute HTTP call to remote service.");
-        return;
+        return { ok: false, error: "Failed to execute HTTP call to remote service." };
       }
       const { success, data }: { success: boolean; data: any } = result;
       if (success) {
         vscode.window.showInformationMessage("Item added successfully.");
-        return data instanceof Object ? JSON.stringify(data) : data;
+        return { ok: true, data: data instanceof Object ? JSON.stringify(data) : String(data ?? "") };
       }
-      vscode.window.showErrorMessage(data);
-      return undefined;
+      const error = this.getOperationErrorMessage(data, "Could not create the enterprise item.");
+      vscode.window.showErrorMessage(error);
+      return { ok: false, error };
     } catch (e: any) {
       vscode.window.showErrorMessage("Failed to execute HTTP call to remote service.");
       console.error(e);
-      return undefined;
+      return { ok: false, error: "Failed to execute HTTP call to remote service." };
     }
   }
 

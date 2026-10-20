@@ -89,6 +89,19 @@ oResponse := CreateUDObject({
 
 sFormLang := GetSetting("DEFAULTLANGUAGE");
 
+/* the item type selects the provider that creates the item - an unknown type would
+   leave the request successful without creating anything, so it is rejected here;
+sItemType := Upper(sItemType);
+
+:IF AScanExact({"APPCATEGORY", "APPCAT", "APP", "HTMLFORMXML", "XFDFORMXML", "APPSS", "APPDS", "APPCS", "SS", "SSCAT", "SSCATEGORY", "DS", "DSCAT", "DSCATEGORY", "CS", "CSCAT", "CSCATEGORY"}, sItemType) = 0;
+	Response:ContentType := "application/problem+json";
+	Response:StatusCode := 400;
+	oResponse:success := .F.;
+	oResponse:data := String:Format("Unsupported item type: {0}", sItemType);
+	usrmes(oResponse:data);
+	:RETURN oResponse;
+:ENDIF;
+
 /* override g_Sys_IsSourceControlEnabled to prevent auto checkout;
 :DECLARE bSourceControlEnabled;
 bSourceControlEnabled := g_Sys_IsSourceControlEnabled;
@@ -160,7 +173,7 @@ oUtils := CreateUDObject("SCM_API.Utils", {});
 
 :TRY;
 	:BEGINCASE;
-		:CASE sItemType == "APPCATEGORY";
+		:CASE sItemType == "APPCATEGORY" .OR. sItemType == "APPCAT";
 			DoProc("Enterprise_Data_Providers.AppCategProvider.Add", {sItemName});
 		:EXITCASE;
 
@@ -225,7 +238,7 @@ oUtils := CreateUDObject("SCM_API.Utils", {});
 	Response:ContentType := "application/problem+json";
 	oResponse:success := .F.;
 
-	:IF At("SQL-02601", sError) > 0;
+	:IF At("SQL-02601", sError) > 0 .OR. At("errDataAccessError", sError) > 0;
 		Response:StatusCode := 400;
 		oResponse:data := "An item with the same name already exists.";
 	:ELSE;
@@ -237,13 +250,13 @@ oUtils := CreateUDObject("SCM_API.Utils", {});
 	g_Sys_IsSourceControlEnabled := bSourceControlEnabled;
 
 	:RETURN oResponse;
-:FINALLY;
-	Response:ContentType := "application/json";
-	Response:StatusCode := 200;
-	oResponse:data := "Item added successfully.";
-	oResult:success := .T.;
-	oResult:data := oResponse;
 :ENDTRY;
+
+Response:ContentType := "application/json";
+Response:StatusCode := 200;
+oResponse:data := "Item added successfully.";
+oResult:success := .T.;
+oResult:data := oResponse;
 
 /* reset g_Sys_IsSourceControlEnabled;
 g_Sys_IsSourceControlEnabled := bSourceControlEnabled;

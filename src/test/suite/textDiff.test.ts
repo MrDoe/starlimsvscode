@@ -1,8 +1,8 @@
 import * as assert from 'assert';
 import { createLineDiff } from '../../utilities/textDiff';
 
-describe('textDiff createLineDiff', () => {
-  it('reports identical texts as unchanged with an empty diff', () => {
+suite('textDiff createLineDiff', () => {
+  test('reports identical texts as unchanged with an empty diff', () => {
     const result = createLineDiff("line1\nline2\nline3", "line1\nline2\nline3");
     assert.strictEqual(result.changed, false);
     assert.strictEqual(result.coarse, false);
@@ -11,12 +11,12 @@ describe('textDiff createLineDiff', () => {
     assert.strictEqual(result.removedLines, 0);
   });
 
-  it('normalizes CRLF line endings before comparing', () => {
+  test('normalizes CRLF line endings before comparing', () => {
     const result = createLineDiff("a\r\nb\r\nc", "a\nb\nc");
     assert.strictEqual(result.changed, false);
   });
 
-  it('emits one hunk with context and correct line numbers for a single change', () => {
+  test('emits one hunk with context and correct line numbers for a single change', () => {
     const oldText = ["a", "b", "c", "d", "e", "f", "g"].join("\n");
     const newText = ["a", "b", "c", "X", "e", "f", "g"].join("\n");
     const result = createLineDiff(oldText, newText);
@@ -31,7 +31,7 @@ describe('textDiff createLineDiff', () => {
     assert.ok(result.diff.includes("+X"));
   });
 
-  it('splits distant changes into separate hunks and merges close ones', () => {
+  test('splits distant changes into separate hunks and merges close ones', () => {
     const lines = Array.from({ length: 40 }, (_, index) => `line${index}`);
     const farChanged = [...lines];
     farChanged[1] = "changed1";
@@ -50,7 +50,7 @@ describe('textDiff createLineDiff', () => {
     assert.strictEqual(near.removedLines, 2);
   });
 
-  it('diffs an empty left side as pure insertions', () => {
+  test('diffs an empty left side as pure insertions', () => {
     const result = createLineDiff("", "new1\nnew2");
     assert.strictEqual(result.changed, true);
     assert.strictEqual(result.removedLines, 1); // the single empty left line
@@ -58,7 +58,7 @@ describe('textDiff createLineDiff', () => {
     assert.ok(result.diff.includes("+new2"));
   });
 
-  it('falls back to a coarse replace-all hunk beyond the LCS budget', () => {
+  test('falls back to a coarse replace-all hunk beyond the LCS budget', () => {
     const oldText = Array.from({ length: 10 }, (_, index) => `old${index}`).join("\n");
     const newText = Array.from({ length: 10 }, (_, index) => `new${index}`).join("\n");
     const result = createLineDiff(oldText, newText, { maxDiffCells: 4 });
@@ -69,7 +69,7 @@ describe('textDiff createLineDiff', () => {
     assert.ok(result.diff.startsWith("@@ "));
   });
 
-  it('honors contextLines 0 for change lines only', () => {
+  test('honors contextLines 0 for change lines only', () => {
     const oldText = ["a", "b", "c"].join("\n");
     const newText = ["a", "B", "c"].join("\n");
     const result = createLineDiff(oldText, newText, { contextLines: 0 });

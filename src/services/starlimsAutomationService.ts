@@ -54,7 +54,45 @@ const DATA_SOURCE_ITEM_TYPES = new Set<string>([
   EnterpriseItemType.AppDataSource
 ]);
 
-const FOLDER_ITEM_TYPES = new Set<string>([
+/**
+ * Item types the SCM_API Add backend can create (see Add.srvscr). Every other type is
+ * ignored by the server, which then reports success although nothing was created - the
+ * client rejects such types up front so the caller gets a clear message.
+ */
+const CREATABLE_ITEM_TYPES = new Set<string>([
+  EnterpriseItemType.AppCategory,
+  EnterpriseItemType.Application,
+  EnterpriseItemType.HTMLFormXML,
+  EnterpriseItemType.XFDFormXML,
+  EnterpriseItemType.AppServerScript,
+  EnterpriseItemType.AppDataSource,
+  EnterpriseItemType.AppClientScript,
+  EnterpriseItemType.ServerScriptCategory,
+  EnterpriseItemType.ServerScript,
+  EnterpriseItemType.DataSourceCategory,
+  EnterpriseItemType.DataSource,
+  EnterpriseItemType.ClientScriptCategory,
+  EnterpriseItemType.ClientScript
+]);
+
+/**
+ * Aliases the backend accepts for the same item type. The backend compares the item type
+ * case sensitively, so everything is upper cased before it is sent.
+ */
+const CREATABLE_ITEM_TYPE_ALIASES = new Map<string, string>([
+  ["APPCAT", EnterpriseItemType.AppCategory],
+  ["SSCATEGORY", EnterpriseItemType.ServerScriptCategory],
+  ["DSCATEGORY", EnterpriseItemType.DataSourceCategory],
+  ["CSCATEGORY", EnterpriseItemType.ClientScriptCategory]
+]);
+
+/**
+ * Container items: the server creates them, but they hold no code of their own and are
+ * therefore never checked out or synced to a local working copy.
+ */
+const CONTAINER_ITEM_TYPES = new Set<string>([
+  EnterpriseItemType.AppCategory,
+  EnterpriseItemType.Application,
   EnterpriseItemType.ServerScriptCategory,
   EnterpriseItemType.DataSourceCategory,
   EnterpriseItemType.ClientScriptCategory
@@ -952,30 +990,47 @@ export class StarlimsAutomationService {
     appName: string
   ): Promise<StarlimsAutomationResult> {
     const normalizedItemName = itemName.trim();
-    const normalizedItemType = itemType.trim();
+    const normalizedItemType = this.normalizeCreatableItemType(itemType);
     const normalizedLanguage = language.trim();
     const normalizedCategoryName = categoryName.trim();
     const normalizedAppName = appName.trim();
 
+    if (!normalizedItemName || !normalizedItemType) {
+      return {
+        ok: false,
+        error: "The item name and type cannot be empty."
+      };
+    }
+
+    // The backend ignores unknown item types and still reports success, so the type is
+    // validated here - otherwise the failure shows up later as a cryptic checkout error.
+    if (!CREATABLE_ITEM_TYPES.has(normalizedItemType)) {
+      return {
+        ok: false,
+        error: `Unsupported item type "${normalizedItemType}". Supported types: ${[...CREATABLE_ITEM_TYPES].sort().join(", ")}. Create a form as HTMLFORMXML (HTML form) or XFDFORMXML (XFD form).`,
+        itemName: normalizedItemName,
+        itemType: normalizedItemType
+      };
+    }
+
     let effectiveLanguage = normalizedLanguage;
     let languageAdjusted = false;
-    const upperItemType = normalizedItemType.toUpperCase();
-    if (FORM_ITEM_TYPES.has(upperItemType)) {
+    if (FORM_ITEM_TYPES.has(normalizedItemType)) {
       if (!effectiveLanguage || effectiveLanguage.toUpperCase() === "N/A") {
         effectiveLanguage = this.options.getDefaultFormLanguage() || "GER";
         languageAdjusted = true;
       }
-    } else if (SERVER_SCRIPT_ITEM_TYPES.has(upperItemType)) {
+    } else if (SERVER_SCRIPT_ITEM_TYPES.has(normalizedItemType)) {
       if (!effectiveLanguage || effectiveLanguage.toUpperCase() === "N/A") {
         effectiveLanguage = "SSL";
         languageAdjusted = true;
       }
-    } else if (DATA_SOURCE_ITEM_TYPES.has(upperItemType)) {
+    } else if (DATA_SOURCE_ITEM_TYPES.has(normalizedItemType)) {
       if (!effectiveLanguage || effectiveLanguage.toUpperCase() === "N/A") {
         effectiveLanguage = "SQL";
         languageAdjusted = true;
       }
-    } else if (upperItemType === EnterpriseItemType.ClientScript || upperItemType === EnterpriseItemType.AppClientScript) {
+    } else if (normalizedItemType === EnterpriseItemType.ClientScript || normalizedItemType === EnterpriseItemType.AppClientScript) {
       if (!effectiveLanguage || effectiveLanguage.toUpperCase() === "N/A") {
         effectiveLanguage = "JS";
         languageAdjusted = true;
@@ -989,7 +1044,7 @@ export class StarlimsAutomationService {
       };
     }
 
-    const result = await this.enterpriseService.addItem(
+    const addResult = await this.enterpriseService.addItemResult(
       normalizedItemName,
       normalizedItemType,
       effectiveLanguage,
@@ -997,15 +1052,28 @@ export class StarlimsAutomationService {
       normalizedAppName
     );
 
-    if (!result) {
+    if (!addResult.ok) {
+      const serverError = (addResult.error ?? "").trim();
       return {
         ok: false,
-        error:
-          "Could not create enterprise item. Check that the category (for application items: the app category, e.g. BMBH_Modules) and app name exist on the server."
+        // the server message is the precise one ("Application not found: cat.app"),
+        // the generic hint is only used when the server did not say anything
+        error: serverError.length > 0
+          ? serverError
+          : "Could not create enterprise item. Check that the category (for application items: the app category, e.g. BMBH_Modules) and app name exist on the server.",
+        hint: "Check that the category (for application items: the app category, e.g. BMBH_Modules) and app name exist on the server.",
+        appName: normalizedAppName,
+        categoryName: normalizedCategoryName,
+        itemName: normalizedItemName,
+        itemType: normalizedItemType,
+        language: effectiveLanguage,
+        serverName: this.enterpriseService.getCurrentServerName()
       };
     }
 
-    if (FOLDER_ITEM_TYPES.has(normalizedItemType.toUpperCase())) {
+    // Containers (application, application category, script categories) hold no code:
+    // they are created on the server, but there is nothing to check out or sync.
+    if (CONTAINER_ITEM_TYPES.has(normalizedItemType)) {
       return {
         ok: true,
         appName: normalizedAppName,
@@ -1013,7 +1081,14 @@ export class StarlimsAutomationService {
         itemName: normalizedItemName,
         itemType: normalizedItemType,
         language: effectiveLanguage,
-        serverName: this.enterpriseService.getCurrentServerName()
+        serverName: this.enterpriseService.getCurrentServerName(),
+        uri: this.buildCreatedItemUri(
+          normalizedItemType,
+          normalizedCategoryName,
+          normalizedAppName,
+          normalizedItemName
+        ),
+        note: "Container item created on the server. It has no code of its own, so it is not checked out."
       };
     }
 
@@ -2230,6 +2305,15 @@ export class StarlimsAutomationService {
     return items.find((item) => item.uri === uri) ?? items[0];
   }
 
+  /**
+   * Normalizes an item type to the spelling the backend expects: upper case, with the
+   * known aliases mapped onto their canonical type.
+   */
+  private normalizeCreatableItemType(itemType: string): string {
+    const upperItemType = itemType.trim().toUpperCase();
+    return CREATABLE_ITEM_TYPE_ALIASES.get(upperItemType) ?? upperItemType;
+  }
+
   private buildCreatedItemUri(
     itemType: string,
     categoryName: string,
@@ -2239,6 +2323,10 @@ export class StarlimsAutomationService {
     const basePath = `/Applications/${categoryName}/${appName}`;
 
     switch (itemType.toUpperCase()) {
+      case EnterpriseItemType.AppCategory:
+        return `/Applications/${itemName}`;
+      case EnterpriseItemType.Application:
+        return `/Applications/${categoryName}/${itemName}`;
       case EnterpriseItemType.HTMLFormXML:
         return `${basePath}/HTMLForms/XML/${itemName}`;
       case EnterpriseItemType.HTMLFormCode:

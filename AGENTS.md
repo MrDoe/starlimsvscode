@@ -159,7 +159,13 @@ Forms: `HTMLFORMXML`, `XFDFORMXML`
 Categories: `SSCAT`, `DSCAT`, `CSCAT`
 Folders: `APP`, `APPCATEGORY`
 
+The item type is case insensitive (`htmlformxml` works), but only the types above are creatable - the form parts
+(`HTMLFORMCODE`, `HTMLFORMGUIDE`, `HTMLFORMRESOURCES`) are created by the server together with the form, not on their own.
+
 Folder types (`SSCAT`, `DSCAT`, `CSCAT`) are server-side only. Ignore `language`/`categoryName`/`appName`.
+Containers (`APP`, `APPCATEGORY`, `SSCAT`, `DSCAT`, `CSCAT`) hold no code: they are created on the server and are
+**not** checked out - the result carries their `uri` but no `localPath`. Every other type is checked out and synced
+to the workspace.
 
 ## Architecture
 

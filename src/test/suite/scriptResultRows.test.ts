@@ -13,8 +13,8 @@ const MEASURE_RESULT_WITHOUT_HEADER = [
   [492, "Code-Fix frmScanReception (Probenempfang)", "Vor jeder Probenzugabe wird jetzt gewartet …", "Completed", 0, 2209, "2026-10-16T09:26:29.870+02:00"]
 ];
 
-describe('scriptResultRows normalizeScriptResultRows', () => {
-  it('maps SQLExecute rows positionally when the result has no header row', () => {
+suite('scriptResultRows normalizeScriptResultRows', () => {
+  test('maps SQLExecute rows positionally when the result has no header row', () => {
     const rows = normalizeScriptResultRows(MEASURE_RESULT_WITHOUT_HEADER, MEASURE_COLUMNS);
 
     assert.strictEqual(rows.length, 4, 'no row may be consumed as a header row');
@@ -26,12 +26,12 @@ describe('scriptResultRows normalizeScriptResultRows', () => {
     assert.strictEqual(rows[0].DATE_FINISHED, "2026-10-16T09:26:36.360+02:00");
   });
 
-  it('keeps the newest measure when it is the first row of the result', () => {
+  test('keeps the newest measure when it is the first row of the result', () => {
     const rows = normalizeScriptResultRows(MEASURE_RESULT_WITHOUT_HEADER, MEASURE_COLUMNS);
     assert.strictEqual(rows[0].DESCRIPTION, "Zweite Primaerprobe wurde ohne Metadaten-GUID registriert.");
   });
 
-  it('maps a single header-less row instead of consuming it as a header', () => {
+  test('maps a single header-less row instead of consuming it as a header', () => {
     // The shape ticket history has when exactly one field was changed (scGetTicketTnx).
     const rows = normalizeScriptResultRows(
       [["", "Fehlerhafte Metadatenuebertragung bei Pooling-Proben", "TITLE", "2026-10-14T13:45:06.513+02:00", "CTISON"]],
@@ -44,12 +44,12 @@ describe('scriptResultRows normalizeScriptResultRows', () => {
     assert.strictEqual(rows[0].MODIFIED_BY, "CTISON");
   });
 
-  it('maps [code, name] dictionary pairs positionally', () => {
+  test('maps [code, name] dictionary pairs positionally', () => {
     const rows = normalizeScriptResultRows([[1, "Offen"], [2, "Fertig"], [3, "In Bearbeitung"]], ["ORIGREC", "NAME"]);
     assert.deepStrictEqual(rows.map((row) => `${row.ORIGREC}:${row.NAME}`), ["1:Offen", "2:Fertig", "3:In Bearbeitung"]);
   });
 
-  it('uses a header row when the script really returns one', () => {
+  test('uses a header row when the script really returns one', () => {
     const rows = normalizeScriptResultRows([
       ["ORIGREC", "TITLE", "DESCRIPTION", "STATUS", "PRIORITY", "TICKET_ID", "DATE_FINISHED"],
       [501, "Massnahme", "Beschreibung", "Completed", 0, 12, "2026-01-02T10:00:00.000+01:00"]
@@ -60,13 +60,13 @@ describe('scriptResultRows normalizeScriptResultRows', () => {
     assert.strictEqual(rows[0].TITLE, "Massnahme");
   });
 
-  it('does not mistake numeric data rows for a header row', () => {
+  test('does not mistake numeric data rows for a header row', () => {
     const rows = normalizeScriptResultRows([[1, "Status"], [2, "Titel"]], ["ORIGREC", "TITLE"]);
     assert.strictEqual(rows.length, 2);
     assert.deepStrictEqual(rows.map((row) => row.ORIGREC), [1, 2]);
   });
 
-  it('recognises a header row through case and umlaut differences', () => {
+  test('recognises a header row through case and umlaut differences', () => {
     const rows = normalizeScriptResultRows([
       ["origrec", "TÄTIGKEIT"],
       [7, "Prüfung abgeschlossen"]
@@ -76,7 +76,7 @@ describe('scriptResultRows normalizeScriptResultRows', () => {
     assert.strictEqual(rows[0].origrec, 7);
   });
 
-  it('passes through arrays of named records', () => {
+  test('passes through arrays of named records', () => {
     const rows = normalizeScriptResultRows([
       { ORIGREC: 9, TITLE: "Massnahme A" },
       { ORIGREC: 10, TITLE: "Massnahme B" }
@@ -86,7 +86,7 @@ describe('scriptResultRows normalizeScriptResultRows', () => {
     assert.strictEqual(rows[1].TITLE, "Massnahme B");
   });
 
-  it('returns no rows for empty or non-array results', () => {
+  test('returns no rows for empty or non-array results', () => {
     assert.deepStrictEqual(normalizeScriptResultRows([], MEASURE_COLUMNS), []);
     assert.deepStrictEqual(normalizeScriptResultRows(undefined, MEASURE_COLUMNS), []);
     assert.deepStrictEqual(normalizeScriptResultRows(null, MEASURE_COLUMNS), []);
@@ -94,7 +94,7 @@ describe('scriptResultRows normalizeScriptResultRows', () => {
     assert.deepStrictEqual(normalizeScriptResultRows({ data: [] }, MEASURE_COLUMNS), []);
   });
 
-  it('clips extra or missing cells against the expected columns', () => {
+  test('clips extra or missing cells against the expected columns', () => {
     const rows = normalizeScriptResultRows([[11, "Massnahme", "extra"], [12]], ["ORIGREC", "TITLE"]);
     assert.strictEqual(rows.length, 2);
     assert.strictEqual(rows[0].TITLE, "Massnahme");
@@ -104,8 +104,8 @@ describe('scriptResultRows normalizeScriptResultRows', () => {
   });
 });
 
-describe('scriptResultRows normalizeColumnKey', () => {
-  it('folds case, separators and umlauts', () => {
+suite('scriptResultRows normalizeColumnKey', () => {
+  test('folds case, separators and umlauts', () => {
     assert.strictEqual(normalizeColumnKey("DATE_FINISHED"), "datefinished");
     assert.strictEqual(normalizeColumnKey("date finished"), "datefinished");
     assert.strictEqual(normalizeColumnKey("AUSGEWÄHLT"), normalizeColumnKey("Ausgewahlt"));
@@ -113,7 +113,7 @@ describe('scriptResultRows normalizeColumnKey', () => {
   });
 });
 
-describe('scriptResultRows ticket comments', () => {
+suite('scriptResultRows ticket comments', () => {
   const COMMENT_COLUMNS = ["ORIGREC", "COMMENT_TEXT", "AUTHOR", "CREATED_ON"];
 
   // Captured live from SCM_API TicketManagement.GetTicketComments(2209), Production,
@@ -123,7 +123,7 @@ describe('scriptResultRows ticket comments', () => {
     [1210, "Production laeuft ab sofort mit V2.", "opencode", "2026-10-16 16:07:21.820000"]
   ];
 
-  it('maps comment rows positionally when the result has no header row', () => {
+  test('maps comment rows positionally when the result has no header row', () => {
     const rows = normalizeScriptResultRows(COMMENT_RESULT_WITHOUT_HEADER, COMMENT_COLUMNS);
 
     assert.strictEqual(rows.length, 2, 'no row may be consumed as a header row');
@@ -133,7 +133,7 @@ describe('scriptResultRows ticket comments', () => {
     assert.strictEqual(rows[0].CREATED_ON, "2026-10-16 09:26:30.347000");
   });
 
-  it('maps a single comment row instead of consuming it as a header', () => {
+  test('maps a single comment row instead of consuming it as a header', () => {
     const rows = normalizeScriptResultRows(
       [[1211, "Vermutlich ist hier die Browser-Session abgelaufen.", "DC", "2026-10-19 09:33:35.423000"]],
       COMMENT_COLUMNS

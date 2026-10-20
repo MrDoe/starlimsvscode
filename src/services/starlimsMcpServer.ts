@@ -146,22 +146,22 @@ const createItemInputSchema = z.object({
   itemType: z
     .string()
     .describe(
-      "STARLIMS item type, for example SS, APPSS, HTMLFORMXML, APPDS, or CS. Application item types (APP, APPSS, APPDS, APPCS, forms) require a valid categoryName/appName; global types (SS, DS, CS) require a categoryName and appName=N/A."
+      "STARLIMS item type (case insensitive). Supported: APP (application), APPCATEGORY (application category), APPSS (app server script), APPDS (app data source), APPCS (app client script), HTMLFORMXML (HTML form), XFDFORMXML (XFD form), SS (server script), DS (data source), CS (client script), SSCAT, DSCAT, CSCAT. A form is created as HTMLFORMXML or XFDFORMXML - the form parts (code behind, guide, resources) are created by the server and are not separate item types."
     ),
   language: z
     .string()
     .describe(
-      "Item language. Use SQL for data sources (DS/APPDS), SSL for STARLIMS server scripts (SS/APPSS), JS for client scripts (CS/APPCS), and a form language like GER for forms. Never pass N/A for code items - the backend falls back to the correct default (SQL for data sources) but the local sync depends on a valid language."
+      "Item language. Use SQL for data sources (DS/APPDS), SSL for STARLIMS server scripts (SS/APPSS), JS for client scripts (CS/APPCS), and a form language like GER for forms. N/A is accepted for APP, APPCATEGORY, SSCAT, DSCAT and CSCAT - they hold no code. Never pass N/A for code items: the backend falls back to the correct default (SQL for data sources) but the local sync depends on a valid language."
     ),
   categoryName: z
     .string()
     .describe(
-      "For application items: the APPLICATION CATEGORY (the parent folder of the app under /Applications, e.g. BMBH_Modules - NOT the literal string 'app'). For global items (SS/DS/CS): the category folder name (e.g. BMBH). Browse /Applications or search_by_name to get the real category. A wrong category silently aborts creation."
+      "For application items: the APPLICATION CATEGORY (the parent folder of the app under /Applications, e.g. BMBH_Modules - NOT the literal string 'app'). For global items (SS/DS/CS): the category folder name (e.g. BMBH). Browse /Applications or search_by_name to get the real category."
     ),
   appName: z
     .string()
     .describe(
-      "For application items: the application name under the category (e.g. BMBH_Ticketmanagement, from the URI /Applications/<category>/<appName>/...). Use N/A for global items and categories."
+      "For application items: the application name under the category (e.g. BMBH_Ticketmanagement, from the URI /Applications/<category>/<appName>/...). Use N/A for global items, categories and for APP (the new application name is the itemName)."
     )
 });
 
@@ -654,7 +654,7 @@ export class StarlimsMcpServer {
       "create_item",
       {
         description:
-          "Create a STARLIMS enterprise item. For application items (APP, APPSS, APPDS, APPCS, forms) pass the APPLICATION CATEGORY as categoryName (parent of the app under /Applications, e.g. BMBH_Modules - never the literal 'app') and the app name as appName. For global items (SS, DS, CS) pass the category and appName=N/A. Language: SQL for data sources, SSL for STARLIMS server scripts, JS for client scripts, GER/ENG for forms.",
+          "Create a STARLIMS enterprise item. Supported item types: APP (application), APPCATEGORY (application category), APPSS, APPDS, APPCS (app scripts/data sources/client scripts), HTMLFORMXML (HTML form), XFDFORMXML (XFD form), SS, DS, CS (global scripts/data sources) and SSCAT, DSCAT, CSCAT (categories). For application items (APP, APPSS, APPDS, APPCS, forms) pass the APPLICATION CATEGORY as categoryName (parent of the app under /Applications, e.g. BMBH_Modules - never the literal 'app') and the app name as appName. For global items (SS, DS, CS) pass the category and appName=N/A. Language: SQL for data sources, SSL for STARLIMS server scripts, JS for client scripts, GER/ENG for forms. Containers (APP, APPCATEGORY, SSCAT, DSCAT, CSCAT) are created on the server only - they have no code, so nothing is checked out. Code items are checked out and synced to the local workspace.",
         inputSchema: createItemInputSchema,
         outputSchema: toolResultSchema
       },
@@ -662,7 +662,11 @@ export class StarlimsMcpServer {
         "create_item",
         { appName, categoryName, itemName, itemType, language },
         () => this.automationService.createItem(itemName, itemType, language, categoryName, appName),
-        (result) => `Created ${typeof result.itemType === "string" ? result.itemType : "item"} ${typeof result.itemName === "string" ? result.itemName : ""}.`
+        (result) => {
+          const created = `Created ${typeof result.itemType === "string" ? result.itemType : "item"} ${typeof result.itemName === "string" ? result.itemName : ""}.`;
+          const uri = typeof result.uri === "string" ? ` URI: ${result.uri}.` : "";
+          return `${created}${uri}`;
+        }
       )
     );
 
