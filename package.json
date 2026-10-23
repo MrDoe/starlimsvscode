@@ -3,7 +3,7 @@
     "displayName": "STARLIMS VS Code Extension",
     "description": "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license": "SEE LICENSE IN LICENSE.md",
-    "version": "1.8.30",
+    "version": "1.8.31",
     "icon": "resources/extension/starlimsvscode.png",
     "publisher": "cdoellinger",
     "author": "Christoph Döllinger <christoph.doellinger@med.uni-heidelberg.de>",
@@ -873,21 +873,6 @@
                 "type": "object",
                 "title": "STARLIMS VSCode Configuration",
                 "properties": {
-                    "STARLIMS.url": {
-                        "type": "string",
-                        "default": "",
-                        "description": "STARLIMS Installation URL. For example: https://my.starlims.server.com/STARLIMS/"
-                    },
-                    "STARLIMS.user": {
-                        "type": "string",
-                        "default": "",
-                        "description": "STARLIMS User Name"
-                    },
-                    "STARLIMS.userPassword": {
-                        "type": "null",
-                        "description": "STARLIMS User Password. This value is not stored in the settings file.",
-                        "markdownDescription": "[Set Password](command:STARLIMS.setPassword)"
-                    },
                     "STARLIMS.rootPath": {
                         "type": "string",
                         "default": "",
@@ -906,11 +891,6 @@
                         "default": "chrome",
                         "description": "Browser to use for debugging STARLIMS forms. Possible values: chrome, msedge"
                     },
-                    "STARLIMS.urlSuffix": {
-                        "type": "string",
-                        "default": "lims",
-                        "description": "The web service request url suffix. Use lims2 with older versions of the STARLIMS Technology Platform which don't recognize the HTTPServices web.config setting key"
-                    },
                     "STARLIMS.defaultFormLanguage": {
                         "type": "string",
                         "default": "GER",
@@ -919,7 +899,7 @@
                     "STARLIMS.mcp.enabled": {
                         "type": "boolean",
                         "default": true,
-                        "description": "Enable the local STARLIMS MCP endpoint on the built-in loopback HTTP server. Only browse, search, code retrieval, and checkout are exposed. Check-in, delete, and other destructive operations remain unavailable."
+                        "description": "Enable the local STARLIMS MCP endpoint on the built-in loopback HTTP server. It exposes browse, search, code retrieval, checkout, check-in, ticket, table and execution tools to MCP clients."
                     },
                     "STARLIMS.mcp.maxItems": {
                         "type": "number",

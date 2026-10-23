@@ -80,10 +80,12 @@ This is a **Visual Studio Code extension** that provides comprehensive integrati
 ## Configuration
 
 The extension requires several settings:
-- `STARLIMS.url`: STARLIMS server URL
-- `STARLIMS.user`: Username for authentication
+- `STARLIMS.servers`: Named server definitions (multi-environment)
+- `STARLIMS.selectedServer`: Currently active server
 - `STARLIMS.rootPath`: Local folder for downloaded files
 - `STARLIMS.browser`: Browser for form debugging (Chrome/Edge)
+
+The legacy `STARLIMS.url` / `STARLIMS.user` / `STARLIMS.urlSuffix` settings are no longer in the Settings UI; they are only read to migrate existing configurations.
 
 ## Development Workflow
 

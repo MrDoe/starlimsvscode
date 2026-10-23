@@ -58,12 +58,14 @@ suite('Extension Test Suite', () => {
 		test('server config updates correctly', () => {
 			service.updateServerConfig({ url: 'https://changed/STARLIMS/', urlSuffix: 'lims' }, 'MyServer');
 			assert.strictEqual(service.getCurrentServerName(), 'MyServer');
+			assert.strictEqual(service.getBaseUrl(), 'https://changed/STARLIMS');
 			assert.strictEqual(service.getServerWorkspacePath('C:/root/SLVSCODE'), path.join('C:/root/SLVSCODE', 'MyServer'));
 		});
 
 		test('workspace path for unknown server does not append name', () => {
 			const service2 = new EnterpriseService(fakeConfig, fakeSecrets, createFakeMemento() as any);
 			assert.strictEqual(service2.getServerWorkspacePath('C:/root/SLVSCODE'), 'C:/root/SLVSCODE');
+			assert.strictEqual(service2.getBaseUrl(), 'https://test-server/STARLIMS');
 		});
 
 		test('getEnterpriseItemUri strips starlims prefix and extension', () => {

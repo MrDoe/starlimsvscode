@@ -118,6 +118,16 @@ export class EnterpriseService implements IEnterpriseService {
   }
 
   /**
+   * Get the base URL of the currently selected STARLIMS server.
+   * This is the installation URL (cleaned, without a trailing slash or `.lims`
+   * suffix) that web pages such as `starthtml.lims` are opened against.
+   * @returns the active server base URL
+   */
+  public getBaseUrl(): string {
+    return this.baseUrl;
+  }
+
+  /**
    * Get server-specific workspace path
    * @param baseWorkspacePath Base workspace path (e.g., rootPath/SLVSCODE)
    * @returns Server-specific path (e.g., rootPath/SLVSCODE/ServerName)

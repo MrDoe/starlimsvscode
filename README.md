@@ -36,7 +36,7 @@ STARLIMS VS Code is an unofficial Visual Studio Code extension for working with 
 
 For product development environments with system layer ID 200, enable `Overwrite System Layer` during package import.
 
-If your STARLIMS platform version does not support the `HTTPServices` setting, configure `STARLIMS.urlSuffix` to `lims2`.
+If your STARLIMS platform version does not support the `HTTPServices` setting, set `urlSuffix` to `lims2` on the server entry in `STARLIMS.servers`.
 
 Importing the latest `SCM_API.sdp` release is strongly recommended because newer features such as ticket workflows, form callback publishing, MCP access, and backend auto-upgrade depend on current backend endpoints.
 
@@ -61,17 +61,17 @@ On activation, the extension also:
 
 Core settings:
 
-- `STARLIMS.url`: STARLIMS installation URL
-- `STARLIMS.user`: STARLIMS user name
-- `STARLIMS.userPassword`: Password stored through the extension command instead of the settings file
+- `STARLIMS.servers`: Named server definitions (`name`, `url`, optional `user` and `urlSuffix`)
+- `STARLIMS.selectedServer`: The currently active named server
 - `STARLIMS.rootPath`: Parent folder for the local `SLVSCODE` workspace mirror
+
+Passwords are stored in VS Code SecretStorage, not in settings files. Use the Server Selection view or the `STARLIMS.Set user password` command.
+
+The legacy single-server settings (`STARLIMS.url`, `STARLIMS.user`, `STARLIMS.userPassword`, `STARLIMS.urlSuffix`) are no longer shown in the Settings UI. Existing values are read and migrated into `STARLIMS.servers` automatically.
 
 Common optional settings:
 
-- `STARLIMS.servers`: Named server definitions for multi-environment setups
-- `STARLIMS.selectedServer`: The currently active named server
 - `STARLIMS.browser`: Browser used for form debugging (`chrome` or `msedge`)
-- `STARLIMS.urlSuffix`: Service suffix for environments that require `lims2`
 - `STARLIMS.defaultFormLanguage`: Default language used when checking out form items, `GER` by default
 
 OpenCode ticket launcher settings:

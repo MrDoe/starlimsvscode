@@ -28,6 +28,7 @@ const CHECKOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
 function createServiceStub() {
   const calls: { uri: string; user: string }[] = [];
   const service = {
+    getCurrentUser: () => "currentuser",
     getConfig: () => ({ get: () => "currentuser" }),
     setCheckedOut: async (uri: string, user: string) => {
       calls.push({ uri, user });

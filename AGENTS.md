@@ -195,7 +195,9 @@ to the workspace.
 
 ## Settings (subset agents may touch)
 
-`STARLIMS.url`/`user`/`userPassword`/`rootPath`/`servers`/`selectedServer` — connections.
+`STARLIMS.servers`/`selectedServer`/`rootPath` — connections. The legacy single-server settings
+`STARLIMS.url`/`user`/`userPassword`/`urlSuffix` were removed from the Settings UI; the code only reads them to
+migrate existing configurations. If `selectedServer` is empty, the first configured server is used.
 `STARLIMS.mcp.*` — MCP on/off, port, max items, max code chars.
 `STARLIMS.opencode.*` — "Solve with OpenCode" (always via OpenCode v2 server API; `planModel: qwen3.8-flash-next`, `buildModel: qwen3.8-flash-next`, `serverPort: 4096`; password in secret storage via `STARLIMS.SetOpenCodeServerPassword`).
 `STARLIMS.git.*` — git on check-in (autoPush, remoteUrl, commit message generator).
@@ -205,6 +207,9 @@ to the workspace.
 ## Gotchas
 
 - After code change: reload extension host (`Ctrl+Shift+P` → Reload Window).
+- Never build server-dependent URLs from `config.url` (it returns the legacy `STARLIMS.url` because
+  `WorkspaceConfiguration` mixes the section values onto the object). Use `enterpriseService.getBaseUrl()` for
+  `starthtml.lims`/debug URLs and `enterpriseService.getCurrentUser()` for the active user.
 - `tsconfig.json` excludes `src/webview`, `src/lsp/server`, `src/lsp/js` — see Build table; `pretest` won't typecheck them.
 - `.vscode/*` and `.env` are gitignored — no shared launch configs/tasks.
 - `enterpriseService.ts` backend error messages dropped: ~13 `get*Result` methods call `getOperationErrorMessage(data, fallback)` but the backend puts errors in `result.error`, not `result.data`. Pass the full `result` object instead of `data` to surface real error messages (e.g., `getEnterpriseItemsResult` L1336 had this bug).

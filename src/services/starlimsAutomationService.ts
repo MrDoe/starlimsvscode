@@ -2347,16 +2347,21 @@ export class StarlimsAutomationService {
         return `${basePath}/ClientScripts/${itemName}`;
       case EnterpriseItemType.AppDataSource:
         return `${basePath}/DataSources/${itemName}`;
+      // Global (non-application) code items live inside a category folder, so the URI
+      // needs the category segment: ParseURI (Utils.srvscr) derives the type purely from
+      // the component count, so a 2-component path is an SSCATEGORY/DSCATEGORY/CSCATEGORY
+      // and the checkout silently does nothing (unknown type = success). GetCode then
+      // fails with "Invalid property: Tables".
       case EnterpriseItemType.ServerScript:
-        return `/ServerScripts/${itemName}`;
+        return `/ServerScripts/${categoryName}/${itemName}`;
       case EnterpriseItemType.ServerScriptCategory:
         return `/ServerScripts/${itemName}`;
       case EnterpriseItemType.ClientScript:
-        return `/ClientScripts/${itemName}`;
+        return `/ClientScripts/${categoryName}/${itemName}`;
       case EnterpriseItemType.ClientScriptCategory:
         return `/ClientScripts/${itemName}`;
       case EnterpriseItemType.DataSource:
-        return `/DataSources/${itemName}`;
+        return `/DataSources/${categoryName}/${itemName}`;
       case EnterpriseItemType.DataSourceCategory:
         return `/DataSources/${itemName}`;
       default:

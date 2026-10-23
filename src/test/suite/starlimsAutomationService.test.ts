@@ -896,6 +896,73 @@ suite('StarlimsAutomationService', () => {
     assert.strictEqual(checkoutCalled, false);
   });
 
+  test('createItem checks out global code items inside their category folder', async () => {
+    const checkoutUris: string[] = [];
+    const localCopyUris: string[] = [];
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock({
+        checkOutItemResult: async (uri) => {
+          checkoutUris.push(uri);
+          return { ok: true, data: true };
+        },
+        getLocalCopyResult: async (uri) => {
+          localCopyUris.push(uri);
+          return {
+            ok: true,
+            data: {
+              code: '',
+              language: 'SSL',
+              localFilePath: path.join('C:/workspace/SLVSCODE', 'QA', 'ServerScripts', 'BMBH_Plates', 'item.ssl')
+            }
+          };
+        }
+      }),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const script = await automationService.createItem('scCheckContainerMove', 'SS', 'SSL', 'BMBH_Plates', 'N/A');
+    const dataSource = await automationService.createItem('dsPlates', 'DS', 'SQL', 'BMBH_Plates', 'N/A');
+    const clientScript = await automationService.createItem('csPlates', 'CS', 'JS', 'BMBH_Plates', 'N/A');
+
+    assert.strictEqual(script.ok, true);
+    assert.strictEqual(script.uri, '/ServerScripts/BMBH_Plates/scCheckContainerMove');
+    assert.strictEqual(dataSource.ok, true);
+    assert.strictEqual(dataSource.uri, '/DataSources/BMBH_Plates/dsPlates');
+    assert.strictEqual(clientScript.ok, true);
+    assert.strictEqual(clientScript.uri, '/ClientScripts/BMBH_Plates/csPlates');
+    // the category segment is what ParseURI turns into type SS/DS/CS - without it the
+    // checkout silently matched no case and the local sync failed
+    assert.deepStrictEqual(checkoutUris, [
+      '/ServerScripts/BMBH_Plates/scCheckContainerMove',
+      '/DataSources/BMBH_Plates/dsPlates',
+      '/ClientScripts/BMBH_Plates/csPlates'
+    ]);
+    assert.deepStrictEqual(localCopyUris, checkoutUris);
+  });
+
+  test('createItem keeps script categories as two-component URIs', async () => {
+    const automationService = new StarlimsAutomationService(
+      createEnterpriseServiceMock(),
+      {
+        getDefaultFormLanguage: () => undefined,
+        getMaxCodeCharacters: () => 20000,
+        getMaxItems: () => 100,
+        getWorkspaceRoot: () => 'C:/workspace/SLVSCODE',
+        refreshCheckoutTree: async () => undefined
+      }
+    );
+
+    const result = await automationService.createItem('BMBH_Plates', 'SSCAT', 'N/A', 'N/A', 'N/A');
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.uri, '/ServerScripts/BMBH_Plates');
+  });
+
   test('createItem normalizes the item type to upper case for the server', async () => {
     let receivedType: string | undefined;
     const automationService = new StarlimsAutomationService(

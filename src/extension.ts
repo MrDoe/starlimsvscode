@@ -26,7 +26,7 @@ import { ResourcesDataViewPanel } from "./panels/ResourcesDataViewPanel";
 import { GenericDataViewPanel } from "./panels/GenericDataViewPanel";
 import { TableDesignerPanel } from "./panels/TableDesignerPanel";
 import { TicketActivityPanel } from "./panels/TicketActivityPanel";
-import { cleanUrl, executeWithProgress } from "./utilities/miscUtils";
+import { executeWithProgress } from "./utilities/miscUtils";
 import { CheckedOutTreeDataProvider } from "./providers/checkedOutTreeDataProvider";
 import { TicketTreeItem, TicketsTreeDataProvider } from "./providers/ticketsTreeDataProvider";
 import { ServerSelectorWebviewProvider, ServerConfig } from "./providers/serverSelectorWebviewProvider";
@@ -392,7 +392,8 @@ export async function activate(context: vscode.ExtensionContext) {
       const secretKey = `${workspaceId}:userPassword`;
       const configuredServers: ServerConfig[] = config.get("servers", []);
       const selectedServerNameFromConfig = config.get("selectedServer") as string;
-      const selectedServerFromConfig = configuredServers.find(s => s.name === selectedServerNameFromConfig);
+      const selectedServerFromConfig =
+        configuredServers.find(s => s.name === selectedServerNameFromConfig) || configuredServers[0];
       const hasConfiguredServers = configuredServers.length > 0;
 
       // Selected Server section
@@ -2922,16 +2923,10 @@ Please provide:
         registerJsIncludeResolver(jsLanguageClient, enterpriseService, rootPath);
       }
 
-      // Initialize server name for path structure
-      const selectedServerName = config.get("selectedServer") as string;
-      if (selectedServerName) {
-        // Use the selected server name
-        const servers: ServerConfig[] = config.get("servers", []);
-        const selectedServer = servers.find(s => s.name === selectedServerName);
-        if (selectedServer) {
-          enterpriseService.updateServerConfig(selectedServer, selectedServer.name);
-          activeUser = selectedServer.user || activeUser;
-        }
+      // Initialize the active server: the selected one, or the first configured one
+      if (serverConfig) {
+        enterpriseService.updateServerConfig(serverConfig, serverConfig.name);
+        activeUser = serverConfig.user || activeUser;
       } else if (url) {
         // For backward compatibility, use URL as default server name
         const defaultServerName = "Default";
@@ -4604,8 +4599,8 @@ Please provide:
           // get the language from the checked out item
           const sLangId = item.language;
 
-          // open form in default browser
-          const formUrl = `${cleanUrl(config.url)}/starthtml.lims?FormId=${formGuid}&LangId=${sLangId}&Debug=true`;
+          // open form in default browser at the selected server
+          const formUrl = `${enterpriseService.getBaseUrl()}/starthtml.lims?FormId=${formGuid}&LangId=${sLangId}&Debug=true`;
           vscode.env.openExternal(vscode.Uri.parse(formUrl));
         }
       );
@@ -4631,8 +4626,8 @@ Please provide:
           // get the form GUID
           const formGuid = await enterpriseService.getGUID(remoteUri);
 
-          // open form in default browser
-          const formUrl = `${cleanUrl(config.url)}/starthtml.lims?FormId=1D09BB79-2D28-4594-8B03-26306F5C8AEC&LangId=ENG&Debug=true&FormArgs=%22${formGuid}%22`;
+          // open form in default browser at the selected server
+          const formUrl = `${enterpriseService.getBaseUrl()}/starthtml.lims?FormId=1D09BB79-2D28-4594-8B03-26306F5C8AEC&LangId=ENG&Debug=true&FormArgs=%22${formGuid}%22`;
           vscode.env.openExternal(vscode.Uri.parse(formUrl));
         }
       );
@@ -4674,7 +4669,7 @@ Please provide:
               type: browserType,
               name: "Launch STARLIMS Debugging",
               request: "launch",
-              url: `${cleanUrl(config.url)}/starthtml.lims?FormId=${formGuid}&LangId=${sLangId}&Debug=true`,
+              url: `${enterpriseService.getBaseUrl()}/starthtml.lims?FormId=${formGuid}&LangId=${sLangId}&Debug=true`,
               webRoot: rootPath,
               userDataDir: path.join(context.globalStorageUri.fsPath, "edge"),
               runtimeArgs: [
@@ -4699,7 +4694,7 @@ Please provide:
                 type: browserType,
                 name: "Attach to STARLIMS Debugging",
                 request: "attach",
-                url: `${cleanUrl(config.url)}/starthtml.lims?FormId=${formGuid}&LangId=${sLangId}&Debug=true`,
+                url: `${enterpriseService.getBaseUrl()}/starthtml.lims?FormId=${formGuid}&LangId=${sLangId}&Debug=true`,
                 webRoot: rootPath,
                 userDataDir: path.join(context.globalStorageUri.fsPath, "edge"),
                 port: 9222
@@ -4756,7 +4751,7 @@ Please provide:
           const sessionId = vscode.debug.activeDebugSession?.id;
 
           // build uri and open the remote script
-          const scriptUri = vscode.Uri.parse(`debug:${cleanUrl(config.url).replace("https://", "").replace("http://", "")}/${scriptName}?session=${sessionId}&ref=${ref}`);
+          const scriptUri = vscode.Uri.parse(`debug:${enterpriseService.getBaseUrl().replace("https://", "").replace("http://", "")}/${scriptName}?session=${sessionId}&ref=${ref}`);
           const scriptDocument = await vscode.workspace.openTextDocument(scriptUri);
           await vscode.window.showTextDocument(scriptDocument);
 
@@ -5671,7 +5666,7 @@ Please provide:
 
       // show the connection message
       vscode.window.showInformationMessage(
-        `Connected to STARLIMS on ${config.url}.`
+        `Connected to STARLIMS on ${enterpriseService.getBaseUrl()}.`
       );
 
       void openOpenCodeAtStartup();

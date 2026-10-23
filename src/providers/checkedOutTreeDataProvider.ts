@@ -241,9 +241,8 @@ export class CheckedOutTreeDataProvider implements vscode.TreeDataProvider<TreeE
    * @returns A URI for the item if it is checked out by the current user, otherwise undefined.
    */
   private getItemResource(item: any): vscode.Uri | undefined {
-    const config = this.service.getConfig();
     let resourceUri = vscode.Uri.parse(`starlims:${item.tooltip}`);
-    if (item.checkedOutBy && item.checkedOutBy === config.get("user")) {
+    if (item.checkedOutBy && item.checkedOutBy === this.service.getCurrentUser()) {
       // change the color of the item
       resourceUri = vscode.Uri.parse("starlims:/checkedOutByMe");
       item.color = new vscode.ThemeColor("gitDecoration.modifiedResourceForeground");

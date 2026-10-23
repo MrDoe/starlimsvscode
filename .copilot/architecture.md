@@ -155,11 +155,10 @@ Output Panel ← ← ← ← ← ← Parse Results ← ← ← Execution Results
 ### Configuration Schema
 ```json
 {
-  "STARLIMS.url": "Server URL",
-  "STARLIMS.user": "Username",
+  "STARLIMS.servers": "Named server definitions (name, url, user?, urlSuffix?)",
+  "STARLIMS.selectedServer": "Active server name",
   "STARLIMS.rootPath": "Local workspace path",
-  "STARLIMS.browser": "Debug browser choice",
-  "STARLIMS.urlSuffix": "API endpoint suffix"
+  "STARLIMS.browser": "Debug browser choice"
 }
 ```
 

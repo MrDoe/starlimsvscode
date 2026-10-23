@@ -14,6 +14,7 @@ suite('EnterpriseTreeDataProvider integration tests', () => {
 			searchResult.URI = '/Applications/DemoApp/Scripts/ServerScripts/MyScript';
 
 		const provider = new EnterpriseTreeDataProvider({
+			getCurrentUser: () => 'TESTUSER',
 			getConfig: () => ({
 				get: (key: string) => (key === 'user' ? 'TESTUSER' : undefined)
 			}),
