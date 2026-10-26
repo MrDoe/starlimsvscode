@@ -47,6 +47,53 @@ function GetBootFormType()
     return GetBootParam("FormType");
 }
 
+// DESIGNER: Frame controls embed OTHER forms; only the edited form is staged
+// locally, so the widget's Navigate would fetch, 404 uncaught and leave its
+// "Loading..." mask forever. Show the referenced "<App>.<Form>" centered in
+// the frame instead (same centered mask mechanism the widget itself uses for
+// "Loading"). The inner form still exists and Source stays applied, so
+// GetXMLProperties keeps serializing the reference on save.
+// NOTE: bind to StarlimsFrame by name - the bare identifier `Frame` is the
+// NATIVE DOM Window/Frame interface here, not the ExtJS class (Ext's
+// alternateClassName assignment did not replace it in this realm).
+(function PatchDesignerFrameNavigate()
+{
+    var cls = null;
+    try { cls = Ext.ClassManager.get("StarlimsFrame"); } catch (e) { /* older Ext */ }
+    if (!cls && typeof StarlimsFrame !== "undefined")
+        cls = StarlimsFrame;
+    if (!cls || cls.__xfdDesignerNav)
+        return;
+    cls.__xfdDesignerNav = true;
+    cls.prototype.Navigate = async function (url, args, sync)
+    {
+        if (!url)
+            throw new HtmlException("Argument 'url' must be a non-empty string");
+        this.m_dto.Source = url;
+        var inner = this.getComponent("__innerForm__");
+        if (!inner)
+        {
+            inner = Ext.create("StarlimsForm", { Id: "__innerForm__" });
+            inner.opener = this.Parent && this.Parent.ParentForm ? this.Parent.ParentForm : null;
+            this.add(inner);
+        }
+        var m = String(url).match(/[?&]FormId=([^&]+)/);
+        this.__xfdFrameRef = m ? decodeURIComponent(m[1]) : String(url);
+        // mask() needs a rendered element (hidden Frames are not rendered yet
+        // when the deferred Source property fires Navigate) - defer.
+        var applyRefMask = function (fr) {
+            if (fr.rendered && fr.getEl()) {
+                fr.unmask();
+                fr.mask(fr.__xfdFrameRef);
+            }
+        };
+        if (this.rendered)
+            applyRefMask(this);
+        else
+            this.on({ scope: this, single: true, afterrender: function () { applyRefMask(this); } });
+    };
+})();
+
 // variables for GUIFunctions.js
 var controlCounter = 0;
 var selectedControl;
