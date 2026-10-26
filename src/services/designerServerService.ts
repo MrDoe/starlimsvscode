@@ -181,7 +181,8 @@ export class DesignerServerService {
     enterpriseService: EnterpriseService,
     uri: string,
     langId: string,
-    guid: string
+    guid: string,
+    working?: { document?: string; codeBehind?: string }
   ): Promise<void> {
     const fixtures = this.fixturesDir();
     fs.mkdirSync(fixtures, { recursive: true });
@@ -192,15 +193,30 @@ export class DesignerServerService {
     const xmlUri = deriveFormPartUri(uri, "XML") ?? uri;
     const cbUri = deriveFormPartUri(uri, "CodeBehind");
 
-    const xml = await enterpriseService.getEnterpriseItemCodeResult(xmlUri, langId);
-    if (!xml.ok || !xml.data?.code) {
-      throw new Error(xml.error || `Could not retrieve form XML for ${xmlUri}.`);
+    // Working-copy rule: a synced checked-out file that is NEWER than the
+    // last staging wins over the server read (user edits the file in the
+    // editor, then reopens/refreshes the designer). A stale synced file
+    // (e.g. the base copy from checkout time, while the checkout already
+    // holds designer saves) must NOT clobber the server content - the
+    // sidecar mtime comparison decides.
+    const uiSidecar = path.join(fixtures, `${guid}.ui.xml`);
+    let xmlDoc: string | undefined;
+    if (working?.document && isWorkingNewer(working.document, uiSidecar)) {
+      xmlDoc = fs.readFileSync(working.document, "utf8");
+      this.output.appendLine(`staged ${guid}.ui.xml from working copy (newer than last staging): ${working.document}`);
     }
-    fs.writeFileSync(path.join(fixtures, `${guid}.ui.xml`), xml.data.code, "utf8");
+    if (xmlDoc === undefined) {
+      const xml = await enterpriseService.getEnterpriseItemCodeResult(xmlUri, langId);
+      if (!xml.ok || !xml.data?.code) {
+        throw new Error(xml.error || `Could not retrieve form XML for ${xmlUri}.`);
+      }
+      xmlDoc = xml.data.code;
+    }
+    fs.writeFileSync(uiSidecar, xmlDoc, "utf8");
 
-    const behind = await this.stageCodeBehind(enterpriseService, cbUri, langId, guid, fixtures);
+    const behind = await this.stageCodeBehind(enterpriseService, cbUri, langId, guid, fixtures, working?.codeBehind);
     await this.stageIncludes(enterpriseService, xmlUri, langId, behind, fixtures);
-    await this.prefetchControlSchemas(enterpriseService, xml.data.code, fixtures);
+    await this.prefetchControlSchemas(enterpriseService, xmlDoc, fixtures);
   }
 
   /** Fetch + write `<guid>.codebehind.wire.js`; returns the stored text. */
@@ -209,14 +225,22 @@ export class DesignerServerService {
     cbUri: string | undefined,
     langId: string,
     guid: string,
-    fixtures: string
+    fixtures: string,
+    workingCodeBehind?: string
   ): Promise<string | undefined> {
     if (!cbUri) {
       return undefined;
     }
+    const cbSidecar = path.join(fixtures, `${guid}.codebehind.wire.js`);
+    if (workingCodeBehind && isWorkingNewer(workingCodeBehind, cbSidecar)) {
+      const code = fs.readFileSync(workingCodeBehind, "utf8");
+      fs.writeFileSync(cbSidecar, code, "utf8");
+      this.output.appendLine(`staged ${guid}.codebehind.wire.js from working copy (newer than last staging): ${workingCodeBehind}`);
+      return code;
+    }
     const behind = await enterpriseService.getEnterpriseItemCodeResult(cbUri, langId);
     if (behind.ok && behind.data?.code) {
-      fs.writeFileSync(path.join(fixtures, `${guid}.codebehind.wire.js`), behind.data.code, "utf8");
+      fs.writeFileSync(cbSidecar, behind.data.code, "utf8");
       return behind.data.code;
     }
     this.output.appendLine(`note: no code-behind for ${cbUri} (${behind.error ?? "empty"})`);
@@ -344,6 +368,23 @@ function bundledBinaryPath(context: vscode.ExtensionContext): string {
 export function deriveFormPartUri(uri: string, target: string): string | undefined {
   const m = /^(.*\/HTMLForms\/)[^/]+\/([^/]+)$/i.exec(uri);
   return m ? `${m[1]}${target}/${m[2]}` : undefined;
+}
+
+/**
+ * True when `workingFile` exists AND is newer than `lastStagedSidecar`.
+ * A missing sidecar means FIRST staging - server content stays authoritative
+ * (the working copy may be the stale base document from checkout time while
+ * the server checkout already carries designer saves).
+ */
+function isWorkingNewer(workingFile: string, lastStagedSidecar: string): boolean {
+  try {
+    if (!fs.existsSync(workingFile) || !fs.existsSync(lastStagedSidecar)) {
+      return false;
+    }
+    return fs.statSync(workingFile).mtimeMs > fs.statSync(lastStagedSidecar).mtimeMs;
+  } catch {
+    return false;
+  }
 }
 
 function getFreePort(): Promise<number> {

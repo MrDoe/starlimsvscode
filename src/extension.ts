@@ -33,7 +33,7 @@ import { TicketTreeItem, TicketsTreeDataProvider } from "./providers/ticketsTree
 import { ServerSelectorWebviewProvider, ServerConfig } from "./providers/serverSelectorWebviewProvider";
 import { GitService } from "./services/gitService";
 import { OpenCodeServerService } from "./services/opencodeServerService";
-import { DesignerServerService } from "./services/designerServerService";
+import { DesignerServerService, deriveFormPartUri } from "./services/designerServerService";
 import { DesignerPanel } from "./panels/DesignerPanel";
 import { TicketFullInfo, TicketMeasureDraft, TicketOverview, TicketReference, TicketStatusGroupName } from "./services/ticketManagementTypes";
 import { TicketStackTraceContentProvider } from "./providers/ticketStackTraceContentProvider";
@@ -591,6 +591,101 @@ export async function activate(context: vscode.ExtensionContext) {
 
       function getEnterpriseItemLanguage(item: TreeEnterpriseItem): string {
         return item.language || item.scriptLanguage || "";
+      }
+
+      /**
+       * Per staged designer GUID: the checked-out WORKING copies the
+       * extension has in the sync workspace (paths that exist on disk).
+       * Keeps the three homes aligned: fixtures sidecar (design-time),
+       * server checkout (save target) and the user's working files (what
+       * OpenCodeBehind must open - "OnClick still opens a copy instead of
+       * the checked out Code Behind", user 26.10).
+       */
+      interface StagedWorkingPair { document?: string; codeBehind?: string }
+      const stagedWorkingFiles = new Map<string, StagedWorkingPair>();
+
+      /** Local path of one HTMLForms part, only when the file exists. */
+      function workingPartPath(remoteUri: string, part: "XML" | "CodeBehind"): string | undefined {
+        try {
+          const serverWorkspacePath = enterpriseService.getServerWorkspacePath(rootPath!);
+          const bareUri = String(remoteUri).replace(/\/+$/, "");
+          const partUri = deriveFormPartUri(bareUri, part) ?? bareUri;
+          const candidate = enterpriseService.getLocalFilePath(partUri, serverWorkspacePath, part === "CodeBehind" ? "js" : "xml");
+          return fs.existsSync(candidate) ? candidate : undefined;
+        } catch {
+          return undefined;
+        }
+      }
+
+      /** Resolve + remember the working files of the form being staged. */
+      function rememberStagedWorkingPaths(guid: string, remoteUri: string): StagedWorkingPair {
+        const pair: StagedWorkingPair = {
+          document: workingPartPath(remoteUri, "XML"),
+          codeBehind: workingPartPath(remoteUri, "CodeBehind"),
+        };
+        stagedWorkingFiles.set(guid, pair);
+        return pair;
+      }
+
+      /** Map-miss fallback (e.g. designer restored after a window reload):
+       *  rebuild the pair from the tree items behind the GUID. */
+      async function resolveWorkingPairForGuid(guid: string): Promise<StagedWorkingPair | undefined> {
+        try {
+          const cbItem = await enterpriseService.getItemByGUID(guid, EnterpriseItemType.HTMLFormCode);
+          const xmlItem = await enterpriseService.getItemByGUID(guid, EnterpriseItemType.HTMLFormXML);
+          const serverWorkspacePath = enterpriseService.getServerWorkspacePath(rootPath!);
+          const pick = (it: TreeEnterpriseItem | undefined, ext: string): string | undefined => {
+            if (!it) {
+              return undefined;
+            }
+            const known = getSavedLocalPath(it, getEnterpriseItemLanguage(it));
+            if (known) {
+              return known;
+            }
+            try {
+              const candidate = enterpriseService.getLocalFilePath(it.uri, serverWorkspacePath, ext);
+              return fs.existsSync(candidate) ? candidate : undefined;
+            } catch {
+              return undefined;
+            }
+          };
+          const pair: StagedWorkingPair = { document: pick(xmlItem, "xml"), codeBehind: pick(cbItem, "js") };
+          if (pair.document || pair.codeBehind) {
+            stagedWorkingFiles.set(guid, pair);
+            return pair;
+          }
+        } catch {
+          // tree lookup is best-effort; the sidecar stays the design home
+        }
+        return undefined;
+      }
+
+      /** Mirror content into a working file (designer saves, AddFunction
+       *  stubs). NEVER overwrites a dirty editor buffer - warns instead. */
+      function syncWorkingFile(target: string | undefined, content: string, what: string): void {
+        if (!target) {
+          return;
+        }
+        try {
+          if (!fs.existsSync(target)) {
+            return; // not synced locally - nothing to keep aligned
+          }
+          const openDoc = vscode.workspace.textDocuments.find(
+            (d) => !d.isUntitled && d.uri.fsPath.toLowerCase() === target.toLowerCase()
+          );
+          if (openDoc?.isDirty) {
+            void vscode.window.showWarningMessage(
+              `STARLIMS Designer: "${path.basename(target)}" has unsaved editor changes, so the ${what} was NOT written to it. Save or revert the editor first.`
+            );
+            return;
+          }
+          if (fs.readFileSync(target, "utf8") === content) {
+            return;
+          }
+          fs.writeFileSync(target, content, "utf8");
+        } catch (e: any) {
+          void vscode.window.showWarningMessage(`STARLIMS Designer: could not update ${target}: ${e?.message ?? e}`);
+        }
       }
 
       function findOpenLocalDocument(item: TreeEnterpriseItem, serverWorkspacePath: string): vscode.TextDocument | undefined {
@@ -3301,13 +3396,23 @@ Please provide:
             if (typeof formId !== "string" || typeof xml !== "string" || !xml) {
               return { ok: false, error: "malformed SaveXFDDocument payload" };
             }
-            return enterpriseService.saveFormDocumentResult(formId, typeof language === "string" ? language : "", xml);
+            const result = await enterpriseService.saveFormDocumentResult(formId, typeof language === "string" ? language : "", xml);
+            if (result.ok) {
+              // keep the synced working file current (git/transfer home) -
+              // otherwise the next Open* finds stale content ("looks not saved")
+              syncWorkingFile(stagedWorkingFiles.get(formId)?.document, xml, "form document save");
+            }
+            return result;
           }
           const [formId, code] = args as [string, string];
           if (typeof formId !== "string" || typeof code !== "string") {
             return { ok: false, error: "malformed SaveCodeBehind payload" };
           }
-          return enterpriseService.saveFormCodeBehindResult(formId, code);
+          const result = await enterpriseService.saveFormCodeBehindResult(formId, code);
+          if (result.ok) {
+            syncWorkingFile(stagedWorkingFiles.get(formId)?.codeBehind, code, "code-behind save");
+          }
+          return result;
         }
       });
       context.subscriptions.push(expressServer);
@@ -4674,7 +4779,8 @@ Please provide:
 
           await executeWithProgress(async () => {
             try {
-              await service.stageForm(enterpriseService, remoteUri, langId, formGuid);
+              const workingPair = rememberStagedWorkingPaths(formGuid, String(remoteUri));
+              await service.stageForm(enterpriseService, remoteUri, langId, formGuid, workingPair);
               const backend = await service.ensureRunning();
               await DesignerPanel.render(backend, formGuid, displayName, langId, formType);
             } catch (e: any) {
@@ -5693,14 +5799,24 @@ Please provide:
       vscode.commands.registerCommand("STARLIMS.OpenCodeBehind", async (formId: string | any, functionName: string | any) => {
         const formIdStr = typeof formId === "string" ? formId.trim() : String(formId ?? "").trim();
 
-        // Designer-staged form: the local code-behind sidecar is the
-        // design-time truth - scModifyCodeBehind.AddFunction stubs land there
-        // and the server copy stays untouched until the check-in flow. Prefer
-        // it over a fresh server read so the jump finds the new function.
+        // Designer-staged form: the checked-out WORKING copy wins over the
+        // private fixtures sidecar (user 26.10: "OnClick still opens a copy
+        // instead of the checked out Code Behind"). Mirror the design-time
+        // state into it first - scModifyCodeBehind.AddFunction stubs are
+        // written to the sidecar by the local serve - then open THAT file so
+        // the user edits/transfers/commits the real working copy. A dirty
+        // editor buffer is never overwritten (warn instead). With no synced
+        // file the sidecar remains the design-time home.
         if (designerServerService && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(formIdStr)) {
           const stagedCodeBehind = path.join(designerServerService.fixturesDir(), `${formIdStr}.codebehind.wire.js`);
           if (fs.existsSync(stagedCodeBehind)) {
-            const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(stagedCodeBehind));
+            let targetFile = stagedCodeBehind;
+            const pair = stagedWorkingFiles.get(formIdStr) ?? await resolveWorkingPairForGuid(formIdStr);
+            if (pair?.codeBehind) {
+              syncWorkingFile(pair.codeBehind, fs.readFileSync(stagedCodeBehind, "utf8"), "code-behind update");
+              targetFile = pair.codeBehind;
+            }
+            const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(targetFile));
             const editor = await vscode.window.showTextDocument(doc, { preview: false });
             revealFunctionInEditor(editor, functionName);
             return;
