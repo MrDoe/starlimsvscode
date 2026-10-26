@@ -1,0 +1,187 @@
+{
+  "Tables": [
+    {
+      "TableName": "CONTROL_PROPERTIES",
+      "Columns": [
+        {
+          "ColumnName": "PROPERTY_NAME",
+          "DataType": "string",
+          "MaxLength": 50,
+          "AllowDBNull": true,
+          "ReadOnly": false,
+          "Unique": false,
+          "ExtendedProperties": {
+            "AllowDBNull": true,
+            "ReadOnly": false,
+            "Unique": false
+          }
+        },
+        {
+          "ColumnName": "PROPERTY_VALUE",
+          "DataType": "string",
+          "MaxLength": 255,
+          "AllowDBNull": true,
+          "ReadOnly": false,
+          "Unique": false,
+          "ExtendedProperties": {
+            "AllowDBNull": true,
+            "ReadOnly": false,
+            "Unique": false
+          }
+        },
+        {
+          "ColumnName": ":",
+          "DataType": "string",
+          "MaxLength": 255,
+          "AllowDBNull": true,
+          "ReadOnly": false,
+          "Unique": false,
+          "ExtendedProperties": {
+            "AllowDBNull": true,
+            "ReadOnly": false,
+            "Unique": false
+          }
+        }
+      ],
+      "PrimaryKey": [],
+      "Rows": [
+        {
+          "PROPERTY_NAME": "BackColor",
+          "PROPERTY_VALUE": null,
+          ":": "Appearance"
+        },
+        {
+          "PROPERTY_NAME": "Cursor",
+          "PROPERTY_VALUE": null,
+          ":": "Appearance"
+        },
+        {
+          "PROPERTY_NAME": "RightToLeft",
+          "PROPERTY_VALUE": "INHERIT",
+          ":": "Appearance"
+        },
+        {
+          "PROPERTY_NAME": "Font",
+          "PROPERTY_VALUE": null,
+          ":": "Appearance"
+        },
+        {
+          "PROPERTY_NAME": "ForeColor",
+          "PROPERTY_VALUE": null,
+          ":": "Appearance"
+        },
+        {
+          "PROPERTY_NAME": "Text",
+          "PROPERTY_VALUE": null,
+          ":": "Appearance"
+        },
+        {
+          "PROPERTY_NAME": "Image",
+          "PROPERTY_VALUE": null,
+          ":": "Appearance"
+        },
+        {
+          "PROPERTY_NAME": "ImageAlign",
+          "PROPERTY_VALUE": null,
+          ":": "Appearance"
+        },
+        {
+          "PROPERTY_NAME": "ToolTip",
+          "PROPERTY_VALUE": null,
+          ":": "Appearance"
+        },
+        {
+          "PROPERTY_NAME": "VisualStyle",
+          "PROPERTY_VALUE": "FLAT",
+          ":": "Appearance"
+        },
+        {
+          "PROPERTY_NAME": "Enabled",
+          "PROPERTY_VALUE": "True",
+          ":": "Behavior"
+        },
+        {
+          "PROPERTY_NAME": "Visible",
+          "PROPERTY_VALUE": "True",
+          ":": "Behavior"
+        },
+        {
+          "PROPERTY_NAME": "TabIndex",
+          "PROPERTY_VALUE": "0",
+          ":": "Behavior"
+        },
+        {
+          "PROPERTY_NAME": "TabStop",
+          "PROPERTY_VALUE": "True",
+          ":": "Behavior"
+        },
+        {
+          "PROPERTY_NAME": "CausesValidation",
+          "PROPERTY_VALUE": "True",
+          ":": "Behavior"
+        },
+        {
+          "PROPERTY_NAME": "Data",
+          "PROPERTY_VALUE": null,
+          ":": "Data"
+        },
+        {
+          "PROPERTY_NAME": "OnClick",
+          "PROPERTY_VALUE": null,
+          ":": "Events"
+        },
+        {
+          "PROPERTY_NAME": "OnKeyPress",
+          "PROPERTY_VALUE": null,
+          ":": "Events"
+        },
+        {
+          "PROPERTY_NAME": "AccessibleName",
+          "PROPERTY_VALUE": null,
+          ":": "Accessibility"
+        },
+        {
+          "PROPERTY_NAME": "AccessibleDescription",
+          "PROPERTY_VALUE": null,
+          ":": "Accessibility"
+        },
+        {
+          "PROPERTY_NAME": "Anchor",
+          "PROPERTY_VALUE": null,
+          ":": "Layout"
+        },
+        {
+          "PROPERTY_NAME": "Dock",
+          "PROPERTY_VALUE": "NONE",
+          ":": "Layout"
+        },
+        {
+          "PROPERTY_NAME": "Left",
+          "PROPERTY_VALUE": null,
+          ":": "Layout"
+        },
+        {
+          "PROPERTY_NAME": "Top",
+          "PROPERTY_VALUE": null,
+          ":": "Layout"
+        },
+        {
+          "PROPERTY_NAME": "Width",
+          "PROPERTY_VALUE": null,
+          ":": "Layout"
+        },
+        {
+          "PROPERTY_NAME": "Height",
+          "PROPERTY_VALUE": null,
+          ":": "Layout"
+        },
+        {
+          "PROPERTY_NAME": "(Id)",
+          "PROPERTY_VALUE": null,
+          ":": "Other"
+        }
+      ]
+    }
+  ],
+  "Relations": []
+}

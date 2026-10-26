@@ -1,0 +1,43 @@
+{
+  "Tables": [
+    {
+      "TableName": "LIMSSOURCECONTROL",
+      "Columns": [
+        {
+          "ColumnName": "FORM_ID",
+          "DataType": "string",
+          "MaxLength": 36,
+          "AllowDBNull": true,
+          "ReadOnly": true,
+          "Unique": false,
+          "ExtendedProperties": {
+            "AllowDBNull": true,
+            "ReadOnly": true,
+            "Unique": false
+          }
+        },
+        {
+          "ColumnName": "FORM_NAME",
+          "DataType": "string",
+          "MaxLength": 71,
+          "AllowDBNull": true,
+          "ReadOnly": true,
+          "Unique": false,
+          "ExtendedProperties": {
+            "AllowDBNull": true,
+            "ReadOnly": true,
+            "Unique": false
+          }
+        }
+      ],
+      "PrimaryKey": [],
+      "Rows": [
+        {
+          "FORM_ID": "7D383F7B-A512-4A97-8920-719EC5D47040",
+          "FORM_NAME": "Sandbox.TestFormDesigner (GER)"
+        }
+      ]
+    }
+  ],
+  "Relations": []
+}

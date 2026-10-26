@@ -32,6 +32,8 @@ import { TicketTreeItem, TicketsTreeDataProvider } from "./providers/ticketsTree
 import { ServerSelectorWebviewProvider, ServerConfig } from "./providers/serverSelectorWebviewProvider";
 import { GitService } from "./services/gitService";
 import { OpenCodeServerService } from "./services/opencodeServerService";
+import { DesignerServerService } from "./services/designerServerService";
+import { DesignerPanel } from "./panels/DesignerPanel";
 import { TicketFullInfo, TicketMeasureDraft, TicketOverview, TicketReference, TicketStatusGroupName } from "./services/ticketManagementTypes";
 import { TicketStackTraceContentProvider } from "./providers/ticketStackTraceContentProvider";
 import { registerSSLBlockCloser } from "./providers/sslBlockCloser";
@@ -143,6 +145,7 @@ const DEFAULT_SLVSCODE_COPILOT_INSTRUCTIONS = [
 const execFile = promisify(execFileCallback);
 
 let openCodeServerService: OpenCodeServerService | undefined;
+let designerServerService: DesignerServerService | undefined;
 let openCodeServerServiceSignature = "";
 let generatedOpenCodeServerPassword: string | undefined;
 
@@ -4605,7 +4608,10 @@ Please provide:
         }
       );
 
-      // register the edit HTML form command
+      // register the edit HTML form command - native Webview designer:
+      // stage the form read-only onto the local Rust backend (xfd-cli serve)
+      // and host the htmlruntime FormDesigner in a Webview panel. (Previously
+      // opened the deployed designer in the external browser.)
       vscode.commands.registerCommand("STARLIMS.DesignHTMLForm",
         async (item: TreeEnterpriseItem | any) => {
           // get item from editor if no item is defined (shortcut key pressed)
@@ -4625,10 +4631,28 @@ Please provide:
 
           // get the form GUID
           const formGuid = await enterpriseService.getGUID(remoteUri);
+          if (!formGuid) {
+            return;
+          }
 
-          // open form in default browser at the selected server
-          const formUrl = `${enterpriseService.getBaseUrl()}/starthtml.lims?FormId=1D09BB79-2D28-4594-8B03-26306F5C8AEC&LangId=ENG&Debug=true&FormArgs=%22${formGuid}%22`;
-          vscode.env.openExternal(vscode.Uri.parse(formUrl));
+          const langId = item.language || "ENG";
+          const displayName = typeof item.label === "string" && item.label ? item.label : String(remoteUri);
+
+          if (!designerServerService) {
+            designerServerService = new DesignerServerService(context);
+            context.subscriptions.push(designerServerService);
+          }
+          const service = designerServerService;
+
+          await executeWithProgress(async () => {
+            try {
+              await service.stageForm(enterpriseService, remoteUri, langId, formGuid);
+              const backend = await service.ensureRunning();
+              await DesignerPanel.render(backend, formGuid, displayName, langId);
+            } catch (e: any) {
+              vscode.window.showErrorMessage(`Could not open the form designer: ${e?.message ?? e}`);
+            }
+          }, "Preparing STARLIMS Designer...");
         }
       );
 

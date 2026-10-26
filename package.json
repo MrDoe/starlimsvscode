@@ -878,6 +878,16 @@
                         "default": "",
                         "description": "Root path for downloaded STARLIMS files. For example: C:\\STARLIMS\\. SLVSCODE will be appended to this path."
                     },
+                    "STARLIMS.designer.command": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Path to the designer backend binary (xfd-cli.exe, built from designer-rs). Defaults to the bundled resources/bin/xfd-cli.exe."
+                    },
+                    "STARLIMS.designer.statics": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Directory containing the STARLIMS htmlruntime client files (htmlruntime/, support-html/, images/) served to the designer Webview."
+                    },
                     "STARLIMS.browser": {
                         "type": "string",
                         "enum": [
