@@ -85,6 +85,13 @@ function GetBootFormType()
             if (fr.rendered && fr.getEl()) {
                 fr.unmask();
                 fr.mask(fr.__xfdFrameRef);
+                // Show JUST the text: mask() paints the theme's animated
+                // loadmask/gif on .x-mask-msg-text (with 25px top padding to
+                // leave room for it). Drop it - this is a static placeholder,
+                // not a real load, so a spinner is misleading.
+                var txt = fr.getEl().down(".x-mask-msg-text"); /*XFD-REF-TEXT-ONLY*/
+                if (txt)
+                    txt.dom.style.cssText = "background:none;padding-top:0;";
             }
         };
         if (this.rendered)
