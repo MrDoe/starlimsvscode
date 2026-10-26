@@ -45,6 +45,7 @@ const TICKET_COMMENT_INSERT_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerSc
 const TICKET_HISTORY_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scGetTicketTnx`;
 const TICKET_UTILS_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scTicketUtils`;
 const SCM_API_FORM_CALLBACK_PORT_SCRIPT_URI = "/ServerScripts/SCM_API/FormCallbackPort";
+const FORM_PROVIDER_SCRIPT_URI = "/ServerScripts/Enterprise_Data_Providers/FormProvider";
 const SCM_API_TICKET_MANAGEMENT_SCRIPT_URI = "/ServerScripts/SCM_API/TicketManagement";
 const LOCAL_SYNC_TIMESTAMP_STATE_KEY_PREFIX = "starlims.localSyncTimestamp";
 
@@ -768,6 +769,58 @@ export class EnterpriseService implements IEnterpriseService {
 
   public async getOpenTicketsResult(): Promise<EnterpriseOperationResult<TicketOverview[]>> {
     return this.getTicketsResult();
+  }
+
+  /**
+   * Designer save: persist the form XML into the CHECKED-OUT item on the
+   * server (deployed FormProvider.SaveXFDDocument - the provider enforces the
+   * checkout itself and raises "Check out the form first!" otherwise). This
+   * is SAVE, not check-in: publishing stays a user-driven action.
+   */
+  public async saveFormDocumentResult(formId: string, language: string, xml: string): Promise<EnterpriseOperationResult<boolean>> {
+    const result = await this.executeRemoteScriptResult(FORM_PROVIDER_SCRIPT_URI, {
+      parameters: [formId, language, xml],
+      entryPoint: "SaveXFDDocument"
+    });
+    if (result.ok && this.isScriptErrorString(result.data)) {
+      return { ok: false, error: this.cleanScriptErrorString(result.data) };
+    }
+    if (!result.ok) {
+      return { ok: false, error: result.error ?? `Could not save form document ${formId}.` };
+    }
+    return { ok: true, data: true };
+  }
+
+  /** Designer code-behind save: updates the checked-out CODEDOCUMENT via the
+   *  deployed FormProvider.SaveCodeBehind (lint + reference update included). */
+  public async saveFormCodeBehindResult(formId: string, code: string): Promise<EnterpriseOperationResult<boolean>> {
+    const result = await this.executeRemoteScriptResult(FORM_PROVIDER_SCRIPT_URI, {
+      parameters: [formId, code],
+      entryPoint: "SaveCodeBehind"
+    });
+    if (result.ok && this.isScriptErrorString(result.data)) {
+      return { ok: false, error: this.cleanScriptErrorString(result.data) };
+    }
+    if (!result.ok) {
+      return { ok: false, error: result.error ?? `Could not save code behind ${formId}.` };
+    }
+    return { ok: true, data: true };
+  }
+
+  /**
+   * The deployed FormProvider save procedures do NOT propagate their RaiseError
+   * through SCM_API.RunScript: the SSL :ERROR branch RETURNS the message as a
+   * plain string ("Error : ...") and RunScript still reports success:true.
+   * Without this check every server-side refusal (e.g. "You can only modify a
+   * single language at a time! - the form is checked out in GER") is silently
+   * swallowed and the designer looks saved while nothing changed.
+   */
+  private isScriptErrorString(data: unknown): boolean {
+    return typeof data === "string" && /^\s*Error\s*:/i.test(data);
+  }
+
+  private cleanScriptErrorString(data: unknown): string {
+    return typeof data === "string" ? data.replace(/^\s*Error\s*:\s*/i, "").replace(/\r\n/g, " ") : "save failed";
   }
 
   public async setFormCallbackPortResult(port: number): Promise<EnterpriseOperationResult<boolean>> {

@@ -12,12 +12,16 @@ const FORM_CALLBACK_PORT_RANGE_START = 3003;
 const FORM_CALLBACK_PORT_RANGE_END = 3099;
 const MCP_WATCHDOG_INTERVAL_MS = 30_000;
 
+export type DesignerSaveKind = "document" | "codebehind";
+export type DesignerSaveResult = { ok: boolean; error?: string };
+
 export type ExpressServerOptions = {
     host?: string;
     mcpHost?: string;
     mcpPort?: number;
     mcpServer?: StarlimsMcpServer;
     onOpenCodeBehind: (formId: string, functionName: string) => void | Thenable<unknown> | Promise<unknown>;
+    onDesignerSave?: (kind: DesignerSaveKind, args: unknown[]) => Promise<DesignerSaveResult>;
 };
 
 export class ExpressServer {
@@ -30,6 +34,7 @@ export class ExpressServer {
     private mcpPort: number;
     private readonly mcpServer: StarlimsMcpServer | undefined;
     private readonly onOpenCodeBehind: (formId: string, functionName: string) => void | Thenable<unknown> | Promise<unknown>;
+    private readonly onDesignerSave: ((kind: DesignerSaveKind, args: unknown[]) => Promise<DesignerSaveResult>) | undefined;
     private mcpWatchdogTimer: ReturnType<typeof setInterval> | undefined;
     private port: number;
 
@@ -40,6 +45,7 @@ export class ExpressServer {
         this.mcpServer = options.mcpServer;
         this.mcpApp = this.mcpServer ? createMcpExpressApp({ host: this.mcpHost }) : undefined;
         this.onOpenCodeBehind = options.onOpenCodeBehind;
+        this.onDesignerSave = options.onDesignerSave;
         this.mcpPort = options.mcpPort ?? 3002;
         this.port = 0;
         this.registerRoutes();
@@ -79,8 +85,26 @@ export class ExpressServer {
     }
 
     private registerRoutes(): void {
+        // Designer save forwards from serve carry the full form XML in a JSON
+        // array body; generous limit, loopback-only server.
+        this.app.use(express.json({ limit: '50mb' }));
+
         this.app.get('/', (req: Request, res: Response) => {
             res.send('Starlims VS Code HTTP Server');
+        });
+
+        // Designer save forwards (from the xfd-cli serve): the CallServer
+        // array VERBATIM - [guid, lang, xml] or [guid, code] - persisted to
+        // the CHECKED-OUT item through the extension's authenticated session.
+        // This is SAVE; check-in stays a user-only action. Answer {} on
+        // success / {error} on failure; serve logs both, the designer ignores
+        // the response either way, so failures surface as notifications here.
+        this.app.post('/DesignerSaveXFDDocument', (req: Request, res: Response) => {
+            void this.handleDesignerSave('document', req, res);
+        });
+
+        this.app.post('/DesignerSaveCodeBehind', (req: Request, res: Response) => {
+            void this.handleDesignerSave('codebehind', req, res);
         });
 
         this.app.get('/OpenCodeBehind/:formId/:functionName', async (req: Request, res: Response) => {
@@ -96,6 +120,29 @@ export class ExpressServer {
         });
 
         this.registerMcpRoutes();
+    }
+
+    private async handleDesignerSave(kind: DesignerSaveKind, req: Request, res: Response): Promise<void> {
+        const args = Array.isArray(req.body) ? (req.body as unknown[]) : [];
+        const id = typeof args[0] === 'string' ? args[0] : '?';
+        try {
+            if (!this.onDesignerSave) {
+                res.json({ error: 'no designer save handler' });
+                return;
+            }
+            const result = await this.onDesignerSave(kind, args);
+            if (result.ok) {
+                res.json({});
+            } else {
+                const message = result.error ?? 'save failed';
+                vscode.window.showErrorMessage(`Designer save failed for ${id}: ${message}`);
+                res.json({ error: message });
+            }
+        } catch (error) {
+            const message = String((error as any)?.message ?? error);
+            vscode.window.showErrorMessage(`Designer save failed for ${id}: ${message}`);
+            res.json({ error: message });
+        }
     }
 
     private registerMcpRoutes(): void {

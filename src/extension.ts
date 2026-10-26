@@ -3294,6 +3294,20 @@ Please provide:
         mcpServer: starlimsMcpServer,
         onOpenCodeBehind: async (formId: string, functionName: string) => {
           await vscode.commands.executeCommand("STARLIMS.OpenCodeBehind", formId, functionName);
+        },
+        onDesignerSave: async (kind, args) => {
+          if (kind === "document") {
+            const [formId, language, xml] = args as [string, string, string];
+            if (typeof formId !== "string" || typeof xml !== "string" || !xml) {
+              return { ok: false, error: "malformed SaveXFDDocument payload" };
+            }
+            return enterpriseService.saveFormDocumentResult(formId, typeof language === "string" ? language : "", xml);
+          }
+          const [formId, code] = args as [string, string];
+          if (typeof formId !== "string" || typeof code !== "string") {
+            return { ok: false, error: "malformed SaveCodeBehind payload" };
+          }
+          return enterpriseService.saveFormCodeBehindResult(formId, code);
         }
       });
       context.subscriptions.push(expressServer);
