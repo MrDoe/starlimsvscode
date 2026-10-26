@@ -39,7 +39,12 @@ export class DesignerPanel {
       `Designer: ${displayName}`,
       { viewColumn: vscode.ViewColumn.One, preserveFocus: false },
       {
-        enableScripts: false,
+        // The whole designer runs inside the localhost iframe, and a
+        // scripts-disabled webview kills scripting in every nested frame
+        // (the sandbox attribute cascades into child documents) - the served
+        // boot page would then sit forever on its "xfd-cli boot" placeholder
+        // with only CSS applied. ExtJS needs this flag.
+        enableScripts: true,
         retainContextWhenHidden: true
       }
     );
