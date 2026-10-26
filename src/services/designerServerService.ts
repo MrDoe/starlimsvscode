@@ -267,9 +267,19 @@ export class DesignerServerService {
    * strips the 'Starlims' prefix). Already-cached types are skipped, so the
    * bundled shell schemas act as the seed. The wire JSON comes straight off
    * Runtime_Support.GetDataAsJson (exact Newtonsoft DataSet format).
+   * STRUCTURAL_TYPES below are additionally always fetched: the designer's
+   * ReadXML synthesizes those sub-objects client-side (a SplitContainerH's
+   * panels, a TabControl's pages, a DataGrid's root table + columns), so
+   * they never appear as xsi:type members, yet SaveForm's XML walk iterates
+   * every control's DataProperties — undefined there silently rejects the
+   * async save and NO save request ever reaches the server.
    */
+  private static readonly STRUCTURAL_TYPES = [
+    "SplitterPanel", "TabPage", "DataGridTable", "DataGridColumn",
+  ];
+
   private async prefetchControlSchemas(enterpriseService: EnterpriseService, formXml: string, fixtures: string): Promise<void> {
-    const types = new Set<string>(["Form"]);
+    const types = new Set<string>(["Form", ...DesignerServerService.STRUCTURAL_TYPES]);
     for (const m of formXml.matchAll(/xsi:type="(\w+)"/g)) {
       types.add(m[1]);
     }
