@@ -288,6 +288,9 @@ export class DesignerServerService {
    */
   private static readonly STRUCTURAL_TYPES = [
     "SplitterPanel", "TabPage", "DataGridTable", "DataGridColumn",
+    // TreeListView columns are also client-synthesized (ReadXML builds them
+    // from __array__Columns; our shell patch maps them to TreeListColumn).
+    "TreeListColumn",
   ];
 
   private async prefetchControlSchemas(enterpriseService: EnterpriseService, formXml: string, fixtures: string): Promise<void> {

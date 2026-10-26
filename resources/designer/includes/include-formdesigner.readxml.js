@@ -53,6 +53,7 @@ const controlClasses = {
     "TreeNode": TreeNode,
     "TreeView": TreeView,
     "TreeListView": TreeListView,
+    /*XFD-SHELL-PATCH*/ "TreeListColumn": TreeListColumn, // deployed map lacked it: ReadXML hardcoded DataGridColumn for every __array__Columns, so TreeListView columns hit Columns.Add()'s StarlimsTreeListColumn check and aborted the whole load
     "WebBrowser": WebBrowser
 };
 
@@ -516,7 +517,7 @@ async function CreateControlFromXML(xmlNode, xmlParentNode, control)
                 continue;
 
             // set data type
-            column.setAttribute("xsi:type", "StarlimsDataGridColumn");
+            /*XFD-SHELL-PATCH*/column.setAttribute("xsi:type", "Starlims" + (control.xType === "TreeListView" ? "TreeListColumn" : "DataGridColumn"));
 
             let childControl = await CreateControlFromXML(column, xmlNode);
 

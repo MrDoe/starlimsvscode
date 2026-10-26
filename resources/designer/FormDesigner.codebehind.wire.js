@@ -27,6 +27,26 @@ var _splitDesignerSidebar = form.All("_splitDesignerSidebar"); // SplitContainer
 
 //END_GLOBAL_DECLARATIONS
 
+// Boot URL parameters. The VS Code panel opens the designer for ONE form:
+// LangId is the language it was opened (and is staged/saved) under, FormType
+// the "<App>.<Form>" SaveForm embeds. The legacy checked-out-forms dropdown
+// used to carry both - it is hidden and no longer consulted.
+function GetBootParam(sName)
+{
+    var m = window.location.search.match(new RegExp("[?&]" + sName + "=([^&]+)", "i"));
+    return m ? decodeURIComponent(m[1]) : "";
+}
+
+function GetBootLangId()
+{
+    return GetBootParam("LangId") || "ENG";
+}
+
+function GetBootFormType()
+{
+    return GetBootParam("FormType");
+}
+
 // variables for GUIFunctions.js
 var controlCounter = 0;
 var selectedControl;
@@ -566,10 +586,15 @@ async function frmFormDesigner_OnLoad(sender, eventArgs)
     form.Variables["ControlsPaneVisible"] = true;
     form.Variables["ControlsPaneWidth"] = _lbrControls ? _lbrControls.Width : 160;
 
+    // Single-form boot (VS Code panel): FormArgs carries the target GUID, the
+    // URL carries LangId/FormType. The legacy dropdown adds nothing here.
+    if (_cboForm)
+        _cboForm.Visible = false;
+
     if (form.formArguments)
     {
-        var sFormID = form.formArguments;
-        _cboForm.SelectedValue = sFormID;
+        var sFormID = String(form.formArguments).replace(/["{}]/g, "");
+        await LoadStagedForm(sFormID, GetBootLangId());
         return;
     }
 
@@ -593,15 +618,19 @@ async function cboControl_OnSelectionChanged(sender, eventArgs)
 
 async function btnSave_OnClick(sender, eventArgs)
 {
-    if (_cboForm.SelectedText == "" || _cboForm.SelectedText == null)
+    if (!form.Variables["FormID"])
         return;
+
+    // App.Form + language from load-time state (see LoadStagedForm), not the
+    // hidden dropdown; SaveForm itself posts by GUID + language.
+    var sFormType = form.Variables["FormType"] || GetBootFormType();
+    var dot = sFormType.indexOf(".");
+    var sAppName = dot > 0 ? sFormType.substring(0, dot) : "";
+    var sFormName = dot > 0 ? sFormType.substring(dot + 1) : sFormType;
+    var sFormLang = form.Variables["FormLang"] || GetBootLangId();
 
     _Form1.mask("Saving form...");
     await Application.DoEvents();
-
-    var sAppName = _cboForm.SelectedText.split(".")[0];
-    var sFormName = _cboForm.SelectedText.split(".")[1];
-    var sFormLang = _cboForm.SelectedText.match(/\(([^)]+)\)/)[1];
     SaveForm(sAppName, sFormName, sFormLang);
 
     _Form1.unmask();
@@ -609,13 +638,22 @@ async function btnSave_OnClick(sender, eventArgs)
 
 async function cboForm_OnSelectionChanged(sender, eventArgs)
 {
+    await LoadStagedForm(_cboForm.SelectedValue, GetBootLangId());
+}
+
+// Load + render one staged form (former cboForm_OnSelectionChanged body, de-
+// combo-ified: the id and language come from the caller instead of a store
+// row that only the deployed checkout-list provider ever had).
+async function LoadStagedForm(sFormID, sFormLang)
+{
+    if (!sFormID)
+        return;
+
     _Form1.mask("Loading...");
     await Application.DoEvents();
 
-    var sFormID = form.Variables["FormID"] = _cboForm.SelectedValue;
-
-    // use regex to get language from brackets in combobox text
-    var sFormLang = _cboForm.SelectedText.match(/\(([^)]+)\)/)[1];
+    sFormID = form.Variables["FormID"] = sFormID;
+    form.Variables["FormLang"] = sFormLang;
 
     // read xml from database
     var sXML = await lims.CallServer("FormDesigner.scGetFormCode", [sFormID, sFormLang]);
@@ -625,6 +663,12 @@ async function cboForm_OnSelectionChanged(sender, eventArgs)
         _Form1.unmask();
         return;
     }
+
+    // Remember the document's App.Form for SaveForm's <FormType> (URL param
+    // is the fallback); the server itself saves by GUID + language.
+    var ft = sXML.match(/<FormType>([\w.]+)<\/FormType>/i);
+    if (ft)
+        form.Variables["FormType"] = ft[1];
 
     // clear form
     if (_Form1.Controls)
@@ -673,7 +717,7 @@ async function cboForm_OnSelectionChanged(sender, eventArgs)
 
     // load form from xml
     _Form1 = await LoadFormFromXML(sXML);
-    _Form1.Guid = _cboForm.SelectedValue;
+    _Form1.Guid = sFormID;
     _Form1.Controls.Add(pnlSelected);
     selectedControl = _Form1;
     _treePanel.getRootNode().expand(true);

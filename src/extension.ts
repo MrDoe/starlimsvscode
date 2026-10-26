@@ -4650,8 +4650,20 @@ Please provide:
             return;
           }
 
-          const langId = item.language || "ENG";
+          let langId = item.language || "ENG";
+          // The checkout language wins: the server accepts saves only in it and
+          // checkout-first reads filter by it, so opening in any other language
+          // shows the stale base copy after a save ("looks not saved").
+          const checkoutLang = await enterpriseService.getFormCheckoutLanguage(formGuid);
+          if (checkoutLang) {
+            langId = checkoutLang;
+          }
           const displayName = typeof item.label === "string" && item.label ? item.label : String(remoteUri);
+          // "<App>.<Form>" from the dictionary path (/Applications/<Cat>/<App>/
+          // HTMLForms/<part>/<Form>): the designer needs it for SaveForm's
+          // <FormType>; the legacy checked-out-forms dropdown used to carry it.
+          const ftMatch = String(remoteUri).match(/\/Applications\/.+\/([^/]+)\/HTMLForms\/[^/]+\/([^/]+)\/?$/i);
+          const formType = ftMatch ? `${ftMatch[1]}.${ftMatch[2]}` : undefined;
 
           if (!designerServerService) {
             designerServerService = new DesignerServerService(context);
@@ -4664,7 +4676,7 @@ Please provide:
             try {
               await service.stageForm(enterpriseService, remoteUri, langId, formGuid);
               const backend = await service.ensureRunning();
-              await DesignerPanel.render(backend, formGuid, displayName, langId);
+              await DesignerPanel.render(backend, formGuid, displayName, langId, formType);
             } catch (e: any) {
               vscode.window.showErrorMessage(`Could not open the form designer: ${e?.message ?? e}`);
             }

@@ -2981,6 +2981,56 @@ export class EnterpriseService implements IEnterpriseService {
   }
 
   /**
+   * Language of the CURRENT USER's checkout for a form GUID (limsSourceControl.LANGID,
+   * surfaced as LANGID per row of ENTERPRISE_SUPPORT.GetPendingCheckins).
+   * FormProvider.SaveXFDDocument accepts saves ONLY in that language, and the
+   * checkout-first item reads filter by it - so the designer must open and stage
+   * in it: with any other language a reopened form shows the stale base copy
+   * (looks "not saved") and saves hit the server's "single language" guard.
+   * Returns undefined when the form is not checked out by this user (caller
+   * keeps its default language).
+   */
+  public async getFormCheckoutLanguage(formGuid: string): Promise<string | undefined> {
+    if (!formGuid) {
+      return undefined;
+    }
+    try {
+      let xml = await this.getCheckedOutItems(false);
+      if (xml && typeof xml !== "string" && typeof xml.data === "string") {
+        xml = xml.data;
+      }
+      if (typeof xml !== "string" || !xml) {
+        return undefined;
+      }
+      const doc = new DOMParser().parseFromString(xml, "text/xml");
+      let rows = doc.getElementsByTagName("PendingCheckins");
+      if (!rows.length) {
+        rows = doc.getElementsByTagName("pendingcheckins");
+      }
+      const guid = formGuid.trim().toLowerCase();
+      const me = (this.getCurrentUser() || "").trim().toLowerCase();
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const childId = (row.getElementsByTagName("CHILDID")[0]?.textContent || "").trim().toLowerCase();
+        if (childId !== guid) {
+          continue;
+        }
+        const by = (row.getElementsByTagName("CHECKEDOUTBY")[0]?.textContent || "").trim().toLowerCase();
+        if (by && by !== me) {
+          continue;
+        }
+        const lang = (row.getElementsByTagName("LANGID")[0]?.textContent || "").trim();
+        if (lang) {
+          return lang;
+        }
+      }
+    } catch (e) {
+      console.warn("[EnterpriseService] getFormCheckoutLanguage failed:", e);
+    }
+    return undefined;
+  }
+
+  /**
    * Check in all checked out items
    * @returns true if all items were checked in successfully, false otherwise
    */

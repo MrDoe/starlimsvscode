@@ -25,12 +25,13 @@ export class DesignerPanel {
     backend: DesignerBackend,
     formGuid: string,
     displayName: string,
-    langId: string
+    langId: string,
+    formType?: string
   ): Promise<void> {
     const existing = DesignerPanel.panels.get(formGuid);
     if (existing) {
       existing.panel.reveal(vscode.ViewColumn.One);
-      existing.setHtml(backend, formGuid, displayName, langId); // restage -> reload
+      existing.setHtml(backend, formGuid, displayName, langId, formType); // restage -> reload
       return;
     }
 
@@ -51,17 +52,18 @@ export class DesignerPanel {
 
     const instance = new DesignerPanel(panel, formGuid);
     DesignerPanel.panels.set(formGuid, instance);
-    instance.setHtml(backend, formGuid, displayName, langId);
+    instance.setHtml(backend, formGuid, displayName, langId, formType);
   }
 
-  private setHtml(backend: DesignerBackend, formGuid: string, displayName: string, langId: string): void {
+  private setHtml(backend: DesignerBackend, formGuid: string, displayName: string, langId: string, formType?: string): void {
     // FormArgs carries the target form GUID as a JSON string: the deployed
     // StartHtml hands it to Navigate, and frmFormDesigner_OnLoad reads
     // form.formArguments directly to auto-select the form on boot.
     const url =
       `${backend.baseUrl}/Starthtml.lims?FormId=${encodeURIComponent("FormDesigner")}` +
       `&LangId=${encodeURIComponent(langId)}` +
-      `&FormArgs=${encodeURIComponent(`"${formGuid}"`)}`;
+      `&FormArgs=${encodeURIComponent(`"${formGuid}"`)}` +
+      (formType ? `&FormType=${encodeURIComponent(formType)}` : "");
     this.panel.title = `Designer: ${escapeHtml(displayName)}`;
     this.panel.webview.html = /*html*/ `<!DOCTYPE html>
 <html lang="en">
