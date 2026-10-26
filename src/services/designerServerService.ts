@@ -174,26 +174,31 @@ export class DesignerServerService {
     const fixtures = this.fixturesDir();
     fs.mkdirSync(fixtures, { recursive: true });
 
-    const xml = await enterpriseService.getEnterpriseItemCodeResult(uri, langId);
+    // Normalize FIRST: the command may arrive from the [XML] node, the
+    // [Code Behind] node or a synced code-behind editor - all parts share
+    // one GUID but only the XML part carries the form document.
+    const xmlUri = deriveFormPartUri(uri, "XML") ?? uri;
+    const cbUri = deriveFormPartUri(uri, "CodeBehind");
+
+    const xml = await enterpriseService.getEnterpriseItemCodeResult(xmlUri, langId);
     if (!xml.ok || !xml.data?.code) {
-      throw new Error(xml.error || `Could not retrieve form XML for ${uri}.`);
+      throw new Error(xml.error || `Could not retrieve form XML for ${xmlUri}.`);
     }
     fs.writeFileSync(path.join(fixtures, `${guid}.ui.xml`), xml.data.code, "utf8");
 
-    const behind = await this.stageCodeBehind(enterpriseService, uri, langId, guid, fixtures);
-    await this.stageIncludes(enterpriseService, uri, langId, behind, fixtures);
+    const behind = await this.stageCodeBehind(enterpriseService, cbUri, langId, guid, fixtures);
+    await this.stageIncludes(enterpriseService, xmlUri, langId, behind, fixtures);
     await this.prefetchControlSchemas(enterpriseService, xml.data.code, fixtures);
   }
 
   /** Fetch + write `<guid>.codebehind.wire.js`; returns the stored text. */
   private async stageCodeBehind(
     enterpriseService: EnterpriseService,
-    uri: string,
+    cbUri: string | undefined,
     langId: string,
     guid: string,
     fixtures: string
   ): Promise<string | undefined> {
-    const cbUri = deriveCodeBehindUri(uri);
     if (!cbUri) {
       return undefined;
     }
@@ -303,12 +308,17 @@ function bundledBinaryPath(context: vscode.ExtensionContext): string {
   return context.asAbsolutePath(path.join("resources", "bin", "xfd-cli.exe"));
 }
 
-/** /Applications/X/HTMLForms/XML/Name -> .../HTMLForms/CodeBehind/Name */
-export function deriveCodeBehindUri(uri: string): string | undefined {
-  if (/\/HTMLForms\/XML\//i.test(uri)) {
-    return uri.replace(/\/HTMLForms\/XML\//i, "/HTMLForms/CodeBehind/");
-  }
-  return undefined;
+/**
+ * Rewrite an HTMLForms item URI to a sibling part: any
+ * `/Applications/X/HTMLForms/<part>/<Name>` (XML, CodeBehind, Guide,
+ * Resources) maps to `/Applications/X/HTMLForms/<target>/<Name>`. All parts
+ * of one form share a GUID, so "Design Form" works no matter which tree node
+ * (`[XML]`, `[Code Behind]`, …) or synced code-behind editor the command was
+ * invoked from.
+ */
+export function deriveFormPartUri(uri: string, target: string): string | undefined {
+  const m = /^(.*\/HTMLForms\/)[^/]+\/([^/]+)$/i.exec(uri);
+  return m ? `${m[1]}${target}/${m[2]}` : undefined;
 }
 
 function getFreePort(): Promise<number> {
