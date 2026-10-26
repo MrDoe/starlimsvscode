@@ -50,7 +50,13 @@ export class DesignerPanel {
   }
 
   private setHtml(backend: DesignerBackend, formGuid: string, displayName: string, langId: string): void {
-    const url = `${backend.baseUrl}/Starthtml.lims?FormId=${encodeURIComponent(formGuid)}&LangId=${encodeURIComponent(langId)}`;
+    // FormArgs carries the target form GUID as a JSON string: the deployed
+    // StartHtml hands it to Navigate, and frmFormDesigner_OnLoad reads
+    // form.formArguments directly to auto-select the form on boot.
+    const url =
+      `${backend.baseUrl}/Starthtml.lims?FormId=${encodeURIComponent("FormDesigner")}` +
+      `&LangId=${encodeURIComponent(langId)}` +
+      `&FormArgs=${encodeURIComponent(`"${formGuid}"`)}`;
     this.panel.title = `Designer: ${escapeHtml(displayName)}`;
     this.panel.webview.html = /*html*/ `<!DOCTYPE html>
 <html lang="en">

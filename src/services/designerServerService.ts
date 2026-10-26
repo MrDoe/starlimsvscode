@@ -116,9 +116,10 @@ export class DesignerServerService {
 
   /**
    * Copy the bundled designer-shell fixtures (FormDesigner form + its
-   * code-behind/resources sidecars + provider data sidecars) into the
-   * staging dir. Always overwrite: the shell is extension payload, never a
-   * user edit; target forms (<guid>.* staged per open) are left untouched.
+   * code-behind/resources sidecars + provider data sidecars + the designer's
+   * own behavior client-scripts) into the staging dir. Always overwrite: the
+   * shell is extension payload, never a user edit; target forms (<guid>.*
+   * staged per open) are left untouched.
    */
   private seedDesignShell(fixtures: string): void {
     const src = path.join(this.context.extensionPath, "resources", "designer");
@@ -132,6 +133,19 @@ export class DesignerServerService {
       }
       fs.copyFileSync(path.join(src, file), path.join(fixtures, file));
     }
+    // Behavior client-scripts (`#include` payload the serve stitcher appends):
+    // resources/designer/includes/include-<lowername>.js -> fixtures root.
+    const includes = path.join(src, "includes");
+    if (fs.existsSync(includes)) {
+      for (const file of fs.readdirSync(includes)) {
+        if (!/^include-.+\.js$/i.test(file)) {
+          continue;
+        }
+        fs.copyFileSync(path.join(includes, file), path.join(fixtures, file));
+      }
+    } else {
+      this.output.appendLine(`warning: no bundled designer includes at ${includes} - the FormDesigner will load without behavior scripts`);
+    }
   }
 
   /**
@@ -140,6 +154,16 @@ export class DesignerServerService {
    * HTMLFORMCODE arrives wire-ready: the EnterpriseService normalizes
    * '#include' lines to '//#include' for JS items, exactly what the
    * eval-based artifact composition needs.
+   *
+   * Two prefetches make the staged form designer-loadable without touching
+   * the server from the browser (read-only rule):
+   *   * every `#include "X.Y"` of the code-behind is fetched from the app's
+   *     ClientScripts folder and stored as `include-<x.y>.js` (serve's
+   *     ProcessScripts replica appends them to the artifact);
+   *   * the dsControlProperties property schema is fetched per control type
+   *     used by the form XML and stored as
+   *     `data-formdesigner.dscontrolproperties-<type>.json` (ReadXML's
+   *     lims.GetData round-trips land on serve's sidecar route).
    */
   public async stageForm(
     enterpriseService: EnterpriseService,
@@ -156,13 +180,104 @@ export class DesignerServerService {
     }
     fs.writeFileSync(path.join(fixtures, `${guid}.ui.xml`), xml.data.code, "utf8");
 
+    const behind = await this.stageCodeBehind(enterpriseService, uri, langId, guid, fixtures);
+    await this.stageIncludes(enterpriseService, uri, langId, behind, fixtures);
+    await this.prefetchControlSchemas(enterpriseService, xml.data.code, fixtures);
+  }
+
+  /** Fetch + write `<guid>.codebehind.wire.js`; returns the stored text. */
+  private async stageCodeBehind(
+    enterpriseService: EnterpriseService,
+    uri: string,
+    langId: string,
+    guid: string,
+    fixtures: string
+  ): Promise<string | undefined> {
     const cbUri = deriveCodeBehindUri(uri);
-    if (cbUri) {
-      const behind = await enterpriseService.getEnterpriseItemCodeResult(cbUri, langId);
-      if (behind.ok && behind.data?.code) {
-        fs.writeFileSync(path.join(fixtures, `${guid}.codebehind.wire.js`), behind.data.code, "utf8");
+    if (!cbUri) {
+      return undefined;
+    }
+    const behind = await enterpriseService.getEnterpriseItemCodeResult(cbUri, langId);
+    if (behind.ok && behind.data?.code) {
+      fs.writeFileSync(path.join(fixtures, `${guid}.codebehind.wire.js`), behind.data.code, "utf8");
+      return behind.data.code;
+    }
+    this.output.appendLine(`note: no code-behind for ${cbUri} (${behind.error ?? "empty"})`);
+    return undefined;
+  }
+
+  /**
+   * Resolve `#include "FormDesigner.GUIFunctions"`-style lines against the
+   * app's ClientScripts folder (`/Applications/<App>[/<Sub>]/ClientScripts/<name>`,
+   * the layout all FormDesigner-family apps use) and store the bodies as the
+   * `include-<lowername>.js` sidecars the serve stitcher expects. A script
+   * that does not resolve is logged and skipped — serve skips it too, so the
+   * designer still loads the form minus that behavior.
+   */
+  private async stageIncludes(
+    enterpriseService: EnterpriseService,
+    formUri: string,
+    langId: string,
+    codeBehind: string | undefined,
+    fixtures: string
+  ): Promise<void> {
+    if (!codeBehind) {
+      return;
+    }
+    const names = new Set<string>();
+    for (const m of codeBehind.matchAll(/^(?:\/\/)?\s*#include\s+"([\w.]+)"/gm)) {
+      names.add(m[1]);
+    }
+    const scriptsBase = formUri.replace(/\/HTMLForms\/.*$/i, "/ClientScripts");
+    for (const name of names) {
+      const sidecar = path.join(fixtures, `include-${name.toLowerCase()}.js`);
+      // A `#include "FormDesigner.GUIFunctions"` id is <appName>.<scriptName>;
+      // dictionary ClientScripts items are registered under the plain script
+      // name below the app folder, the dotted form as a fallback.
+      const candidates = [`${scriptsBase}/${name}`, `${scriptsBase}/${name.split(".").pop()}`];
+      let code: string | undefined;
+      let lastError: string | undefined;
+      for (const candidate of candidates) {
+        const res = await enterpriseService.getEnterpriseItemCodeResult(candidate, langId);
+        if (res.ok && res.data?.code) {
+          code = res.data.code;
+          break;
+        }
+        lastError = res.error;
+      }
+      if (code) {
+        fs.writeFileSync(sidecar, code, "utf8");
       } else {
-        this.output.appendLine(`note: no code-behind for ${cbUri} (${behind.error ?? "empty"})`);
+        this.output.appendLine(`note: include '${name}' not staged (${lastError ?? "no such item"}) - form loads without it`);
+      }
+    }
+  }
+
+  /**
+   * dsControlProperties schema prefetch. The designer calls
+   * lims.GetData("FormDesigner.dsControlProperties", [<schemaType>]) per
+   * control type while loading a form; the serve side answers from
+   * per-type sidecars. Types come from the form XML's xsi:type members
+   * (plus 'Form' for the root — the deployed GetControlSchemaType just
+   * strips the 'Starlims' prefix). Already-cached types are skipped, so the
+   * bundled shell schemas act as the seed. The wire JSON comes straight off
+   * Runtime_Support.GetDataAsJson (exact Newtonsoft DataSet format).
+   */
+  private async prefetchControlSchemas(enterpriseService: EnterpriseService, formXml: string, fixtures: string): Promise<void> {
+    const types = new Set<string>(["Form"]);
+    for (const m of formXml.matchAll(/xsi:type="(\w+)"/g)) {
+      types.add(m[1]);
+    }
+    for (const type of types) {
+      const sidecar = path.join(fixtures, `data-formdesigner.dscontrolproperties-${type.toLowerCase()}.json`);
+      if (fs.existsSync(sidecar)) {
+        continue;
+      }
+      const res = await enterpriseService.getDataSourceJsonResult("FormDesigner.dsControlProperties", [type]);
+      if (res.ok && res.data !== undefined && res.data !== null && res.data !== "") {
+        fs.writeFileSync(sidecar, JSON.stringify(res.data), "utf8");
+      } else {
+        this.output.appendLine(`note: no dsControlProperties schema for '${type}' (${res.error ?? "empty"}) - properties panel will report it`);
       }
     }
   }

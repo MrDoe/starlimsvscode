@@ -1758,6 +1758,36 @@ export class EnterpriseService implements IEnterpriseService {
   }
 
   /**
+   * Execute a STARLIMS data source (or data-source script) through
+   * Runtime_Support.GetDataAsJson and hand back the parsed DataSet-JSON
+   * object — the same wire shape the htmlruntime client receives from
+   * lims.GetData. The call goes through the RunScript SS branch, whose
+   * ExecFunction binds the parameters (the DS branch drops them), and the
+   * script's JSON-string return is unwrapped. Unlike runScript() this never
+   * reformats and never pops an error message, so callers can persist
+   * provider sidecars (designer staging).
+   */
+  public async getDataSourceJsonResult(
+    dataSourceName: string,
+    parameters: unknown[] = []
+  ): Promise<EnterpriseOperationResult<unknown>> {
+    const res = await this.executeRemoteScriptResult("/ServerScripts/Runtime_Support/GetDataAsJson", {
+      parameters: [dataSourceName, parameters],
+      outputType: "JSON",
+      entryPoint: ""
+    });
+    if (res.ok && typeof res.data === "string") {
+      try {
+        // The SS branch returns the script's JSON string; unwrap it verbatim.
+        return { ok: true, data: JSON.parse(res.data) };
+      } catch {
+        return { ok: false, error: `GetDataAsJson returned non-JSON payload for '${dataSourceName}'.` };
+      }
+    }
+    return res;
+  }
+
+  /**
    * Gets the service config
    * @returns the service configuration settings */
   public getConfig(): vscode.WorkspaceConfiguration {
