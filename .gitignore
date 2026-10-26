@@ -21,3 +21,6 @@ CLAUDE.md
 
 # deployed Rust designer backend binary (built from C:\Daten\STARLIMS\designer-rs; VSIX-packaged via resources/, not git-tracked)
 resources/bin/*.exe
+
+# designer shell sidecar code-behind IS shipped payload despite the global *.js ignore
+!resources/designer/*.wire.js
