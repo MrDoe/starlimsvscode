@@ -59,8 +59,7 @@ export class DesignerServerService {
   }
 
   /** Directory holding the deployed htmlruntime client files (may be empty). */
-  public resolveStatics(): string {
-    const configured = vscode.workspace.getConfiguration("STARLIMS").get<string>("designer.statics", "").trim();
+  public resolveStatics(): string {    const configured = vscode.workspace.getConfiguration("STARLIMS").get<string>("designer.statics", "").trim();
     if (configured && !fs.existsSync(configured)) {
       this.output.appendLine(`warning: STARLIMS.designer.statics '${configured}' does not exist - designer will load without client statics`);
     }
@@ -71,6 +70,14 @@ export class DesignerServerService {
   public fixturesDir(): string {
     return path.join(this.context.globalStorageUri.fsPath, "designer", "fixtures");
   }
+
+  /**
+   * Provides this window's VS Code express callback port to the backend at
+   * spawn time (`XFD_CALLBACK_PORT`); serve answers the designer's
+   * `SCM_API.FormCallbackPort.GetPort` with it, completing the deployed
+   * OpenCodeBehind convention without touching the real server.
+   */
+  public callbackPortProvider?: () => number | undefined;
 
   /** Start the backend once and reuse it; concurrent calls share one startup. */
   public async ensureRunning(): Promise<DesignerBackend> {
@@ -97,7 +104,12 @@ export class DesignerServerService {
     }
 
     this.output.appendLine(`starting: ${binary} ${args.join(" ")}`);
-    const child = cp.spawn(binary, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    const callbackPort = this.callbackPortProvider?.();
+    if (callbackPort) {
+      env.XFD_CALLBACK_PORT = String(callbackPort);
+    }
+    const child = cp.spawn(binary, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env });
     child.stdout?.on("data", (d) => this.output.appendLine(String(d).trimEnd()));
     child.stderr?.on("data", (d) => this.output.appendLine(String(d).trimEnd()));
     child.on("exit", (code) => {

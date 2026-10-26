@@ -4,6 +4,7 @@
 import * as vscode from "vscode";
 import { execFile as execFileCallback } from "child_process";
 import * as fs from "fs";
+import * as path from "path";
 import fetch, { Headers } from "node-fetch";
 import { EnterpriseFileDecorationProvider } from "./providers/enterpriseFileDecorationProvider";
 import { EnterpriseItemType, EnterpriseTreeDataProvider, TreeEnterpriseItem } from "./providers/enterpriseTreeDataProvider";
@@ -4640,6 +4641,7 @@ Please provide:
 
           if (!designerServerService) {
             designerServerService = new DesignerServerService(context);
+            designerServerService.callbackPortProvider = () => expressServer?.getPort();
             context.subscriptions.push(designerServerService);
           }
           const service = designerServerService;
@@ -5663,6 +5665,22 @@ Please provide:
 
       // register the OpenCodeBehind command
       vscode.commands.registerCommand("STARLIMS.OpenCodeBehind", async (formId: string | any, functionName: string | any) => {
+        const formIdStr = typeof formId === "string" ? formId.trim() : String(formId ?? "").trim();
+
+        // Designer-staged form: the local code-behind sidecar is the
+        // design-time truth - scModifyCodeBehind.AddFunction stubs land there
+        // and the server copy stays untouched until the check-in flow. Prefer
+        // it over a fresh server read so the jump finds the new function.
+        if (designerServerService && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(formIdStr)) {
+          const stagedCodeBehind = path.join(designerServerService.fixturesDir(), `${formIdStr}.codebehind.wire.js`);
+          if (fs.existsSync(stagedCodeBehind)) {
+            const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(stagedCodeBehind));
+            const editor = await vscode.window.showTextDocument(doc, { preview: false });
+            revealFunctionInEditor(editor, functionName);
+            return;
+          }
+        }
+
         // get tree item from formId
         const item = await enterpriseService.getItemByGUID(formId, EnterpriseItemType.HTMLFormCode);
         if (item === undefined || item === null) {
@@ -5673,19 +5691,7 @@ Please provide:
         await vscode.commands.executeCommand("STARLIMS.GetLocal", item);
 
         // go to the function name
-        if (functionName !== undefined) {
-          const editor = vscode.window.activeTextEditor;
-          if (editor) {
-            const text = editor.document.getText();
-            const regex = new RegExp(`async function ${functionName}\\(`, "mig");
-            const match = regex.exec(text);
-            if (match) {
-              const position = editor.document.positionAt(match.index);
-              editor.selection = new vscode.Selection(position, position);
-              editor.revealRange(new vscode.Range(position, position));
-            }
-          }
-        }
+        revealFunctionInEditor(vscode.window.activeTextEditor, functionName);
       });
 
       // show the connection message
@@ -5703,6 +5709,22 @@ Please provide:
       void vscode.window.showErrorMessage("STARLIMS failed to initialize. See logs for details.");
     });
   }, DEFERRED_STARLIMS_INIT_MS);
+}
+
+/** Jump the given editor to `async function <functionName>(` when possible
+ *  (shared by the OpenCodeBehind command's staged-sidecar and server paths). */
+function revealFunctionInEditor(editor: vscode.TextEditor | undefined, functionName: string | any) {
+  if (!editor || functionName === undefined || functionName === null) {
+    return;
+  }
+  const text = editor.document.getText();
+  const regex = new RegExp(`async function ${String(functionName)}\\(`, "mig");
+  const match = regex.exec(text);
+  if (match) {
+    const position = editor.document.positionAt(match.index);
+    editor.selection = new vscode.Selection(position, position);
+    editor.revealRange(new vscode.Range(position, position));
+  }
 }
 
 async function highlightGlobalSearchMatches(item: TreeEnterpriseItem, localUri: vscode.Uri) {
