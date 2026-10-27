@@ -783,7 +783,7 @@ function XfdBeginMove(e, hitControl)
         XfdShowDragFrame(minX + snx + origin[0], minY + sny + origin[1], maxX - minX, maxY - minY);
     }
 
-    function handle_up(ev)
+    async function handle_up(ev)
     {
         $('body').off('mousemove', handle_moving).off('mouseup', handle_up);
 
@@ -818,10 +818,9 @@ function XfdBeginMove(e, hitControl)
             if (target && target !== st.parent0 && XfdCanContain(target, st.c))
             {
                 var pageXY = el ? el.getXY() : st.page0;
-                var z0 = st.z0;
                 XfdReparentComponent(st.c, target, pageXY);
-                XfdMoveOutlineNode(st.c, target);            // savexml + z-index truth
-                void z0;                                     // z comes from SetZIndex
+                await XfdMoveOutlineNode(st.c, target);     // savexml + z-index truth
+                st.movedTree = true;
             }
             else
             {
@@ -1055,6 +1054,23 @@ function XfdHandleMouseDown(e, explicitControl)
         console.log("XFD-DEBUG branch: move", control.Id);   // XFD-DEBUG
         if (e.stopPropagation) e.stopPropagation();
         XfdBeginMove(e, control);
+        return;
+    }
+
+    // press on a NON-movable surface (TabPage/SplitterPanel body, columns,
+    // bars...): if a movable ANCESTRAL control is currently selected, the
+    // press belongs to it and moves the whole selection instead
+    var carrier = null;
+    for (var a = control; a; a = a.Parent)
+    {
+        if (XfdIsMovable(a) && XfdIsControlSelected(a))
+        { carrier = a; break; }
+    }
+    if (carrier)
+    {
+        console.log("XFD-DEBUG branch: group-move via selected ancestor", carrier.Id); // XFD-DEBUG
+        if (e.stopPropagation) e.stopPropagation();
+        XfdBeginMove(e, carrier);
         return;
     }
 
