@@ -27,6 +27,12 @@ Description.. :	Layout-Editor-style interaction for the FormDesigner canvas,
 			  on the canvas (Shift = 10 px); a document-level handler with
 			  focus guards, since the per-control keydown binding only fires
 			  for controls whose element actually has focus.
+			- COORDINATE CONVENTION: all internal snap/overlay coordinates are
+			  PAGE space (getXY semantics). getBoundingClientRect() results
+			  MUST be converted with window.scrollX/scrollY before they are
+			  compared with, or subtracted against, getXY-based values - the
+			  mixing is invisible at scroll == 0 but silently kills Y-snapping
+			  on a scrolled canvas and draws guides/ghosts scroll-offset.
 	Grep markers: XFD-INTERACTION, XFD-SNAP, XFD-MULTISELECT, XFD-REPARENT,
 	XFD-EVTGUARD, XFD-KEYNAV.
 	Save semantics are untouched: savexml serializes from the outline tree,
@@ -107,14 +113,20 @@ if (!window.__xfdArrowBound)
     window.__xfdArrowBound = true;
     document.addEventListener("keydown", function (e)
     {
-        var code = e.keyCode || e.which;
+        // e.key first: untrusted/a11y-generated events carry keyCode 0
+        var KEYMAP = { ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40 };
+        var code = KEYMAP[e.key] || e.keyCode || e.which;
         if (code < 37 || code > 40)                       // arrows only
             return;
 
         var t = e.target;
         if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable))
             return;
-        if (t && t.closest && t.closest("[automation-id='_dgdProperties'], [automation-id='_treePanel'], [automation-id='_cboControl'], iframe"))
+        // Real Ext widget chrome (property grid = x-grid, outline = x-tree,
+        // combos/text = x-form-field). NOTE: [automation-id='_dgdProperties']
+        // style lookups are DEAD here - those components carry generated
+        // ids (StarlimsDataGrid-N / treepanel-N), so match widget classes.
+        if (t && t.closest && t.closest(".x-grid, .x-tree, .x-form-field, iframe"))
             return;
         if (XfdResolveControlFromEvent(e))
             return;                                       // legacy binding owns it
@@ -464,11 +476,13 @@ function XfdOverlay()
 
 function XfdOverlayRect()
 {
+    // CONVENTION (see header): PAGE space. The overlay is pinned to the form
+    // context origin, but its rect is CLIENT space - add window scroll.
     var overlay = XfdOverlay();
     if (!overlay)
         return { left: 0, top: 0 };
     var r = overlay.dom.getBoundingClientRect();
-    return { left: r.left, top: r.top };
+    return { left: r.left + window.scrollX, top: r.top + window.scrollY };
 }
 
 function XfdClearOverlayBoxes(cls)
@@ -524,7 +538,9 @@ function XfdRefreshSelectionVisuals()
         if (r.width <= 0 && r.height <= 0)
             continue;
 
-        XfdAddOverlayBox("xfd-selbox", r.left - origin.left - 1, r.top - origin.top - 1,
+        // r is CLIENT space, origin (XfdOverlayRect) is PAGE space
+        XfdAddOverlayBox("xfd-selbox", r.left + window.scrollX - origin.left - 1,
+            r.top + window.scrollY - origin.top - 1,
             r.width + 2, r.height + 2, "border:1px dashed #157fcc;");
     }
 }
@@ -578,8 +594,13 @@ function XfdCollectSnapLines(members)
 
     var add = function (r)
     {
-        xs.push(r.left, r.left + r.width / 2, r.left + r.width);
-        ys.push(r.top, r.top + r.height / 2, r.top + r.height);
+        // rect -> PAGE space (header convention): the drag candidates are
+        // getXY/pageY based, so raw client lines would sit scrollX/scrollY
+        // away from their true position while the document is scrolled
+        // (XFD-SNAP: this is what used to kill Y-snapping on a scrolled canvas)
+        var sx = window.scrollX, sy = window.scrollY;
+        xs.push(r.left + sx, r.left + r.width / 2 + sx, r.left + r.width + sx);
+        ys.push(r.top + sy, r.top + r.height / 2 + sy, r.top + r.height + sy);
     };
 
     var formEl = XfdElOf(_Form1);
