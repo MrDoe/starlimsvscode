@@ -831,8 +831,12 @@ async function frmFormDesigner_OnShow(sender, eventArgs)
     if (tabSidebar)
         tabSidebar.on('tabchange', ResizeOutlineTree);
 
-    // XFD-MULTISELECT: a plain-drag that starts on the empty canvas draws
-    // the marquee band; child controls stopPropagation on their own mousedown.
+    // XFD-MULTISELECT: a drag that starts on the empty canvas draws the
+    // marquee band; a drag that starts over a control MOVES that control. Both
+    // bindings call the same dispatcher - it dedups the bus's per-binding
+    // event clones through the XFD-EVTGUARD generation counter instead of
+    // stopPropagation(), so the live Ext widgets (tabs, comboboxes, grids,
+    // checkboxes) keep their native handling.
     // NOTE: $ here is the jQuery adapter - no .dom property, use [0].
     var formCanvas = $('[automation-id="_Form1"]');
     if (formCanvas && formCanvas[0] && !formCanvas[0].__xfdCanvasBound)

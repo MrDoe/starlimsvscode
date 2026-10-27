@@ -1,10 +1,24 @@
 /* eslint-disable no-unused-vars */
 /* eslint-disable no-undef */
 /*
-Description.. :	Layout-Editor-style interaction for the FormDesigner canvas:
-			- plain drag MOVES a control (XFD-SNAP: snaps edges/centers to
+Description.. :	Layout-Editor-style interaction for the FormDesigner canvas,
+			following the Starlims Designer stance on the left button
+			(XFD-INTERACTION):
+			- press on a control + drag MOVES it (the press selects it, just
+			  like the designer does; XFD-SNAP: snaps edges/centers to
 			  neighbouring controls, Alt held = no snapping)
-			- marquee (bounding box) multi-select + group move (XFD-MULTISELECT)
+			- press on the EMPTY CANVAS + drag draws the selection bounding
+			  box - the band NEVER starts over a control (XFD-MULTISELECT)
+			- click SELECTS the pressed control; click on the empty canvas
+			  clears the selection
+			- group move of a multi-selection, Ctrl+click toggles membership
+			- presses are never stopPropagation()ed: interactive widgets (tabs,
+			  comboboxes, grids, checkboxes) keep their native Ext click
+			  semantics - only the designer gestures are suppressed
+			- XFD-EVTGUARD: the event bus clones one physical event per bound
+			  handler (markers on the event object do not survive the clone);
+			  a document-capture generation counter lets exactly one handler
+			  call per physical click/press through
 			- dropping into Form/Panel/GroupBox/TabPage/SplitterPanel REPARENTS
 			  the control, moves its outline node and recomputes the depth based
 			  z-index through SetZIndex() (XFD-REPARENT); the outline tree
@@ -36,6 +50,42 @@ var XFD_STRUCTURAL_TYPES = {
 // "selectedControl" (wire global) always equals the primary.
 var _xfdSelection = [];
 var _xfdSuppressClick = false;
+
+// XFD-EVTGUARD: the deployed event bus delivers one physical mouse event to
+// EVERY designer binding it passes (the control's own handler, the form's, a
+// treeview re-binding...), CLONING it into a fresh plain object per handler -
+// a marker set on the event object never reaches the next clone (the reason
+// Ctrl+click toggled twice: add, then immediately remove). Dedup by
+// capture-phase generation instead: document sees each dispatched event
+// exactly once before any handler, so (generation, target) identifies the
+// physical event. Programmatic callers pass plain { target: control } objects
+// that were never dispatched - those always pass.
+var _xfdEvtGen = { click: 0, mousedown: 0 };
+document.addEventListener("click", function () { _xfdEvtGen.click++; }, true);
+document.addEventListener("mousedown", function () { _xfdEvtGen.mousedown++; }, true);
+
+function XfdClaimEvent(e, guard)
+{
+    if (e.__xfdClaimed)                           // same object delivered twice
+        return false;
+
+    if (e.target && e.target.nodeType === undefined)  // programmatic call
+    {
+        e.__xfdClaimed = true;
+        return true;
+    }
+
+    var gen = _xfdEvtGen[guard.type];
+    if (guard.gen === gen && guard.tgt === e.target)
+        return false;                             // another clone of this event
+    guard.gen = gen;
+    guard.tgt = e.target;
+    e.__xfdClaimed = true;
+    return true;
+}
+
+var _xfdClickGuard = { type: "click", gen: -1, tgt: null };
+var _xfdMdownGuard = { type: "mousedown", gen: -1, tgt: null };
 
 // ---------------------------------------------------------------------------
 // small helpers
@@ -105,7 +155,11 @@ function XfdAllControls()
 }
 
 // resolve a mouse/key event target to the designer control that owns it
-// (walks Ext.Component.from up the Parent chain until a htControls member)
+// (walks Ext's component chain until a htControls member; a press inside ANY
+// designer control must resolve to it, otherwise the band would start over a
+// control - XFD-INTERACTION). Tab strip headers included: they belong to their
+// TabControl, which is what makes the TabControl selectable/draggable at all
+// (Ext already activated the tab on its own, deeper handler).
 function XfdResolveControlFromEvent(e)
 {
     // synthetic events from AddControl/AddColumn/combo pass the control itself
@@ -116,18 +170,17 @@ function XfdResolveControlFromEvent(e)
     if (!dom || !dom.closest)
         return null;
 
-    // never claim clicks on the tab strip headers
-    if (dom.closest(".x-tab"))
-        return null;
-
     var c = null;
-    try { c = Ext.Component.from(dom); } catch (err) { c = null; }
+    try { c = dom.nodeType === 1 ? Ext.Component.from(dom) : dom; } catch (err) { c = null; }
 
-    while (c)
+    // Ext-internal parts (a grid's view, a title text, a toolbar body...) are
+    // not on the DTO Parent chain - they only reach their widget through
+    // ownerCt, so follow both links upwards.
+    for (var hop = 0; c && hop < 40; ++hop)
     {
         if (XfdIsDesignerControl(c))
             return c;
-        c = c.Parent || (c.getParent ? c.getParent() : null);
+        c = c.Parent || (c.getParent ? c.getParent() : null) || c.ownerCt || null;
     }
     return null;
 }
@@ -685,9 +738,11 @@ function XfdBeginMove(e, hitControl)
 {
     var members;
     if (XfdIsControlSelected(hitControl))
-        members = XfdMoveSet();
+        members = XfdMoveSet();                              // group move
     else
     {
+        // the press selects what it grabs (designer behavior), so a control
+        // that was not selected yet becomes the single member
         XfdSetSelection([hitControl]);
         members = [hitControl];
     }
@@ -966,7 +1021,6 @@ function XfdBeginMarquee(e)
         if (ev.preventDefault)
             ev.preventDefault();
 
-        var origin = XfdFormOrigin();
         XfdShowDragFrame(bx, by, bw, bh);
 
         XfdSetSelection(base.concat(hitList(bx, by, bw, bh))
@@ -1002,7 +1056,49 @@ function XfdBeginMarquee(e)
 // ---------------------------------------------------------------------------
 // unified mousedown entry (bound by guifunctions' __control_OnDrag and the
 // canvas binding) - dispatches to move / resize / marquee
+//
+// Starlims Designer left-button stance (XFD-INTERACTION):
+//   - press on a control + drag        -> MOVES the control (the press
+//     selects it first; a selected control drags its whole selection along)
+//   - press on the empty canvas + drag -> draws the selection bounding box
+//   - a press that does not move       -> the plain click SELECTS the pressed
+//     control, or CLEARS the selection on the empty canvas
+// The band NEVER starts while the cursor is above a control - only a press on
+// the form's own surface can draw it. Shift+drag is the explicit escape hatch
+// and bands from anywhere.
+//
+// Presses are never stopPropagation()ed: tabs, comboboxes, grids and
+// checkboxes stay live widgets (Ext delegates their handling up to the
+// document), so the designer suppresses GESTURES only, never the widget's own
+// click semantics - clicking a tab still changes the TabControl's page.
 // ---------------------------------------------------------------------------
+
+// the form's own surface - everything else counts as "a control", including
+// the surfaces of non-movable children (TabPage/SplitterPanel body, grid
+// columns, button/link bars): only a press here may start the band
+function XfdIsEmptyCanvas(control)
+{
+    return !control || control === _Form1;
+}
+
+// which control (if any) does this press grab for a move? A movable control is
+// grabbed directly (XfdBeginMove selects it when it is not selected yet). A
+// press on a NON-movable surface is carried by the selected movable ANCESTOR,
+// so a selected container can be grabbed by its own child chrome.
+function XfdGrabbedForMove(control)
+{
+    if (XfdIsEmptyCanvas(control))
+        return null;
+
+    if (XfdIsMovable(control))
+        return control;
+
+    for (var a = control.Parent; a; a = a.Parent)
+        if (XfdIsMovable(a) && XfdIsControlSelected(a))
+            return a;
+
+    return null;
+}
 
 function XfdHandleMouseDown(e, explicitControl)
 {
@@ -1013,10 +1109,18 @@ function XfdHandleMouseDown(e, explicitControl)
     if (e.which !== undefined && e.which !== 1)
         return;
 
-    _xfdSuppressClick = false;
+    // XFD-EVTGUARD: the event bus clones the native event into a FRESH plain
+    // object for every bound handler (the press reaches this function twice:
+    // the control binding and the canvas binding). Expando markers on the
+    // event object are therefore useless - the second clone never sees them.
+    // The bus also never stopPropagation()s designer events on purpose: tabs,
+    // comboboxes, grids and checkboxes are live Ext widgets whose handling is
+    // delegated up to the document, so swallowing the event would kill their
+    // native click semantics. Only gestures are suppressed, never activation.
+    if (!XfdClaimEvent(e, _xfdMdownGuard))
+        return;
 
-    if (e.target && e.target.closest && e.target.closest(".x-tab"))
-        return;                                              // tab strip: leave to Ext
+    _xfdSuppressClick = false;
 
     var control = explicitControl || XfdResolveControlFromEvent(e);
 
@@ -1024,48 +1128,42 @@ function XfdHandleMouseDown(e, explicitControl)
     {
         if (control && control !== _Form1)
         {
-            if (e.stopPropagation) e.stopPropagation();
             if (e.preventDefault) e.preventDefault();
             XfdBeginResize(e);
+            return;
         }
+
+        // Ctrl+press on the empty canvas: start an ADDITIVE band (Ctrl+click
+        // already toggles membership on a control, so the press must not
+        // swallow the gesture)
+        XfdBeginMarquee(e);
         return;
     }
 
     if (e.shiftKey)                                          // Shift+drag: band anywhere
     {
-        if (e.stopPropagation) e.stopPropagation();
         if (e.preventDefault) e.preventDefault();
         XfdBeginMarquee(e);
         return;
     }
 
-    if (control && XfdIsMovable(control))                    // plain drag: move
+    var grabbed = XfdGrabbedForMove(control);
+
+    if (grabbed)                                  // cursor over a control: drag moves it
     {
-        if (e.stopPropagation) e.stopPropagation();
-        XfdBeginMove(e, control);
+        XfdBeginMove(e, grabbed);
         return;
     }
 
-    // press on a NON-movable surface (TabPage/SplitterPanel body, columns,
-    // bars...): if a movable ANCESTRAL control is currently selected, the
-    // press belongs to it and moves the whole selection instead
-    var carrier = null;
-    for (var a = control; a; a = a.Parent)
+    if (XfdIsEmptyCanvas(control))                // empty canvas: drag draws the band
     {
-        if (XfdIsMovable(a) && XfdIsControlSelected(a))
-        { carrier = a; break; }
-    }
-    if (carrier)
-    {
-        if (e.stopPropagation) e.stopPropagation();
-        XfdBeginMove(e, carrier);
+        XfdBeginMarquee(e);
         return;
     }
 
-    // empty canvas or a non-movable surface (TabPage/SplitterPanel body,
-    // grid columns, button bars...): plain drag draws the band
-    if (e.stopPropagation) e.stopPropagation();
-    XfdBeginMarquee(e);
+    // a control that cannot move and has no selected movable ancestor (a grid
+    // column, a bar group...): no gesture at all - the band must not start
+    // here; its plain click still selects it via __control_OnClick
 }
 
 // ---------------------------------------------------------------------------

@@ -415,6 +415,17 @@ async function __control_OnClick(e)
     if (form.Variables["PreventClickEvents"] === true)
         return;
 
+    // The click is never stopPropagation()ed (live widgets - tabs, comboboxes,
+    // grids, checkboxes - are driven by Ext's delegated handling up at the
+    // document, so swallowing it would kill their native click semantics). It
+    // DOES reach this handler once per binding the event passes - but as a
+    // fresh clone each time, so the XFD-EVTGUARD generation counter (not an
+    // event marker) decides who owns the click. The claim happens before any
+    // early return: a suppressed post-drag click must still consume the
+    // physical click, or the form's clone would run and collapse the group.
+    if (!XfdClaimEvent(e, _xfdClickGuard))
+        return;
+
     // XFD-MULTISELECT: a click that follows a real drag/marquee/resize must
     // not replace the selection the gesture just established
     if (_xfdSuppressClick)
@@ -452,9 +463,6 @@ async function __control_OnClick(e)
 
     if (!control || !control.Id)
         return;
-
-    if (e.stopPropagation !== undefined)
-        e.stopPropagation();
 
     // XFD-MULTISELECT: plain click replaces the selection, Ctrl+click
     // toggles membership; outline/cbo/grid follow the primary control
@@ -559,11 +567,14 @@ function __control_OnKeyDown(e)
 }
 
 // make control draggable
-// XFD-INTERACTION: unified press dispatcher - plain drag MOVES the pressed
-// control (XFD-SNAP: with snap-to-control alignment, Alt bypasses),
-// Ctrl+drag resizes, Shift+drag - or a press on a non-movable surface -
-// draws the marquee band (XFD-MULTISELECT). The whole engine lives in
-// FormDesigner.Interaction (include-formdesigner.interaction.js).
+// XFD-INTERACTION: unified press dispatcher - a press whose cursor is over a
+// control MOVES that control (XFD-SNAP: with snap-to-control alignment, Alt
+// bypasses) and the press selects it; the selection band only ever starts from
+// the form's empty canvas surface, never over a control. A press without
+// movement is a plain click: it selects the control / clears the selection on
+// the empty canvas. Ctrl+drag resizes, Shift+drag bands from anywhere. The
+// whole engine lives in FormDesigner.Interaction
+// (include-formdesigner.interaction.js).
 function __control_OnDrag(e)
 {
     XfdHandleMouseDown(e);
