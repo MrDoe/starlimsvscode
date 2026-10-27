@@ -81,14 +81,23 @@ const _treePanel = Ext.create('Ext.tree.Panel', {
             },
             select: function (node, record)
             {
-                // set selected control
-                selectedControl = record.data.control;
+                var c = record.data.control;
 
-                // XFD-MULTISELECT: tree selection drives single-selection
-                XfdSyncTreeSelection(selectedControl);
+                // XFD-MULTISELECT: a tree selection that merely reflects the
+                // CURRENT primary (canvas-driven) must not collapse a group
+                if (XfdGetPrimaryControl() === c)
+                    return;
 
+                // set selected control and load its properties (guarded so
+                // the combobox does not re-drive __control_OnClick)
+                selectedControl = c;
+                XfdSyncTreeSelection(c);
+                XfdShowProperties(c);
                 UpdateSelectionFrame(selectedControl);
-                _cboControl.SelectedValue = selectedControl.Guid;
+
+                form.Variables["PreventLoadCboControl"] = true;
+                _cboControl.SelectedValue = c.Guid;
+                form.Variables["PreventLoadCboControl"] = false;
             }
         }
     }

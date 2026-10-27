@@ -488,6 +488,13 @@ async function __control_OnClick(e)
     pnlSelected.Visible = true;
     UpdateSelectionFrame(control);
 
+    XfdShowProperties(control);
+}
+
+// load a control's DataProperties into the properties grid
+// (XFD-INTERACTION: shared by __control_OnClick and the outline select listener)
+function XfdShowProperties(control)
+{
     // update properties grid
     _dgdProperties.Data = control.DataPropertiesXml;
 

@@ -692,10 +692,7 @@ function XfdBeginMove(e, hitControl)
         members = [hitControl];
     }
     if (!members.length)
-    {
-        console.log("XFD-DEBUG BeginMove empty members");   // XFD-DEBUG
         return;
-    }
 
     var state = { members: [], x0: e.pageX, y0: e.pageY, moved: false, snap: null };
     for (var i = 0; i < members.length; ++i)
@@ -716,13 +713,6 @@ function XfdBeginMove(e, hitControl)
     {
         var dx = ev.pageX - state.x0;
         var dy = ev.pageY - state.y0;
-
-        if (!state.logged)                                   // XFD-DEBUG
-        {
-            state.logged = true;
-            console.log("XFD-DEBUG first mousemove page:", ev.pageX, ev.pageY,
-                "start:", state.x0, state.y0, "d:", dx, dy);
-        }
 
         if (!state.moved)
         {
@@ -1030,10 +1020,6 @@ function XfdHandleMouseDown(e, explicitControl)
 
     var control = explicitControl || XfdResolveControlFromEvent(e);
 
-    console.log("XFD-DEBUG mousedown", e.type, "which:", e.which, "ctrl:", e.ctrlKey, "shift:", e.shiftKey,
-        "prevent:", form.Variables["PreventClickEvents"], "hit:", control && control.Id, control && control.xType,
-        "movable:", XfdIsMovable(control));   // XFD-DEBUG
-
     if (e.ctrlKey)                                           // Ctrl+drag: resize
     {
         if (control && control !== _Form1)
@@ -1055,7 +1041,6 @@ function XfdHandleMouseDown(e, explicitControl)
 
     if (control && XfdIsMovable(control))                    // plain drag: move
     {
-        console.log("XFD-DEBUG branch: move", control.Id);   // XFD-DEBUG
         if (e.stopPropagation) e.stopPropagation();
         XfdBeginMove(e, control);
         return;
@@ -1072,7 +1057,6 @@ function XfdHandleMouseDown(e, explicitControl)
     }
     if (carrier)
     {
-        console.log("XFD-DEBUG branch: group-move via selected ancestor", carrier.Id); // XFD-DEBUG
         if (e.stopPropagation) e.stopPropagation();
         XfdBeginMove(e, carrier);
         return;
@@ -1080,7 +1064,6 @@ function XfdHandleMouseDown(e, explicitControl)
 
     // empty canvas or a non-movable surface (TabPage/SplitterPanel body,
     // grid columns, button bars...): plain drag draws the band
-    console.log("XFD-DEBUG branch: marquee", control && control.Id);   // XFD-DEBUG
     if (e.stopPropagation) e.stopPropagation();
     XfdBeginMarquee(e);
 }

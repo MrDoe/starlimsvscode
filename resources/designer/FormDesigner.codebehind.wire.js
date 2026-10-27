@@ -840,7 +840,6 @@ async function frmFormDesigner_OnShow(sender, eventArgs)
         formCanvas[0].__xfdCanvasBound = true;
         formCanvas.on('mousedown', function (e)
         {
-            console.log("XFD-DEBUG canvas mousedown");       // XFD-DEBUG
             XfdHandleMouseDown(e);
         });
     }
