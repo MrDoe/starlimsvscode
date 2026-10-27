@@ -322,10 +322,15 @@ async function AddControl(controlType)
 
     // set initial properties
     if (!control.Id)
-    {
         control.Id = XfdMintUniqueId(controlType);   // XFD-UNIQID
+    // The Guid must be minted independently of the Id: the TabControl case
+    // assigns its Id inside the switch, so an Id-coupled block left such
+    // controls Guid-less until savexml - htControls registration and every
+    // XfdIsDesignerControl gate (drag, arrows, selection) then refused to
+    // move them. Journal stampAdded holds pending entries until a Guid
+    // appears, so minting early stays journal-safe.
+    if (!control.Guid)
         control.Guid = System.Guid.NewGuid().ToString();
-    }
 
     if (control.xType != "TabControl" && control.xType != "DateTimePicker")
         control.Text = control.Id;
