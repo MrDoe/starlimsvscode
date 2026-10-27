@@ -349,6 +349,12 @@ async function __add_tab_page(sender, eventArgs)
     let selectedNode = await FindNodeByGuid(tabControl.Guid);
     AddControlToOutline(tabPage, selectedNode);
 
+    // save-v3: context-menu creators are the ONLY __add__ source for tab
+    // pages / bar groups / bar items / columns (AddControl covers toolbox
+    // inserts only)
+    if (window.XfdJournal)
+        window.XfdJournal.stampAdded(tabPage);
+
     selectedControl = tabPage;
 }
 
@@ -388,6 +394,10 @@ async function __add_bar_group(sender, eventArgs)
     // add group to outline
     let selectedNode = await FindNodeByGuid(control.Guid);
     AddControlToOutline(group, selectedNode);
+
+    // save-v3: context-menu creators are the ONLY __add__ source for these
+    if (window.XfdJournal)
+        window.XfdJournal.stampAdded(group);
 
     selectedControl = group;
 }
@@ -429,6 +439,10 @@ async function __add_bar_item(sender, eventArgs)
     let selectedNode = await FindNodeByGuid(group.Guid);
     AddControlToOutline(item, selectedNode);
 
+    // save-v3: context-menu creators are the ONLY __add__ source for these
+    if (window.XfdJournal)
+        window.XfdJournal.stampAdded(item);
+
     selectedControl = item;
 }
 
@@ -459,6 +473,10 @@ async function __add_column(sender, eventArgs)
     let selectedNode = await FindNodeByGuid(control.Guid);
     AddControlToOutline(column, selectedNode);
 
+    // save-v3: context-menu creators are the ONLY __add__ source for these
+    if (window.XfdJournal)
+        window.XfdJournal.stampAdded(column);
+
     selectedControl = column;
 }
 
@@ -468,6 +486,11 @@ async function __control_OnDelete(control)
     // don't delete form
     if (control === _Form1)
         return;
+
+    // save-v3: journal THIS control's removal; the child recursion below
+    // re-enters this stamp for every descendant guid before it is removed
+    if (window.XfdJournal)
+        window.XfdJournal.stampDeleted(control);
 
     // delete children first
     if (control.Controls)

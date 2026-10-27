@@ -867,9 +867,28 @@ function XfdBeginMove(e, hitControl)
             if (target && target !== st.parent0 && XfdCanContain(target, st.c))
             {
                 var pageXY = el ? el.getXY() : st.page0;
-                XfdReparentComponent(st.c, target, pageXY);
+                var reparented = XfdReparentComponent(st.c, target, pageXY);
                 await XfdMoveOutlineNode(st.c, target);     // savexml + z-index truth
                 st.movedTree = true;
+
+                // save-v3: a reparent is journaled as __del__ under the OLD
+                // parent + __add__ under the NEW one with the SAME guid - the
+                // journaled add copy carries the recomputed Left/Top, so no
+                // scalar stamps here. Cancelled drops never reach this branch
+                // (XfdRestoreMember restores without a Controls change).
+                if (reparented && window.XfdJournal)
+                {
+                    window.XfdJournal.stampDeleted(st.c);
+                    window.XfdJournal.stampAdded(st.c);
+                }
+                else if (!reparented && window.XfdJournal)
+                {
+                    // reparent declined (not movable-into / no el): the member
+                    // sits where the drag left it under its OLD parent - that
+                    // is still a user move, journal it as one
+                    window.XfdJournal.stamp(st.c, "Left");
+                    window.XfdJournal.stamp(st.c, "Top");
+                }
             }
             else
             {
@@ -885,6 +904,16 @@ function XfdBeginMove(e, hitControl)
                     st.lifted = false;
                     if (st.z0 !== undefined)
                         el.dom.style.zIndex = st.z0;
+                }
+
+                // save-v3: the drag owns this member's final position - one
+                // membership stamp per (control, Left/Top) at gesture END
+                // (handle_moving wrote intermediate + probe values; the merge
+                // takes the final value from the save-time hint anyway)
+                if (window.XfdJournal)
+                {
+                    window.XfdJournal.stamp(st.c, "Left");
+                    window.XfdJournal.stamp(st.c, "Top");
                 }
             }
         }
@@ -953,6 +982,13 @@ function XfdBeginResize(e)
         {
             control.Width = Math.max(1, state.w0 + (ev.pageX - state.x0));
             control.Height = Math.max(1, state.h0 + (ev.pageY - state.y0));
+
+            // save-v3: gesture-end membership stamp (final value rides the hint)
+            if (window.XfdJournal)
+            {
+                window.XfdJournal.stamp(control, "Width");
+                window.XfdJournal.stamp(control, "Height");
+            }
         }
 
         if (pnlSelected)
