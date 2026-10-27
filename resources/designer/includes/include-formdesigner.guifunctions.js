@@ -325,6 +325,12 @@ async function AddControl(controlType)
 
     // add control to hashtable
     htControls.Add(control.Guid, control);
+
+    // XFD-SAVEV3: a toolbox insert is a USER addition — the binary adopts the
+    // new item ONLY because of this stamp (runtime-created items stay refused).
+    if (window.XfdJournal)
+        XfdJournal.stampAdded(control);
+
     let event = new Object();
     event.target = control;
     __control_OnClick(event);
@@ -557,6 +563,11 @@ function __control_OnKeyDown(e)
 
     if (handled)
     {
+        // XFD-SAVEV3: arrow-nudge is a USER move — journal membership (the
+        // posted value comes from the save-time hint anyway).
+        if (window.XfdJournal)
+            targets.forEach(function (c) { XfdJournal.stamp(c, "Left"); XfdJournal.stamp(c, "Top"); });
+
         if (e.preventDefault)
             e.preventDefault();
 

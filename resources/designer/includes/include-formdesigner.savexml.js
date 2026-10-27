@@ -61,7 +61,16 @@ async function SaveForm(sApplicationName, sFormName, sFormLang)
         "\t</Resources>\n" +
         "</Form>\n";
     //console.log(sXML);
-    lims.CallServer("Enterprise_Data_Providers.FormProvider.SaveXFDDocument", [sFormGUID, sFormLang, sXML]);
+    // XFD-SAVEV3: post the edit journal as a 4th parameter (marker-first) so
+    // the binary refuses every value/delete/add it did not get stamped for —
+    // runtime state (code-behind Visible, Ext layout numbers, script strings)
+    // then can never ride to the server. No journal object (broken build) ->
+    // omit the param: serve WARNs and falls back to the legacy adopt-all merge
+    // instead of silently dropping the user's real edits.
+    var aParams = [sFormGUID, sFormLang, sXML];
+    if (window.XfdJournal)
+        aParams.push(XfdJournal.entriesForSave());
+    lims.CallServer("Enterprise_Data_Providers.FormProvider.SaveXFDDocument", aParams);
 }
 
 // check if control is extended control (not directly addable to form)

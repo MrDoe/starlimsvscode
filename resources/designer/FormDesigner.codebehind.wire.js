@@ -28,6 +28,86 @@ var _splitDesignerSidebar = form.All("_splitDesignerSidebar"); // SplitContainer
 
 //END_GLOBAL_DECLARATIONS
 
+// XFD-SAVEV3: edit provenance. The binary merge (xfd-cli serve, xfd_model::merge)
+// treats the client savexml output as a lossy STATE HINT and adopts scalar
+// values / deletions / additions ONLY for what this journal vouches for as USER
+// edits — everything else in the hint is runtime state (code-behind
+// Visibility, Ext layout geometry, script-applied strings) that a real
+// designer save never contains. Stamps are MEMBERSHIP-only: the posted value
+// always comes from the hint, the journal says only "the user owns this
+// (control, member)". Writers: property-grid apply + arrow-nudge + toolbox-add
+// (this file / guifunctions) and gesture-end move/resize/reparent + treeview
+// delete (interaction.js / treeview.js, null-safe window.XfdJournal && calls).
+// Wire format: 4th SaveXFDDocument param, marker-first
+// ["_journal_", "<guid-lower>|<member>", "_form1|<member>", ...];
+// "__del__"/"__add__" are the structural members. All-lowercase, Guids
+// brace-stripped — casing never matters (merge normalizes identically).
+window.XfdJournal = (function ()
+{
+    var entries = {}; // "owner|member" -> true
+    var pending = []; // {control, member} — owner Guid minted later (e.g. RootTable)
+
+    function norm(s)
+    {
+        return String(s).toLowerCase().replace(/[{}]/g, "");
+    }
+
+    function ownerOf(control)
+    {
+        if (!control)
+            return null;
+        if (control.Id === "_Form1")
+            return "_form1";
+        if (control.Guid)
+            return norm(control.Guid);
+        return null;
+    }
+
+    function put(owner, member)
+    {
+        if (owner && member)
+            entries[owner + "|" + String(member).toLowerCase()] = true;
+    }
+
+    return {
+        stamp: function (control, member)
+        {
+            var owner = ownerOf(control);
+            if (owner)
+                put(owner, member);
+            else if (control && member)
+                pending.push({ control: control, member: member }); // Guid minted at save-serialization
+        },
+        stampDeleted: function (guidOrControl)
+        {
+            put(typeof guidOrControl === "string" ? norm(guidOrControl) : ownerOf(guidOrControl), "__del__");
+        },
+        stampAdded: function (control)
+        {
+            var owner = ownerOf(control);
+            if (owner)
+                put(owner, "__add__");
+            else if (control)
+                pending.push({ control: control, member: "__add__" });
+        },
+        entriesForSave: function ()
+        {
+            // savexml has minted every missing Guid before SaveForm posts.
+            for (var i = 0; i < pending.length; i++)
+                put(ownerOf(pending[i].control), pending[i].member);
+            var out = ["_journal_"];
+            for (var k in entries)
+                out.push(k);
+            return out;
+        },
+        clear: function ()
+        {
+            entries = {};
+            pending = [];
+        }
+    };
+})();
+
 // Boot URL parameters. The VS Code panel opens the designer for ONE form:
 // LangId is the language it was opened (and is staged/saved) under, FormType
 // the "<App>.<Form>" SaveForm embeds. The legacy checked-out-forms dropdown
@@ -377,6 +457,22 @@ function GetPropertyDisplayValue(control, sPropertyName)
 
 function ApplyControlProperty(control, sPropertyName, value)
 {
+    // XFD-SAVEV3: a grid commit is a USER edit -> journal it. "(Id)" is the
+    // grid's name for Id (what savexml emits). Dock/Anchor recomputes
+    // Left/Top/Width/Height below — those side-writes are part of the same
+    // user intent and get journaled with it.
+    if (window.XfdJournal)
+    {
+        XfdJournal.stamp(control, sPropertyName === "(Id)" ? "Id" : sPropertyName);
+        if (sPropertyName === "Dock" || sPropertyName === "Anchor")
+        {
+            XfdJournal.stamp(control, "Left");
+            XfdJournal.stamp(control, "Top");
+            XfdJournal.stamp(control, "Width");
+            XfdJournal.stamp(control, "Height");
+        }
+    }
+
     var normalizedValue = value;
 
     if (sPropertyName.includes("On"))
