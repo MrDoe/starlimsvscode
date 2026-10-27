@@ -10,6 +10,7 @@ Date......... : 2623-07-11
 //#include "FormDesigner.TreeView"
 //#include "FormDesigner.ReadXML"
 //#include "FormDesigner.SaveXML"
+//#include "FormDesigner.Interaction"
 
 //BEGIN_GLOBAL_DECLARATIONS (place global declarations inside this section)
 
@@ -397,12 +398,17 @@ function ApplyControlProperty(control, sPropertyName, value)
         case "Visible":
             control.Visible = normalizedValue;
             $('[automation-id="' + control.Id + '"]').css("opacity", normalizedValue ? "1" : "0.2");
+            XfdRefreshSelectionVisuals();   // XFD-MULTISELECT
             return;
         case "Height":
         case "Width":
         case "Top":
         case "Left":
             control[sPropertyName] = parseInt(normalizedValue);
+            // XFD-MULTISELECT: keep selection visuals in sync with grid edits
+            if (control === selectedControl)
+                UpdateSelectionFrame(control);
+            XfdRefreshSelectionVisuals();
             return;
         case "Image":
             return;
@@ -731,6 +737,9 @@ async function LoadStagedForm(sFormID, sFormLang)
     htControls.Clear();
     pnlSelected.Visible = false;
 
+    // XFD-MULTISELECT: the loaded form starts with no interaction state
+    XfdResetInteractionState();
+
     form.Variables["PreventLoadProperties"] = true;
     form.Variables["PreventLoadCboControl"] = true;
     form.Variables["PreventClickEvents"] = true;
@@ -795,9 +804,9 @@ async function frmFormDesigner_OnCmdKeyPress(sender, eventArgs)
     var nKeyCode = event.keyCode;
     if (nKeyCode == 46) // del key
     {
-        // delete control
-        if (selectedControl != _Form1)
-            __control_OnDelete(selectedControl);
+        // XFD-MULTISELECT: delete the whole selection; __control_OnDelete
+        // removes children recursively, top-level members only are iterated
+        XfdDeleteSelectedControls();
     }
 }
 
@@ -821,6 +830,20 @@ async function frmFormDesigner_OnShow(sender, eventArgs)
     var tabSidebar = Ext.ComponentQuery.query('#_tabSidebar')[0];
     if (tabSidebar)
         tabSidebar.on('tabchange', ResizeOutlineTree);
+
+    // XFD-MULTISELECT: a plain-drag that starts on the empty canvas draws
+    // the marquee band; child controls stopPropagation on their own mousedown.
+    // NOTE: $ here is the jQuery adapter - no .dom property, use [0].
+    var formCanvas = $('[automation-id="_Form1"]');
+    if (formCanvas && formCanvas[0] && !formCanvas[0].__xfdCanvasBound)
+    {
+        formCanvas[0].__xfdCanvasBound = true;
+        formCanvas.on('mousedown', function (e)
+        {
+            console.log("XFD-DEBUG canvas mousedown");       // XFD-DEBUG
+            XfdHandleMouseDown(e);
+        });
+    }
 
     UpdateDesignerShellLayout();
     ResizeOutlineTree();

@@ -65,20 +65,28 @@ const _treePanel = Ext.create('Ext.tree.Panel', {
             ptype: 'treeviewdragdrop'
         },
         listeners: {
+            // XFD-REPARENT: remember where the node was so an invalid target
+            // can be reverted by XfdApplyTreeDrop
+            startdrag: function (node)
+            {
+                XfdOnTreeDragStart(node);
+            },
             drop: function (node, data, overModel, dropPosition)
             {
-                SetZIndex();
-
-                // reset control's position to new parent control position
-                var newNode = overModel.data.control.getEl();
-
-                if(newNode)
-                    data.records[0].data.control.getEl().setXY(newNode.getXY());
+                // XFD-REPARENT: the COMPONENT follows the tree (savexml
+                // serializes nesting from this tree) instead of teleporting
+                // to the target's top-left corner; z-index comes from the new
+                // tree depth via SetZIndex
+                XfdApplyTreeDrop(node);
             },
             select: function (node, record)
             {
                 // set selected control
                 selectedControl = record.data.control;
+
+                // XFD-MULTISELECT: tree selection drives single-selection
+                XfdSyncTreeSelection(selectedControl);
+
                 UpdateSelectionFrame(selectedControl);
                 _cboControl.SelectedValue = selectedControl.Guid;
             }

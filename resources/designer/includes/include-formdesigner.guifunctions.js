@@ -27,6 +27,9 @@ async function CreateEmptyForm()
     _Form1.Controls.Add(pnlSelected);
     selectedControl = _Form1;
 
+    // XFD-MULTISELECT: drop stale interaction state from any previous form
+    XfdResetInteractionState();
+
     // load properties into grid
     LoadDataProperties(_Form1);
 
@@ -412,25 +415,40 @@ async function __control_OnClick(e)
     if (form.Variables["PreventClickEvents"] === true)
         return;
 
-    // get clicked dom element
-    let element = e.target;
+    // XFD-MULTISELECT: a click that follows a real drag/marquee/resize must
+    // not replace the selection the gesture just established
+    if (_xfdSuppressClick)
+    {
+        _xfdSuppressClick = false;
+        return;
+    }
 
-    // get dom element id
-    var elementId;
-    if (!element.id)
-        if (element.parentElement && element.parentElement.id)
-            elementId = element.parentElement.id;
-        else
-            return;
-    else
-        elementId = element.id;
+    // XFD-INTERACTION: robust walk-up resolution to the owning designer
+    // control, falling back to the legacy element.id lookup
+    let control = XfdResolveControlFromEvent(e);
 
-    // get extjs control from element
-    let control = Ext.Component.from(elementId);
-
-    // get control from hashtable for non-extjs controls
     if (!control)
-        control = htControls[e.target.Guid];
+    {
+        // get clicked dom element
+        let element = e.target;
+
+        // get dom element id
+        var elementId;
+        if (!element.id)
+            if (element.parentElement && element.parentElement.id)
+                elementId = element.parentElement.id;
+            else
+                return;
+        else
+            elementId = element.id;
+
+        // get extjs control from element
+        control = Ext.Component.from(elementId);
+
+        // get control from hashtable for non-extjs controls
+        if (!control && e.target.Guid)
+            control = htControls[e.target.Guid];
+    }
 
     if (!control || !control.Id)
         return;
@@ -438,7 +456,25 @@ async function __control_OnClick(e)
     if (e.stopPropagation !== undefined)
         e.stopPropagation();
 
-    selectedControl = control;
+    // XFD-MULTISELECT: plain click replaces the selection, Ctrl+click
+    // toggles membership; outline/cbo/grid follow the primary control
+    if (XfdIsDesignerControl(control))
+    {
+        XfdSelectControl(control, !!e.ctrlKey);
+
+        if (e.ctrlKey && !XfdIsControlSelected(control))
+        {
+            control = XfdGetPrimaryControl();
+            if (!control)
+            {
+                pnlSelected.Visible = false;
+                XfdRefreshSelectionVisuals();
+                return;
+            }
+        }
+    }
+    else
+        selectedControl = control;   // legacy non-designer widget (e.g. a tab)
 
     form.Variables["PreventLoadCboControl"] = true;
     _cboControl.SelectedValue = control.Guid;
@@ -481,105 +517,49 @@ async function __control_OnClick(e)
 // move control via arrow keys
 function __control_OnKeyDown(e)
 {
-    // get clicked dom element
-    let element = e.target;
+    // XFD-MULTISELECT: arrow keys nudge the whole move set (Shift = 10px)
+    let control = XfdResolveControlFromEvent(e);
+    if (control && XfdIsDesignerControl(control) && !XfdIsControlSelected(control))
+        XfdSelectControl(control, false);
 
-    // get extjs control from element
-    let control = Ext.Component.from(element.id);
+    let targets = XfdMoveSet();
+    if (!targets.length && XfdIsMovable(selectedControl))
+        targets = [selectedControl];
 
-    // move control when arrow keys are pressed
+    let step = e.shiftKey ? 10 : 1;
+    let handled = true;
+
     if (e.keyCode === 37)
-        control.Left -= 1;
+        targets.forEach(function (c) { c.Left -= step; });
     else if (e.keyCode === 38)
-        control.Top -= 1;
+        targets.forEach(function (c) { c.Top -= step; });
     else if (e.keyCode === 39)
-        control.Left += 1;
+        targets.forEach(function (c) { c.Left += step; });
     else if (e.keyCode === 40)
-        control.Top += 1;
+        targets.forEach(function (c) { c.Top += step; });
+    else
+        handled = false;
 
-    // update selection frame
-    UpdateSelectionFrame(selectedControl);
+    if (handled)
+    {
+        if (e.preventDefault)
+            e.preventDefault();
+
+        // update selection frame
+        UpdateSelectionFrame(selectedControl);
+        XfdRefreshSelectionVisuals();
+    }
 }
 
 // make control draggable
+// XFD-INTERACTION: unified press dispatcher - plain drag MOVES the pressed
+// control (XFD-SNAP: with snap-to-control alignment, Alt bypasses),
+// Ctrl+drag resizes, Shift+drag - or a press on a non-movable surface -
+// draws the marquee band (XFD-MULTISELECT). The whole engine lives in
+// FormDesigner.Interaction (include-formdesigner.interaction.js).
 function __control_OnDrag(e)
 {
-    // get extjs control from element
-    let control = selectedControl;
-
-    // move control when shift key is pressed
-    if (e.shiftKey)
-    {
-        // don't move form
-        if (control.Id === "_Form1")
-            return;
-
-        pnlSelected.Visible = false;
-
-        let event = {
-            pageX0: e.pageX,
-            pageY0: e.pageY,
-            elem: control,
-            top0: control.Top,
-            left0: control.Left
-        };
-
-        function handle_dragging(e)
-        {
-            pnlSelected.Visible = false;
-            event.elem.Left = event.left0 + e.pageX - event.pageX0;
-            event.elem.Top = event.top0 + e.pageY - event.pageY0;
-        }
-
-        function handle_mouseup()
-        {
-            pnlSelected.Visible = true;
-
-            // stop listening for movement and mouseup
-            $('body').off('mousemove', handle_dragging).off('mouseup', handle_mouseup);
-
-            UpdateSelectionFrame(control);
-        }
-
-        $('body').on('mouseup', handle_mouseup).on('mousemove', handle_dragging);
-        return;
-    }
-
-    // resize control when ctrl key is pressed
-    if (e.ctrlKey)
-    {
-        pnlSelected.Visible = false;
-
-        let event = {
-            pageX0: e.pageX,
-            pageY0: e.pageY,
-            elem: control,
-            width0: control.Width,
-            height0: control.Height
-        };
-
-        // resize handler
-        function handle_resizing(e)
-        {
-            event.elem.Width = event.width0 + (e.pageX - event.pageX0);
-            event.elem.Height = event.height0 + (e.pageY - event.pageY0);
-        }
-
-        function handle_mouseup(e)
-        {
-            pnlSelected.Visible = true;
-
-            control.Width = event.elem.Width;
-            control.Height = event.elem.Height;
-
-            // stop listening for movement and mouseup
-            $('body').off('mousemove', handle_resizing).off('mouseup', handle_mouseup);
-
-            UpdateSelectionFrame(control);
-        }
-
-        $('body').on('mouseup', handle_mouseup).on('mousemove', handle_resizing);
-    }
+    XfdHandleMouseDown(e);
 }
 
 // draw a selection frame around the selected control
