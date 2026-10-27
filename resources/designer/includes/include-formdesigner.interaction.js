@@ -23,7 +23,12 @@ Description.. :	Layout-Editor-style interaction for the FormDesigner canvas,
 			  the control, moves its outline node and recomputes the depth based
 			  z-index through SetZIndex() (XFD-REPARENT); the outline tree
 			  drag/drop runs through the same component-sync helper.
-	Grep markers: XFD-INTERACTION, XFD-SNAP, XFD-MULTISELECT, XFD-REPARENT.
+			- XFD-KEYNAV: arrow keys nudge the selected control(s) from anywhere
+			  on the canvas (Shift = 10 px); a document-level handler with
+			  focus guards, since the per-control keydown binding only fires
+			  for controls whose element actually has focus.
+	Grep markers: XFD-INTERACTION, XFD-SNAP, XFD-MULTISELECT, XFD-REPARENT,
+	XFD-EVTGUARD, XFD-KEYNAV.
 	Save semantics are untouched: savexml serializes from the outline tree,
 	which is exactly why every reparent moves the tree NODE (not just CSS).
 Author....... :	DC (VS Code designer shell extension)
@@ -86,6 +91,59 @@ function XfdClaimEvent(e, guard)
 
 var _xfdClickGuard = { type: "click", gen: -1, tgt: null };
 var _xfdMdownGuard = { type: "mousedown", gen: -1, tgt: null };
+
+// XFD-KEYNAV: arrow keys nudge the selection from ANYWHERE on the canvas.
+// The legacy .keydown(__control_OnKeyDown) binding fires only when the
+// control's own element has focus - clicking a label/grid/panel never focuses
+// it - so the arrows were effectively dead in practice. One document-level
+// handler fixes reachability. It yields when (a) real text/widget focus is in
+// the path (inputs, the property grid, the outline tree, combos, iframes -
+// arrow keys belong to those widgets there) or (b) the event resolves to a
+// designer control - that control's own legacy binding handles it and moving
+// here too would double-step. Group semantics mirror __control_OnKeyDown:
+// whole move set, Shift = 10 px, journal membership stamped.
+if (!window.__xfdArrowBound)
+{
+    window.__xfdArrowBound = true;
+    document.addEventListener("keydown", function (e)
+    {
+        var code = e.keyCode || e.which;
+        if (code < 37 || code > 40)                       // arrows only
+            return;
+
+        var t = e.target;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable))
+            return;
+        if (t && t.closest && t.closest("[automation-id='_dgdProperties'], [automation-id='_treePanel'], [automation-id='_cboControl'], iframe"))
+            return;
+        if (XfdResolveControlFromEvent(e))
+            return;                                       // legacy binding owns it
+
+        var targets = XfdMoveSet();
+        if (!targets.length && XfdIsMovable(selectedControl))
+            targets = [selectedControl];
+        if (!targets.length)
+            return;                                       // nothing selected: let it scroll
+
+        var step = e.shiftKey ? 10 : 1;
+        if (code === 37) targets.forEach(function (c) { c.Left -= step; });
+        else if (code === 38) targets.forEach(function (c) { c.Top -= step; });
+        else if (code === 39) targets.forEach(function (c) { c.Left += step; });
+        else targets.forEach(function (c) { c.Top += step; });
+
+        // XFD-SAVEV3: a keyboard nudge is a user move - journal membership
+        if (window.XfdJournal)
+            targets.forEach(function (c)
+            {
+                window.XfdJournal.stamp(c, "Left");
+                window.XfdJournal.stamp(c, "Top");
+            });
+
+        if (e.preventDefault) e.preventDefault();
+        UpdateSelectionFrame(selectedControl);
+        XfdRefreshSelectionVisuals();
+    }, false);
+}
 
 // ---------------------------------------------------------------------------
 // small helpers

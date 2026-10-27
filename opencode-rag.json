@@ -132,7 +132,7 @@
     "ollamaMaxBatchSize": 40
   },
   "vectorStore": {
-    "path": "./.opencode/rag_db"
+    "path": "./.opencode/rag_ch"
   },
   "retrieval": {
     "topK": 20,
