@@ -281,9 +281,13 @@ function XfdSelectControl(c, toggle)
     XfdSetSelection(list);
 }
 
-// silent sync when the outline tree drives the selection (no recursion)
+// silent sync when the outline tree drives the selection (no recursion).
+// The group survives when the tree merely reflects the CURRENT primary
+// (click-driven tree selection round-trips through this listener).
 function XfdSyncTreeSelection(c)
 {
+    if (XfdGetPrimaryControl() === c)
+        return;
     _xfdSelection = (c && c !== _Form1) ? [c] : [];
 }
 
