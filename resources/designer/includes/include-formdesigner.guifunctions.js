@@ -59,6 +59,31 @@ async function CreateEmptyForm()
 }
 
 // add new control to form
+// XFD-UNIQID: controlCounter is a PAGE-session counter (wire.js) and loaded
+// forms keep their original Ids (Button0, Label1, ...) without advancing it,
+// so the bare counter mint collides with loaded Ids on reopened forms. Scan
+// the live htControls map and bump the numeric suffix until the Id is free
+// scan case-insensitively so XML-loaded Ids that differ only in case also
+// count as taken).
+// MUST run before htControls.Add of the new control (the scan skips nothing,
+// a self-hit would loop) - both mint sites in AddControl satisfy that.
+function XfdMintUniqueId(controlType)
+{
+    var inUse = {}, i;
+    for (i = 0; i < htControls.Keys.length; ++i)
+    {
+        var c = htControls[htControls.Keys[i]];
+        if (c && c.Id)
+            inUse[String(c.Id).toLowerCase()] = true;
+    }
+
+    var id;
+    do
+        id = controlType + (controlCounter++).toString();
+    while (inUse[id.toLowerCase()]);
+    return id;
+}
+
 async function AddControl(controlType)
 {
     var control;
@@ -255,7 +280,7 @@ async function AddControl(controlType)
             break;
         case "TabControl":
             control = new TabControl();
-            control.Id = controlType + (controlCounter++).toString();
+            control.Id = XfdMintUniqueId(controlType);   // XFD-UNIQID
             control.xType = "TabControl";
             control.Width = 500;
             control.Height = 300;
@@ -298,7 +323,7 @@ async function AddControl(controlType)
     // set initial properties
     if (!control.Id)
     {
-        control.Id = controlType + (controlCounter++).toString();
+        control.Id = XfdMintUniqueId(controlType);   // XFD-UNIQID
         control.Guid = System.Guid.NewGuid().ToString();
     }
 
