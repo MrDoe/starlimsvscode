@@ -34,7 +34,7 @@ Description.. :	Layout-Editor-style interaction for the FormDesigner canvas,
 			  mixing is invisible at scroll == 0 but silently kills Y-snapping
 			  on a scrolled canvas and draws guides/ghosts scroll-offset.
 	Grep markers: XFD-INTERACTION, XFD-SNAP, XFD-MULTISELECT, XFD-REPARENT,
-	XFD-EVTGUARD, XFD-KEYNAV.
+	XFD-EVTGUARD, XFD-KEYNAV, XFD-INERT-EDITOR.
 	Save semantics are untouched: savexml serializes from the outline tree,
 	which is exactly why every reparent moves the tree NODE (not just CSS).
 Author....... :	DC (VS Code designer shell extension)
@@ -56,6 +56,30 @@ var XFD_STRUCTURAL_TYPES = {
     TabPage: true, SplitterPanel: true, DataGridColumn: true,
     DataGridTable: true, ButtonBarGroup: true, LinkBarGroup: true
 };
+
+// XFD-INERT-EDITOR: RichTextBox is an Ext HtmlEditor - its editing surface is
+// an IFRAME, i.e. a SEPARATE document. Two failures follow from that:
+//   * a press inside the editor never reaches the designer document, so the
+//     control cannot be grabbed at all (only the 1 px iframe frame moved it);
+//   * a drag that started on the frame and ends OVER the editor delivers its
+//     mouseup to the iframe document - the body-bound handle_up never runs,
+//     the move state survives and the control keeps following the cursor
+//     ("not released on LMB up").
+// The designer treats every control as a design surface, so the editor frame
+// is made inert: pointer-events:none routes press/move/up to the wrap element
+// in the designer document, where XfdResolveControlFromEvent resolves the
+// HtmlEditor and the normal engine owns the gesture (click selects, drag
+// moves + journals, release always lands). Runtime forms never load this file
+// and keep their editable editors; the class survives iframe re-creation.
+if (!document.getElementById("xfd-inert-editor-style"))
+{
+    var _xfdInertEditorStyle = document.createElement("style");
+    _xfdInertEditorStyle.id = "xfd-inert-editor-style";
+    // XFD-INERT-EDITOR
+    _xfdInertEditorStyle.textContent =
+        ".x-htmleditor-iframe, .x-html-editor-wrap iframe { pointer-events: none !important; }";
+    (document.head || document.documentElement).appendChild(_xfdInertEditorStyle);
+}
 
 // selection model (XFD-MULTISELECT): StarlimsControls, last entry = primary.
 // "selectedControl" (wire global) always equals the primary.
