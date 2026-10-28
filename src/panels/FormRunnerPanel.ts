@@ -62,9 +62,15 @@ export class FormRunnerPanel {
   }
 
   private setHtml(proxyBase: string, token: string, formGuid: string, displayName: string, langId: string): void {
+    // The nonce is load-bearing: assigning a byte-identical string to
+    // webview.html does NOT reload an open webview, so re-invoking
+    // "Open Form" would silently keep the stale document - and the boot
+    // page itself arrives with Cache-Control: max-age=180, so an identical
+    // iframe URL can be reused from cache instead of re-running the form.
     const url =
       `${proxyBase}/starthtml.lims?FormId=${encodeURIComponent(formGuid)}` +
-      `&LangId=${encodeURIComponent(langId)}&Debug=true&xfdtk=${encodeURIComponent(token)}`;
+      `&LangId=${encodeURIComponent(langId)}&Debug=true&xfdtk=${encodeURIComponent(token)}` +
+      `&_r=${Date.now()}`;
     const frameOrigin = new URL(proxyBase).origin;
     this.panel.title = `Form: ${escapeHtml(displayName)}`;
     this.panel.webview.html = /*html*/ `<!DOCTYPE html>
