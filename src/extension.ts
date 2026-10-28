@@ -4736,18 +4736,19 @@ Please provide:
           // get the language from the checked out item
           const sLangId = item.language;
 
-          // open form in default browser at the selected server
-          const formUrl = `${enterpriseService.getBaseUrl()}/starthtml.lims?FormId=${formGuid}&LangId=${sLangId}&Debug=true`;
-          vscode.env.openExternal(vscode.Uri.parse(formUrl));
+          // Primary runner: the in-VS-Code panel. It runs the live form
+          // through the extension's loopback runner proxy - same-origin boot
+          // serves the XFD-SANDBOX-patched statics locally, the proxy holds
+          // the live server session (the SameSite=Lax cookie can never reach
+          // a cross-site iframe) and login runs in-panel. One panel per form
+          // GUID; re-invoking reloads it.
+          //
+          // The external browser is the FALLBACK only (setting off, or the
+          // runner cannot start) - it is no longer opened alongside.
+          const openFormInVsCode = vscode.workspace.getConfiguration("STARLIMS").get<boolean>("openFormInVsCode");
+          let startedInVsCode = false;
 
-          // Optionally ALSO run the form inside VS Code (webview panel, one
-          // per form GUID, reruns on re-invoke) through the extension's
-          // loopback runner proxy: same-origin boot serves the
-          // XFD-SANDBOX-patched statics locally, the proxy holds the live
-          // server session (the SameSite=Lax cookie can never reach a
-          // cross-site iframe), and login runs in-panel. The browser view
-          // above opens regardless and stays the reference runner.
-          if (vscode.workspace.getConfiguration("STARLIMS").get<boolean>("openFormInVsCode")) {
+          if (openFormInVsCode) {
             const runnerPort = expressServer?.getPort();
             let runnerBase: string | undefined;
             try {
@@ -4761,9 +4762,18 @@ Please provide:
             if (runnerBase && expressServer && formGuid) {
               const formDisplayName = typeof item.label === "string" && item.label ? item.label : String(remoteUri);
               FormRunnerPanel.render(runnerBase, expressServer.runnerToken, formGuid, formDisplayName, sLangId || "ENG");
-            } else {
+              startedInVsCode = true;
+            }
+          }
+
+          if (!startedInVsCode) {
+            // open form in default browser at the selected server
+            const formUrl = `${enterpriseService.getBaseUrl()}/starthtml.lims?FormId=${formGuid}&LangId=${sLangId}&Debug=true`;
+            vscode.env.openExternal(vscode.Uri.parse(formUrl));
+
+            if (openFormInVsCode) {
               vscode.window.showWarningMessage(
-                "Open Form in VS Code is enabled, but the form runner could not start (HTTP server, server URL, or the form GUID is missing)."
+                "Open Form in VS Code could not start (HTTP server, server URL, or the form GUID is missing) - opened the external browser instead."
               );
             }
           }
