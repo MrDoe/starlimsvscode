@@ -39,7 +39,7 @@ import * as path from "path";
 export type FormRunnerTarget = {
     /** Real server base URL, e.g. https://host/starlims (server app path included). */
     baseUrl: string;
-    /** Directory with the patched statics (htmlruntime/, support-html/, images/). May be "". */
+    /** Directory with the patched client statics served by the proxy: the configured full tree (STARLIMS.designer.statics) or the overlay packaged with the extension. */
     staticsRoot: string;
 };
 
@@ -325,11 +325,12 @@ export function registerFormRunnerRoutes(
                 return;
             }
             // A client file that is NOT in the local statics tree goes to the
-            // server copy - which is the UNPATCHED htmlruntime and boots white
-            // inside a webview (window.top reads). Name it once per path.
+            // server copy - fine while the trees are byte-identical, fatal if
+            // the file ever carries a deviation that stayed unpatched
+            // upstream. Name each path once so an overlay drift is visible.
             if (/^\/(htmlruntime|support-html)\//.test(relPath) && !reportedStaticMisses.has(relPath)) {
                 reportedStaticMisses.add(relPath);
-                log?.(`[FormRunner] static MISS ${relPath} -> server copy is unpatched (statics=${target.staticsRoot || "NONE"})`);
+                log?.(`[FormRunner] static MISS ${relPath} -> served from upstream (statics=${target.staticsRoot || "NONE"})`);
             }
         }
 

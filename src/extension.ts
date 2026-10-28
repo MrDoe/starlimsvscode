@@ -3421,12 +3421,14 @@ Please provide:
         // server with the designer's patched statics (see
         // services/formRunnerProxy.ts). Evaluated per request; the setting
         // doubles as the on/off switch for the proxy mount itself.
-        // The statics dir comes from the CONFIGURATION, not from
-        // designerServerService: that service is created lazily when a
-        // DESIGNER opens, so an "Open Form" without a prior designer open
-        // passed staticsRoot "" - the proxy then forwarded /htmlruntime/** to
-        // the real server, whose UNPATCHED client reads window.top.AI and dies
-        // inside the webview iframe (white panel, and no 401s to show for it).
+        // Statics resolution: the CONFIGURED full tree (hot-editable dev
+        // loop) wins; otherwise the patched OVERLAY shipped with the
+        // extension (resources/statics - starlims-all.js + common-controls.js
+        // are the only files that differ from the server; every other client
+        // path falls back to the byte-identical upstream copy). Never empty:
+        // an empty staticsRoot once forwarded the UNPATCHED server client,
+        // which reads window.top.AI and dies inside the webview iframe
+        // (white panel, and no 401s to show for it).
         runnerTargetProvider: () => {
           if (!vscode.workspace.getConfiguration("STARLIMS").get<boolean>("openFormInVsCode")) {
             return undefined;
@@ -3435,14 +3437,16 @@ Please provide:
           if (!baseUrl) {
             return undefined;
           }
-          const staticsRoot = (vscode.workspace.getConfiguration("STARLIMS").get<string>("designer.statics", "") || "").trim();
-          if (!staticsRoot && !runnerStaticsWarned) {
+          const configured = (vscode.workspace.getConfiguration("STARLIMS").get<string>("designer.statics", "") || "").trim();
+          const configuredOk = configured.length > 0 && fs.existsSync(configured);
+          if (configured && !configuredOk && !runnerStaticsWarned) {
             runnerStaticsWarned = true;
-            outputChannel.appendLine("[FormRunner] STARLIMS.designer.statics is empty - the panel would load the unpatched server client and boot white.");
+            outputChannel.appendLine(`[FormRunner] STARLIMS.designer.statics '${configured}' does not exist - using the packaged statics overlay instead.`);
             void vscode.window.showWarningMessage(
-              "The in-VS-Code form runner needs STARLIMS.designer.statics (the XFD-SANDBOX-patched htmlruntime). Set it to the patched statics directory, otherwise the form panel boots blank."
+              `STARLIMS.designer.statics points to '${configured}', which does not exist - the in-VS-Code form runner uses the patched statics overlay packaged with the extension instead.`
             );
           }
+          const staticsRoot = configuredOk ? configured : path.join(context.extensionPath, "resources", "statics");
           return { baseUrl, staticsRoot };
         }
       });

@@ -886,12 +886,12 @@
                     "STARLIMS.designer.statics": {
                         "type": "string",
                         "default": "",
-                        "description": "Directory containing the STARLIMS htmlruntime client files (htmlruntime/, support-html/, images/) served to the designer Webview."
+                        "description": "Directory containing a FULL local copy of the STARLIMS htmlruntime client files (htmlruntime/, support-html/, images/) served to the designer Webview. Required for the designer (its local backend has no server fallback); for the in-VS-Code form runner it only overrides the patched statics packaged with the extension - leave empty unless you need a hot-editable dev copy."
                     },
                     "STARLIMS.openFormInVsCode": {
                         "type": "boolean",
                         "default": true,
-                        "description": "Run HTML forms in a VS Code webview panel instead of the external browser when invoking 'Open Form'. The panel runs the live runtime through the extension's loopback proxy (login happens inside the panel; the proxy holds the server session). Requires STARLIMS.designer.statics to point at the XFD-SANDBOX-patched htmlruntime copy, same as the designer; without it the panel may boot blank. When this is off - or the panel cannot start - the form opens in the external browser."
+                        "description": "Run HTML forms in a VS Code webview panel instead of the external browser when invoking 'Open Form'. The panel runs the live runtime through the extension's loopback proxy (login happens inside the panel; the proxy holds the server session). The patched client files it needs are packaged with the extension; STARLIMS.designer.statics, when set, overrides them. When this is off - or the panel cannot start - the form opens in the external browser."
                     },
                     "STARLIMS.browser": {
                         "type": "string",
