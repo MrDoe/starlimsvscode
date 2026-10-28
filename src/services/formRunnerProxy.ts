@@ -206,14 +206,20 @@ function proxyToServer(proxyPrefix: string, targetBaseUrl: string, req: Request,
             const outHeaders: http.OutgoingHttpHeaders = {};
             for (const [name, value] of Object.entries(upstreamRes.headers)) {
                 const lower = name.toLowerCase();
-                // X-Frame-Options must never ride through: the live server
-                // sends SAMEORIGIN, the panel iframe lives in a
-                // vscode-webview:// document, so Chromium loads the document
-                // (HTTP 200) and then refuses to RENDER it
-                // (net::ERR_BLOCKED_BY_RESPONSE -> chrome-error frame, the
-                // fourth white-panel cause). The ?xfdtk= token gate is the
-                // actual access control for this mount.
-                if (["set-cookie", "connection", "keep-alive", "transfer-encoding", "upgrade", "x-frame-options"].includes(lower)) {
+                // X-Frame-Options AND the CSP must never ride through: the
+                // live server sends SAMEORIGIN plus
+                // "Content-Security-Policy: frame-ancestors *". Chromium
+                // evaluates CSP frame-ancestors INSTEAD of XFO (CSP wins),
+                // and the "*" source does NOT match the opaque-scheme
+                // vscode-webview:// ancestor — the panel's embedder chain is
+                // [top workbench, vscode-webview://<uuid>, <inner webview
+                // doc>], so EVERY ancestor is unmatched and the loaded
+                // document is refused RENDERING
+                // (HTTP 200 + net::ERR_BLOCKED_BY_RESPONSE + a
+                // chrome-error:// frame = the fourth/fifth white-panel
+                // cause). The ?xfdtk= token gate is the actual access
+                // control for this mount.
+                if (["set-cookie", "connection", "keep-alive", "transfer-encoding", "upgrade", "x-frame-options", "content-security-policy"].includes(lower)) {
                     continue;
                 }
                 if (value !== undefined) {
