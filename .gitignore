@@ -26,3 +26,6 @@ resources/bin/*.exe
 !resources/designer/*.wire.js
 !resources/designer/includes/*.js
 opencode-rag.json.bak-provider-strip
+
+# patched client statics for the in-VS-Code form runner are SOURCE, not build output
+!resources/statics/**/*.js
