@@ -70,6 +70,9 @@ const MIME_TYPES: Record<string, string> = {
 /** One jar per server base URL: switching servers must not leak a session. */
 const sessionJars = new Map<string, Map<string, string>>();
 
+/** Paths whose static-file miss was already reported (bounded). */
+const reportedStaticMisses = new Set<string>();
+
 function getJar(baseUrl: string): Map<string, string> {
     let jar = sessionJars.get(baseUrl);
     if (!jar) {
@@ -293,7 +296,7 @@ export function registerFormRunnerRoutes(
         const jar = getJar(target.baseUrl);
 
         if (queryToken === token) {
-            log?.(`[FormRunner] boot ${pathname}`);
+            log?.(`[FormRunner] boot ${pathname} (statics=${target.staticsRoot || "NONE"})`);
             res.append("Set-Cookie", `${COOKIE_NAME}=${token}; Path=${appPath || "/"}; HttpOnly; SameSite=None; Secure`);
         }
 
@@ -303,6 +306,13 @@ export function registerFormRunnerRoutes(
         if (req.method === "GET" || req.method === "HEAD") {
             if (tryServeStatic(target.staticsRoot, relPath, res)) {
                 return;
+            }
+            // A client file that is NOT in the local statics tree goes to the
+            // server copy - which is the UNPATCHED htmlruntime and boots white
+            // inside a webview (window.top reads). Name it once per path.
+            if (/^\/(htmlruntime|support-html)\//.test(relPath) && !reportedStaticMisses.has(relPath)) {
+                reportedStaticMisses.add(relPath);
+                log?.(`[FormRunner] static MISS ${relPath} -> server copy is unpatched (statics=${target.staticsRoot || "NONE"})`);
             }
         }
 

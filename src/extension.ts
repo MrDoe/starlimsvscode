@@ -147,6 +147,8 @@ const execFile = promisify(execFileCallback);
 
 let openCodeServerService: OpenCodeServerService | undefined;
 let designerServerService: DesignerServerService | undefined;
+/** Warn once per window about a missing statics dir for the form runner. */
+let runnerStaticsWarned = false;
 let openCodeServerServiceSignature = "";
 let generatedOpenCodeServerPassword: string | undefined;
 
@@ -3419,6 +3421,12 @@ Please provide:
         // server with the designer's patched statics (see
         // services/formRunnerProxy.ts). Evaluated per request; the setting
         // doubles as the on/off switch for the proxy mount itself.
+        // The statics dir comes from the CONFIGURATION, not from
+        // designerServerService: that service is created lazily when a
+        // DESIGNER opens, so an "Open Form" without a prior designer open
+        // passed staticsRoot "" - the proxy then forwarded /htmlruntime/** to
+        // the real server, whose UNPATCHED client reads window.top.AI and dies
+        // inside the webview iframe (white panel, and no 401s to show for it).
         runnerTargetProvider: () => {
           if (!vscode.workspace.getConfiguration("STARLIMS").get<boolean>("openFormInVsCode")) {
             return undefined;
@@ -3427,7 +3435,15 @@ Please provide:
           if (!baseUrl) {
             return undefined;
           }
-          return { baseUrl, staticsRoot: designerServerService?.resolveStatics() ?? "" };
+          const staticsRoot = (vscode.workspace.getConfiguration("STARLIMS").get<string>("designer.statics", "") || "").trim();
+          if (!staticsRoot && !runnerStaticsWarned) {
+            runnerStaticsWarned = true;
+            outputChannel.appendLine("[FormRunner] STARLIMS.designer.statics is empty - the panel would load the unpatched server client and boot white.");
+            void vscode.window.showWarningMessage(
+              "The in-VS-Code form runner needs STARLIMS.designer.statics (the XFD-SANDBOX-patched htmlruntime). Set it to the patched statics directory, otherwise the form panel boots blank."
+            );
+          }
+          return { baseUrl, staticsRoot };
         }
       });
       context.subscriptions.push(expressServer);
