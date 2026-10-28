@@ -888,6 +888,11 @@
                         "default": "",
                         "description": "Directory containing the STARLIMS htmlruntime client files (htmlruntime/, support-html/, images/) served to the designer Webview."
                     },
+                    "STARLIMS.openFormInVsCode": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Experimental: additionally open HTML forms in a VS Code webview panel when invoking 'Open Form' (the browser view always opens). Disabled by default: the LIVE server's htmlruntime is not sandbox-patched for the VS Code webview, so the panel currently boots blank (cross-origin window.top bridge access + SameSite=Lax session cookie); the browser stays the working runner until the runtime is served locally."
+                    },
                     "STARLIMS.browser": {
                         "type": "string",
                         "enum": [

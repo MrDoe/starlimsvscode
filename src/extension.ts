@@ -4727,12 +4727,18 @@ Please provide:
           const formUrl = `${enterpriseService.getBaseUrl()}/starthtml.lims?FormId=${formGuid}&LangId=${sLangId}&Debug=true`;
           vscode.env.openExternal(vscode.Uri.parse(formUrl));
 
-          // ... and open it in VS Code alongside (webview panel, one per
-          // form GUID, reruns the form when re-invoked). The live server
-          // statics are NOT XFD-SANDBOX-patched like the designer's serve
-          // copies - see FormRunnerPanel; the browser remains the reference.
-          const formDisplayName = typeof item.label === "string" && item.label ? item.label : String(remoteUri);
-          FormRunnerPanel.render(enterpriseService.getBaseUrl(), formGuid, formDisplayName, sLangId || "ENG");
+          // Optionally ALSO run the form inside VS Code (webview panel, one
+          // per form GUID, reruns on re-invoke). OFF by default: the live
+          // server's statics are not sandbox-patched, so the panel boots
+          // blank today — a cross-origin window.top.AI read throws during
+          // boot (lims stays undefined) and the SameSite=Lax ASP.NET_SessionId
+          // is never sent into a cross-site iframe. Enable only after the
+          // runtime gets served locally (patched statics + session bridge);
+          // the browser view above is the working runner.
+          if (vscode.workspace.getConfiguration("STARLIMS").get<boolean>("openFormInVsCode")) {
+            const formDisplayName = typeof item.label === "string" && item.label ? item.label : String(remoteUri);
+            FormRunnerPanel.render(enterpriseService.getBaseUrl(), formGuid, formDisplayName, sLangId || "ENG");
+          }
         }
       );
 
