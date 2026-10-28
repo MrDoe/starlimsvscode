@@ -273,20 +273,22 @@ export function registerFormRunnerRoutes(
         }
 
         // Loopback token: the boot URL carries ?xfdtk=; its own response sets
-        // the cookie for every later call. Order matters:
-        //   1. cookie  - the normal path;
-        //   2. query   - the boot navigation itself;
-        //   3. Referer - the document URL of a same-origin subresource request.
+        // the cookie for every later call. The check ACCEPTS ANY source that
+        // matches — order only decides which cookie is (re-)set, never who is
+        // refused. Strict priority on the cookie was the third white-panel
+        // bug: the webview cookie jar SURVIVES a window reload, but
+        // runnerToken is re-minted per activation, so the stale cookie
+        // shadowed the fresh ?xfdtk= query of the new boot and 401'd it.
         // VS Code embeds the panel iframe in a vscode-webview:// document, i.e.
-        // a CROSS-SITE context: a SameSite cookie is not sent there (that is
-        // what made the panel white - the boot page loaded, every script/lims
-        // call answered 401). The cookie is therefore SameSite=None; Secure
-        // (Chromium lets Secure cookies set on the trustworthy loopback
-        // origin), and the Referer query is a cookie-free fallback.
+        // a CROSS-SITE context: a SameSite cookie is not sent there at all.
+        // The cookie is therefore SameSite=None; Secure (Chromium lets Secure
+        // cookies set on the trustworthy loopback origin), and the Referer
+        // query is a cookie-free fallback.
         const queryToken = typeof req.query.xfdtk === "string" ? req.query.xfdtk : undefined;
         const clientCookies = parseClientCookies(req);
         const refererToken = tokenFromReferer(req.headers.referer);
-        const clientToken = clientCookies.get(COOKIE_NAME) ?? queryToken ?? refererToken;
+        const cookieToken = clientCookies.get(COOKIE_NAME);
+        const clientToken = [queryToken, cookieToken, refererToken].find((t) => t === token);
         if (clientToken !== token) {
             log?.(`[FormRunner] 401 ${pathname} (cookie=${clientCookies.has(COOKIE_NAME)}, query=${queryToken !== undefined}, referer=${req.headers.referer !== undefined})`);
             res.status(401).send("STARLIMS form runner: missing or wrong xfdtk token.");
@@ -295,6 +297,8 @@ export function registerFormRunnerRoutes(
 
         const jar = getJar(target.baseUrl);
 
+        // The boot navigation (query token) (re-)writes the cookie so a stale
+        // one from an earlier window session cannot outlive this one.
         if (queryToken === token) {
             log?.(`[FormRunner] boot ${pathname} (statics=${target.staticsRoot || "NONE"})`);
             res.append("Set-Cookie", `${COOKIE_NAME}=${token}; Path=${appPath || "/"}; HttpOnly; SameSite=None; Secure`);
