@@ -35,6 +35,7 @@ import { GitService } from "./services/gitService";
 import { OpenCodeServerService } from "./services/opencodeServerService";
 import { DesignerServerService, deriveFormPartUri } from "./services/designerServerService";
 import { DesignerPanel } from "./panels/DesignerPanel";
+import { FormRunnerPanel } from "./panels/FormRunnerPanel";
 import { TicketFullInfo, TicketMeasureDraft, TicketOverview, TicketReference, TicketStatusGroupName } from "./services/ticketManagementTypes";
 import { TicketStackTraceContentProvider } from "./providers/ticketStackTraceContentProvider";
 import { registerSSLBlockCloser } from "./providers/sslBlockCloser";
@@ -4725,6 +4726,13 @@ Please provide:
           // open form in default browser at the selected server
           const formUrl = `${enterpriseService.getBaseUrl()}/starthtml.lims?FormId=${formGuid}&LangId=${sLangId}&Debug=true`;
           vscode.env.openExternal(vscode.Uri.parse(formUrl));
+
+          // ... and open it in VS Code alongside (webview panel, one per
+          // form GUID, reruns the form when re-invoked). The live server
+          // statics are NOT XFD-SANDBOX-patched like the designer's serve
+          // copies - see FormRunnerPanel; the browser remains the reference.
+          const formDisplayName = typeof item.label === "string" && item.label ? item.label : String(remoteUri);
+          FormRunnerPanel.render(enterpriseService.getBaseUrl(), formGuid, formDisplayName, sLangId || "ENG");
         }
       );
 
