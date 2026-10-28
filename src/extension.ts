@@ -4,7 +4,6 @@
 import * as vscode from "vscode";
 import { execFile as execFileCallback } from "child_process";
 import * as fs from "fs";
-import * as path from "path";
 import fetch, { Headers } from "node-fetch";
 import { EnterpriseFileDecorationProvider } from "./providers/enterpriseFileDecorationProvider";
 import { EnterpriseItemType, EnterpriseTreeDataProvider, TreeEnterpriseItem } from "./providers/enterpriseTreeDataProvider";
@@ -3414,6 +3413,20 @@ Please provide:
             syncWorkingFile(stagedWorkingFiles.get(formId)?.codeBehind, code, "code-behind save");
           }
           return result;
+        },
+        // In-VS-Code "Open Form" runner: loopback reverse proxy to the live
+        // server with the designer's patched statics (see
+        // services/formRunnerProxy.ts). Evaluated per request; the setting
+        // doubles as the on/off switch for the proxy mount itself.
+        runnerTargetProvider: () => {
+          if (!vscode.workspace.getConfiguration("STARLIMS").get<boolean>("openFormInVsCode")) {
+            return undefined;
+          }
+          const baseUrl = enterpriseService?.getBaseUrl?.();
+          if (!baseUrl) {
+            return undefined;
+          }
+          return { baseUrl, staticsRoot: designerServerService?.resolveStatics() ?? "" };
         }
       });
       context.subscriptions.push(expressServer);
@@ -4728,16 +4741,31 @@ Please provide:
           vscode.env.openExternal(vscode.Uri.parse(formUrl));
 
           // Optionally ALSO run the form inside VS Code (webview panel, one
-          // per form GUID, reruns on re-invoke). OFF by default: the live
-          // server's statics are not sandbox-patched, so the panel boots
-          // blank today — a cross-origin window.top.AI read throws during
-          // boot (lims stays undefined) and the SameSite=Lax ASP.NET_SessionId
-          // is never sent into a cross-site iframe. Enable only after the
-          // runtime gets served locally (patched statics + session bridge);
-          // the browser view above is the working runner.
+          // per form GUID, reruns on re-invoke) through the extension's
+          // loopback runner proxy: same-origin boot serves the
+          // XFD-SANDBOX-patched statics locally, the proxy holds the live
+          // server session (the SameSite=Lax cookie can never reach a
+          // cross-site iframe), and login runs in-panel. The browser view
+          // above opens regardless and stays the reference runner.
           if (vscode.workspace.getConfiguration("STARLIMS").get<boolean>("openFormInVsCode")) {
-            const formDisplayName = typeof item.label === "string" && item.label ? item.label : String(remoteUri);
-            FormRunnerPanel.render(enterpriseService.getBaseUrl(), formGuid, formDisplayName, sLangId || "ENG");
+            const runnerPort = expressServer?.getPort();
+            let runnerBase: string | undefined;
+            try {
+              const appPath = new URL(enterpriseService.getBaseUrl()).pathname.replace(/\/+$/, "");
+              if (runnerPort && appPath) {
+                runnerBase = `http://127.0.0.1:${runnerPort}${appPath}`;
+              }
+            } catch {
+              runnerBase = undefined;
+            }
+            if (runnerBase && expressServer && formGuid) {
+              const formDisplayName = typeof item.label === "string" && item.label ? item.label : String(remoteUri);
+              FormRunnerPanel.render(runnerBase, expressServer.runnerToken, formGuid, formDisplayName, sLangId || "ENG");
+            } else {
+              vscode.window.showWarningMessage(
+                "Open Form in VS Code is enabled, but the form runner could not start (HTTP server, server URL, or the form GUID is missing)."
+              );
+            }
           }
         }
       );

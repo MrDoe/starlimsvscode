@@ -1,10 +1,12 @@
 import type { Server } from 'http';
 import express, { Express, Request, Response } from 'express';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
+import * as crypto from 'crypto';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 import * as vscode from 'vscode';
 import { StarlimsMcpServer } from './starlimsMcpServer';
+import { FormRunnerTarget, registerFormRunnerRoutes } from './formRunnerProxy';
 
 dotenv.config();
 
@@ -22,6 +24,8 @@ export type ExpressServerOptions = {
     mcpServer?: StarlimsMcpServer;
     onOpenCodeBehind: (formId: string, functionName: string) => void | Thenable<unknown> | Promise<unknown>;
     onDesignerSave?: (kind: DesignerSaveKind, args: unknown[]) => Promise<DesignerSaveResult>;
+    /** Live-server target for the in-VS-Code form runner (undefined = runner off). */
+    runnerTargetProvider?: () => FormRunnerTarget | undefined;
 };
 
 export class ExpressServer {
@@ -35,8 +39,11 @@ export class ExpressServer {
     private readonly mcpServer: StarlimsMcpServer | undefined;
     private readonly onOpenCodeBehind: (formId: string, functionName: string) => void | Thenable<unknown> | Promise<unknown>;
     private readonly onDesignerSave: ((kind: DesignerSaveKind, args: unknown[]) => Promise<DesignerSaveResult>) | undefined;
+    private readonly runnerTargetProvider: (() => FormRunnerTarget | undefined) | undefined;
     private mcpWatchdogTimer: ReturnType<typeof setInterval> | undefined;
     private port: number;
+    /** Loopback guard token for the form runner proxy (see formRunnerProxy.ts). */
+    public readonly runnerToken: string = crypto.randomBytes(16).toString('hex');
 
     constructor(options: ExpressServerOptions) {
         this.host = options.host ?? '127.0.0.1';
@@ -46,6 +53,7 @@ export class ExpressServer {
         this.mcpApp = this.mcpServer ? createMcpExpressApp({ host: this.mcpHost }) : undefined;
         this.onOpenCodeBehind = options.onOpenCodeBehind;
         this.onDesignerSave = options.onDesignerSave;
+        this.runnerTargetProvider = options.runnerTargetProvider;
         this.mcpPort = options.mcpPort ?? 3002;
         this.port = 0;
         this.registerRoutes();
@@ -85,6 +93,12 @@ export class ExpressServer {
     }
 
     private registerRoutes(): void {
+        // Form runner proxy FIRST: it pipes raw request bodies upstream and
+        // must see CallServer POSTs before express.json() consumes them.
+        if (this.runnerTargetProvider) {
+            registerFormRunnerRoutes(this.app, this.runnerTargetProvider, this.runnerToken);
+        }
+
         // Designer save forwards from serve carry the full form XML in a JSON
         // array body; generous limit, loopback-only server.
         this.app.use(express.json({ limit: '50mb' }));

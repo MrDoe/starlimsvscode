@@ -890,8 +890,8 @@
                     },
                     "STARLIMS.openFormInVsCode": {
                         "type": "boolean",
-                        "default": false,
-                        "description": "Experimental: additionally open HTML forms in a VS Code webview panel when invoking 'Open Form' (the browser view always opens). Disabled by default: the LIVE server's htmlruntime is not sandbox-patched for the VS Code webview, so the panel currently boots blank (cross-origin window.top bridge access + SameSite=Lax session cookie); the browser stays the working runner until the runtime is served locally."
+                        "default": true,
+                        "description": "Additionally run HTML forms in a VS Code webview panel when invoking 'Open Form' (the external browser opens as well). The panel runs the live runtime through the extension's loopback proxy (login happens inside the panel; the proxy holds the server session). Requires STARLIMS.designer.statics to point at the XFD-SANDBOX-patched htmlruntime copy, same as the designer; without it the panel may boot blank."
                     },
                     "STARLIMS.browser": {
                         "type": "string",
