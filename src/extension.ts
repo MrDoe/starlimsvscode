@@ -3387,6 +3387,7 @@ Please provide:
       expressServer = new ExpressServer({
         mcpPort: getMcpConfig().get<number>("mcp.port", 3002),
         mcpServer: starlimsMcpServer,
+        log: (line) => outputChannel.appendLine(line),
         onOpenCodeBehind: async (formId: string, functionName: string) => {
           await vscode.commands.executeCommand("STARLIMS.OpenCodeBehind", formId, functionName);
         },

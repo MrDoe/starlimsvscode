@@ -99,6 +99,23 @@ function parseClientCookies(req: Request): Map<string, string> {
     return out;
 }
 
+/**
+ * The ?xfdtk= token carried by the document URL (Referer). Same-origin
+ * subresource requests send the full referring URL, query included - a second
+ * token source for contexts where the cookie is not sent (VS Code webviews
+ * are a cross-site embedding, so SameSite rules apply).
+ */
+function tokenFromReferer(referer: string | undefined): string | undefined {
+    if (!referer) {
+        return undefined;
+    }
+    try {
+        return new URL(referer).searchParams.get("xfdtk") ?? undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 function jarToHeader(jar: Map<string, string>): string | undefined {
     const pairs = [...jar.entries()].map(([k, v]) => `${k}=${v}`);
     return pairs.length > 0 ? pairs.join("; ") : undefined;
@@ -221,11 +238,13 @@ function proxyToServer(proxyPrefix: string, targetBaseUrl: string, req: Request,
  * @param getAppPathProvider current proxy mount prefix ("" disables the runner)
  * @param getTarget current upstream/statics configuration (undefined disables)
  * @param token loopback access token minted by the caller (ExpressServer)
+ * @param log optional diagnostic sink (the STARLIMS output channel)
  */
 export function registerFormRunnerRoutes(
     app: { use: (handler: (req: Request, res: Response, next: NextFunction) => void) => unknown },
     getTarget: () => FormRunnerTarget | undefined,
-    token: string
+    token: string,
+    log?: (line: string) => void
 ): void {
     app.use((req: Request, res: Response, next: NextFunction) => {
         const target = getTarget();
@@ -250,17 +269,33 @@ export function registerFormRunnerRoutes(
             return;
         }
 
-        // Loopback token: the boot URL carries ?xfdtk=; its own response
-        // sets the cookie that rides along on every later same-origin call.
+        // Loopback token: the boot URL carries ?xfdtk=; its own response sets
+        // the cookie for every later call. Order matters:
+        //   1. cookie  - the normal path;
+        //   2. query   - the boot navigation itself;
+        //   3. Referer - the document URL of a same-origin subresource request.
+        // VS Code embeds the panel iframe in a vscode-webview:// document, i.e.
+        // a CROSS-SITE context: a SameSite cookie is not sent there (that is
+        // what made the panel white - the boot page loaded, every script/lims
+        // call answered 401). The cookie is therefore SameSite=None; Secure
+        // (Chromium lets Secure cookies set on the trustworthy loopback
+        // origin), and the Referer query is a cookie-free fallback.
         const queryToken = typeof req.query.xfdtk === "string" ? req.query.xfdtk : undefined;
         const clientCookies = parseClientCookies(req);
-        const clientToken = clientCookies.get(COOKIE_NAME) ?? queryToken;
+        const refererToken = tokenFromReferer(req.headers.referer);
+        const clientToken = clientCookies.get(COOKIE_NAME) ?? queryToken ?? refererToken;
         if (clientToken !== token) {
+            log?.(`[FormRunner] 401 ${pathname} (cookie=${clientCookies.has(COOKIE_NAME)}, query=${queryToken !== undefined}, referer=${req.headers.referer !== undefined})`);
             res.status(401).send("STARLIMS form runner: missing or wrong xfdtk token.");
             return;
         }
 
         const jar = getJar(target.baseUrl);
+
+        if (queryToken === token) {
+            log?.(`[FormRunner] boot ${pathname}`);
+            res.append("Set-Cookie", `${COOKIE_NAME}=${token}; Path=${appPath || "/"}; HttpOnly; SameSite=None; Secure`);
+        }
 
         // Patched client statics win over the server copies; dynamic paths
         // (*.lims etc.) fall through to the proxy.
@@ -271,9 +306,6 @@ export function registerFormRunnerRoutes(
             }
         }
 
-        if (queryToken === token) {
-            res.append("Set-Cookie", `${COOKIE_NAME}=${token}; Path=${appPath || "/"}; HttpOnly; SameSite=Strict`);
-        }
         const proxyPrefix = `http://${req.headers.host ?? "127.0.0.1"}${appPath}`;
         proxyToServer(proxyPrefix, target.baseUrl, req, res, jar);
     });

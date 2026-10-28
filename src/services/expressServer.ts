@@ -26,6 +26,8 @@ export type ExpressServerOptions = {
     onDesignerSave?: (kind: DesignerSaveKind, args: unknown[]) => Promise<DesignerSaveResult>;
     /** Live-server target for the in-VS-Code form runner (undefined = runner off). */
     runnerTargetProvider?: () => FormRunnerTarget | undefined;
+    /** Diagnostic sink for the form-runner proxy (the STARLIMS output channel). */
+    log?: (line: string) => void;
 };
 
 export class ExpressServer {
@@ -40,6 +42,7 @@ export class ExpressServer {
     private readonly onOpenCodeBehind: (formId: string, functionName: string) => void | Thenable<unknown> | Promise<unknown>;
     private readonly onDesignerSave: ((kind: DesignerSaveKind, args: unknown[]) => Promise<DesignerSaveResult>) | undefined;
     private readonly runnerTargetProvider: (() => FormRunnerTarget | undefined) | undefined;
+    private readonly log: ((line: string) => void) | undefined;
     private mcpWatchdogTimer: ReturnType<typeof setInterval> | undefined;
     private port: number;
     /** Loopback guard token for the form runner proxy (see formRunnerProxy.ts). */
@@ -54,6 +57,7 @@ export class ExpressServer {
         this.onOpenCodeBehind = options.onOpenCodeBehind;
         this.onDesignerSave = options.onDesignerSave;
         this.runnerTargetProvider = options.runnerTargetProvider;
+        this.log = options.log;
         this.mcpPort = options.mcpPort ?? 3002;
         this.port = 0;
         this.registerRoutes();
@@ -96,7 +100,7 @@ export class ExpressServer {
         // Form runner proxy FIRST: it pipes raw request bodies upstream and
         // must see CallServer POSTs before express.json() consumes them.
         if (this.runnerTargetProvider) {
-            registerFormRunnerRoutes(this.app, this.runnerTargetProvider, this.runnerToken);
+            registerFormRunnerRoutes(this.app, this.runnerTargetProvider, this.runnerToken, this.log);
         }
 
         // Designer save forwards from serve carry the full form XML in a JSON
