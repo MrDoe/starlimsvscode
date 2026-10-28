@@ -206,7 +206,14 @@ function proxyToServer(proxyPrefix: string, targetBaseUrl: string, req: Request,
             const outHeaders: http.OutgoingHttpHeaders = {};
             for (const [name, value] of Object.entries(upstreamRes.headers)) {
                 const lower = name.toLowerCase();
-                if (["set-cookie", "connection", "keep-alive", "transfer-encoding", "upgrade"].includes(lower)) {
+                // X-Frame-Options must never ride through: the live server
+                // sends SAMEORIGIN, the panel iframe lives in a
+                // vscode-webview:// document, so Chromium loads the document
+                // (HTTP 200) and then refuses to RENDER it
+                // (net::ERR_BLOCKED_BY_RESPONSE -> chrome-error frame, the
+                // fourth white-panel cause). The ?xfdtk= token gate is the
+                // actual access control for this mount.
+                if (["set-cookie", "connection", "keep-alive", "transfer-encoding", "upgrade", "x-frame-options"].includes(lower)) {
                     continue;
                 }
                 if (value !== undefined) {
