@@ -39,7 +39,7 @@ import * as path from "path";
 export type FormRunnerTarget = {
     /** Real server base URL, e.g. https://host/starlims (server app path included). */
     baseUrl: string;
-    /** Directory with the patched client statics served by the proxy: the configured full tree (STARLIMS.designer.statics) or the overlay packaged with the extension. */
+    /** Directory with the patched client statics served by the proxy: the configured full tree (STARLIMS.designer.statics) or the overlay generated at runtime from the user's server (services/staticsOverlay.ts). May be "" on a first open before the overlay exists - then stock upstream copies are served. */
     staticsRoot: string;
 };
 

@@ -35,6 +35,7 @@ import { OpenCodeServerService } from "./services/opencodeServerService";
 import { DesignerServerService, deriveFormPartUri } from "./services/designerServerService";
 import { DesignerPanel } from "./panels/DesignerPanel";
 import { FormRunnerPanel } from "./panels/FormRunnerPanel";
+import { ensureOverlay, overlayDirState } from "./services/staticsOverlay";
 import { TicketFullInfo, TicketMeasureDraft, TicketOverview, TicketReference, TicketStatusGroupName } from "./services/ticketManagementTypes";
 import { TicketStackTraceContentProvider } from "./providers/ticketStackTraceContentProvider";
 import { registerSSLBlockCloser } from "./providers/sslBlockCloser";
@@ -3418,17 +3419,20 @@ Please provide:
           return result;
         },
         // In-VS-Code "Open Form" runner: loopback reverse proxy to the live
-        // server with the designer's patched statics (see
-        // services/formRunnerProxy.ts). Evaluated per request; the setting
-        // doubles as the on/off switch for the proxy mount itself.
-        // Statics resolution: the CONFIGURED full tree (hot-editable dev
-        // loop) wins; otherwise the patched OVERLAY shipped with the
-        // extension (resources/statics - starlims-all.js + common-controls.js
-        // are the only files that differ from the server; every other client
-        // path falls back to the byte-identical upstream copy). Never empty:
-        // an empty staticsRoot once forwarded the UNPATCHED server client,
-        // which reads window.top.AI and dies inside the webview iframe
-        // (white panel, and no 401s to show for it).
+        // server with patched client statics (see services/formRunnerProxy.ts).
+        // Evaluated per request; the setting doubles as the on/off switch for
+        // the proxy mount itself.
+        // Statics resolution (LICENSE RULE: proprietary Starlims client files
+        // must NEVER ship in the extension - see services/staticsOverlay.ts):
+        // the CONFIGURED full tree (hot-editable dev loop) wins; otherwise the
+        // overlay GENERATED AT RUNTIME from the user's own licensed server
+        // into globalStorage (only our patch definitions ship). The OpenForm
+        // command calls ensureOverlay before rendering, so from the second
+        // open onward the generated overlay is in place; a first open without
+        // a configured tree serves upstream stock copies (login works; the
+        // known webview deviations may degrade until the overlay is built).
+        // The DESIGNER still requires a FULL local tree via the setting -
+        // xfd-cli serve has no server fallback.
         runnerTargetProvider: () => {
           if (!vscode.workspace.getConfiguration("STARLIMS").get<boolean>("openFormInVsCode")) {
             return undefined;
@@ -3441,12 +3445,13 @@ Please provide:
           const configuredOk = configured.length > 0 && fs.existsSync(configured);
           if (configured && !configuredOk && !runnerStaticsWarned) {
             runnerStaticsWarned = true;
-            outputChannel.appendLine(`[FormRunner] STARLIMS.designer.statics '${configured}' does not exist - using the packaged statics overlay instead.`);
-            void vscode.window.showWarningMessage(
-              `STARLIMS.designer.statics points to '${configured}', which does not exist - the in-VS-Code form runner uses the patched statics overlay packaged with the extension instead.`
-            );
+            outputChannel.appendLine(`[FormRunner] STARLIMS.designer.statics '${configured}' does not exist - using the runtime-generated statics overlay instead.`);
           }
-          const staticsRoot = configuredOk ? configured : path.join(context.extensionPath, "resources", "statics");
+          const staticsRoot = configuredOk ? configured : overlayDirState(path.join(context.globalStorageUri.fsPath, "designer", "statics-overlay"));
+          if (!staticsRoot && !runnerStaticsWarned) {
+            runnerStaticsWarned = true;
+            outputChannel.appendLine("[FormRunner] no patched statics available yet - the first 'Open Form' generates the overlay from the server; until then stock upstream client files are served.");
+          }
           return { baseUrl, staticsRoot };
         }
       });
@@ -4782,6 +4787,16 @@ Please provide:
             }
             if (runnerBase && expressServer && formGuid) {
               const formDisplayName = typeof item.label === "string" && item.label ? item.label : String(remoteUri);
+              // LICENSE: no client files ship with the extension - make sure
+              // the patched overlay exists BEFORE the panel boots. ensureOverlay
+              // is a no-op while the cached overlay matches the server. The
+              // proxy re-resolves staticsRoot per request, so the just-written
+              // files are picked up by this very render.
+              await ensureOverlay({
+                baseUrl: enterpriseService.getBaseUrl(),
+                overlayRoot: path.join(context.globalStorageUri.fsPath, "designer", "statics-overlay"),
+                log: (line) => outputChannel.appendLine(line),
+              });
               FormRunnerPanel.render(runnerBase, expressServer.runnerToken, formGuid, formDisplayName, sLangId || "ENG");
               startedInVsCode = true;
             }
