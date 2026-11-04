@@ -3,7 +3,7 @@
     "displayName": "STARLIMS VS Code Extension",
     "description": "Unofficial dictionary explorer (and more) for STARLIMS.",
     "license": "SEE LICENSE IN LICENSE.md",
-    "version": "1.8.31",
+    "version": "1.8.32",
     "icon": "resources/extension/starlimsvscode.png",
     "publisher": "cdoellinger",
     "author": "Christoph Döllinger <christoph.doellinger@med.uni-heidelberg.de>",
@@ -985,12 +985,12 @@
                     "STARLIMS.opencode.planModel": {
                         "type": "string",
                         "default": "qwen3.8-flash-next",
-                        "description": "Initial OpenCode model used by the Solve with OpenCode ticket action when it launches plan mode."
+                        "description": "OpenCode model used for the plan phase of Solve with OpenCode (model id or provider/model). The action fails with an error instead of falling back to the OpenCode default model when the configured model is not available on the server."
                     },
                     "STARLIMS.opencode.buildModel": {
                         "type": "string",
                         "default": "qwen3.8-flash-next",
-                        "description": "Preferred follow-up model shown to the user after the OpenCode plan phase. This extension does not switch to it automatically."
+                        "description": "OpenCode model used for the implementation phase after the plan is approved (model id or provider/model). The extension switches the session to this model explicitly and fails when it is not available on the server."
                     },
                     "STARLIMS.opencode.gitIdentity.enabled": {
                         "type": "boolean",

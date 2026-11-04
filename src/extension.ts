@@ -1131,11 +1131,11 @@ export async function activate(context: vscode.ExtensionContext) {
       const ticketOpenCodeRuns = new Map<number, OpenCodeTicketRun>();
 
       function getOpenCodePlanModel(): string {
-        return (vscode.workspace.getConfiguration("STARLIMS").get<string>("opencode.planModel", "qwen3.8-flash-next") || "").trim() || "qwen3.8-flash-next";
+        return (vscode.workspace.getConfiguration("STARLIMS").get<string>("opencode.planModel", "") || "").trim();
       }
 
       function getOpenCodeBuildModel(): string {
-        return (vscode.workspace.getConfiguration("STARLIMS").get<string>("opencode.buildModel", "qwen3.8-flash-next") || "").trim() || "qwen3.8-flash-next";
+        return (vscode.workspace.getConfiguration("STARLIMS").get<string>("opencode.buildModel", "") || "").trim();
       }
 
       type GitCommitIdentity = { name: string; email: string };
@@ -1321,7 +1321,8 @@ export async function activate(context: vscode.ExtensionContext) {
           const planAgentAvailable = (await service.getAgentIds()).includes("plan");
           const sessionId = await service.createSession(title, {
             agent: planAgentAvailable ? "plan" : undefined,
-            model: planModel
+            model: planModel,
+            modelSetting: "STARLIMS.opencode.planModel"
           });
 
           const previousRun = ticketOpenCodeRuns.get(ticketToSolve.id);
@@ -1330,9 +1331,12 @@ export async function activate(context: vscode.ExtensionContext) {
           }
           ticketOpenCodeRuns.set(ticketToSolve.id, { sessionId, cancelled: false, approved: false });
 
-          await service.sendMessage(sessionId, prompt);
+          await service.sendMessage(sessionId, prompt, {
+            model: planModel,
+            modelSetting: "STARLIMS.opencode.planModel"
+          });
 
-          outputChannel.appendLine(`[TicketManagement] Started OpenCode session ${sessionId} for ticket #${ticketToSolve.id} (plan agent: ${planAgentAvailable ? "plan" : "default"}).`);
+          outputChannel.appendLine(`[TicketManagement] Started OpenCode session ${sessionId} for ticket #${ticketToSolve.id} (agent: ${planAgentAvailable ? "plan" : "default"}, model: ${planModel}).`);
           vscode.window.showInformationMessage(
             `OpenCode is analyzing ticket #${ticketToSolve.id} in plan mode. Watch the session in the OpenCode Web UI.`,
             "Open Web UI"
@@ -1406,12 +1410,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
         run.approved = true;
         try {
+          const buildModel = getOpenCodeBuildModel();
           await service.sendMessage(
             run.sessionId,
             "The plan is approved. Implement it now exactly as described in the plan.",
-            { model: getOpenCodeBuildModel() }
+            { model: buildModel, modelSetting: "STARLIMS.opencode.buildModel" }
           );
-          outputChannel.appendLine(`[TicketManagement] Approved the plan for ticket #${ticketToBuild.id}; implementation started in session ${run.sessionId}.`);
+          outputChannel.appendLine(`[TicketManagement] Approved the plan for ticket #${ticketToBuild.id}; implementation started in session ${run.sessionId} with model ${buildModel}.`);
           await markTicketBotAuthored(ticketToBuild.id);
           vscode.window.showInformationMessage(
             `Implementation started for ticket #${ticketToBuild.id}. Watch progress in the OpenCode Web UI.`,

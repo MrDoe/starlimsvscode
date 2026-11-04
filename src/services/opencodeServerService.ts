@@ -95,6 +95,11 @@ type V2Message = {
  * `idle` marker message that OpenCode appends after each drain (messages are
  * returned newest-first).
  *
+ * Ticket runs use exactly the model configured in the extension settings: the
+ * model is resolved strictly (an unavailable model is an error, never the
+ * server default) and the session model is read back after creating the
+ * session and after every model switch.
+ *
  * Requires OpenCode v2; the OpenCode 1.x server API is not supported.
  */
 export class OpenCodeServerService {
@@ -138,6 +143,7 @@ export class OpenCodeServerService {
       this.serverPid = undefined;
       this.ready = false;
       this.generatedPassword = undefined;
+      this.modelCache.clear();
     }
     if (this.ready) {
       return;
@@ -151,6 +157,8 @@ export class OpenCodeServerService {
       if (probe === "ready") {
         this.log(`OpenCode server already running at ${this.serverUrl}.`);
         this.ready = true;
+        // A replaced/restarted server may expose a different model list.
+        this.modelCache.clear();
         return;
       }
       if (probe === "locked") {
@@ -342,6 +350,7 @@ export class OpenCodeServerService {
       if ((this.options.password || this.generatedPassword) && (await this.probeServer()) === "ready") {
         this.log(`OpenCode server is ready at ${this.serverUrl}.`);
         this.ready = true;
+        this.modelCache.clear();
         return;
       }
       await sleep(500);
@@ -367,13 +376,19 @@ export class OpenCodeServerService {
   /**
    * Creates a new session on the server and returns its id. The plan agent and
    * model can be bound at creation time in the v2 API.
+   *
+   * A configured model is mandatory when `model` is passed: it is resolved
+   * strictly (no server-default fallback) and the created session is checked
+   * to actually use it, so ticket runs can never silently use another model.
    */
   public async createSession(
     title: string,
-    options?: { agent?: string; model?: string }
+    options?: { agent?: string; model?: string; modelSetting?: string }
   ): Promise<string> {
     this.assertReady();
-    const model = options?.model ? await this.resolveModel(options.model) : undefined;
+    const model = options?.model !== undefined
+      ? await this.requireModel(options.model, options.modelSetting)
+      : undefined;
     const response = await this.requestJson<{ data: { id: string } }>("POST", "/api/session", {
       title,
       ...(options?.agent ? { agent: options.agent } : {}),
@@ -383,27 +398,32 @@ export class OpenCodeServerService {
     if (!sessionId) {
       throw new Error("The OpenCode server did not return a session id.");
     }
+    if (model) {
+      await this.assertSessionModel(sessionId, model, options?.model ?? "", options?.modelSetting);
+    }
     return sessionId;
   }
 
   /**
    * Sends a prompt to a session. The v2 server queues the message in the
    * session inbox and starts draining it asynchronously.
+   *
+   * A configured model is switched and verified before the prompt is queued;
+   * an unavailable model is an error, never a silent server-default fallback.
    */
   public async sendMessage(
     sessionId: string,
     text: string,
-    options?: { model?: string }
+    options?: { model?: string; modelSetting?: string }
   ): Promise<void> {
     this.assertReady();
 
-    if (options?.model) {
-      const model = await this.resolveModel(options.model);
-      if (model) {
-        await this.requestJson<void>("POST", `/api/session/${sessionId}/model`, {
-          model: { id: model.modelID, providerID: model.providerID } as V2ModelRef
-        });
-      }
+    if (options?.model !== undefined) {
+      const model = await this.requireModel(options.model, options.modelSetting);
+      await this.requestJson<void>("POST", `/api/session/${sessionId}/model`, {
+        model: { id: model.modelID, providerID: model.providerID } as V2ModelRef
+      });
+      await this.assertSessionModel(sessionId, model, options.model, options.modelSetting);
     }
 
     const response = await this.requestJson<{ data?: { time?: { created?: number } } }>(
@@ -532,51 +552,128 @@ export class OpenCodeServerService {
   /**
    * Resolves a model id like "qwen3.8-flash-next" or "anthropic/claude-x" to the
    * { providerID, modelID } shape the v2 API expects. Returns undefined when
-   * the model cannot be found so the server falls back to its default model.
+   * the model cannot be found; callers that must not fall back to the server
+   * default use requireModel() instead.
    */
   public async resolveModel(modelId: string): Promise<ResolvedModel | undefined> {
     const query = modelId.trim();
     if (!query) {
       return undefined;
     }
-    if (this.modelCache.has(query)) {
-      return this.modelCache.get(query);
+    const cached = this.modelCache.get(query);
+    if (cached) {
+      return cached;
     }
 
     const resolved = await this.lookupModel(query);
-    this.modelCache.set(query, resolved);
-    if (!resolved) {
-      this.log(`Model "${query}" was not found on the server; using the default model instead.`);
+    if (resolved) {
+      this.modelCache.set(query, resolved);
     }
     return resolved;
+  }
+
+  /**
+   * Resolves a configured model id strictly. Ticket runs must use exactly the
+   * model configured in the extension, so an empty or unavailable model is an
+   * error that names the setting and lists the models the server does offer -
+   * never a silent fallback to the OpenCode default model.
+   */
+  public async requireModel(modelId: string, settingName?: string): Promise<ResolvedModel> {
+    const query = modelId.trim();
+    const setting = settingName ? ` in ${settingName}` : "";
+    if (!query) {
+      throw new Error(
+        `No OpenCode model is configured${setting}. Set a model that is available on the OpenCode server.`
+      );
+    }
+
+    const resolved = await this.resolveModel(query);
+    if (resolved) {
+      return resolved;
+    }
+
+    const available = await this.getModelIds();
+    const preview = available.slice(0, 12).join(", ");
+    const suffix = available.length > 12 ? `, ... (${available.length} total)` : "";
+    throw new Error(
+      `The OpenCode model "${query}"${setting ? ` configured${setting}` : ""} is not available on the OpenCode server.` +
+      (preview ? ` Available models: ${preview}${suffix}.` : " The server did not report any models.")
+    );
+  }
+
+  /**
+   * Returns the full model ids ("providerID/modelID") reported by the server.
+   */
+  public async getModelIds(): Promise<string[]> {
+    try {
+      const response = await this.requestJson<{ data?: V2ModelInfo[] }>("GET", "/api/model");
+      return (response?.data ?? [])
+        .map((model) => `${model.providerID}/${model.id}`)
+        .sort((a, b) => a.localeCompare(b));
+    } catch (error) {
+      this.log(`Could not list models: ${errorMessage(error)}`);
+      return [];
+    }
   }
 
   private async lookupModel(modelId: string): Promise<ResolvedModel | undefined> {
     try {
       const response = await this.requestJson<{ data?: V2ModelInfo[] }>("GET", "/api/model");
-      for (const model of response?.data ?? []) {
-        const fullId = `${model.providerID}/${model.id}`;
-        if (
-          model.id === modelId ||
-          (model.modelID !== undefined && model.modelID === modelId) ||
-          fullId === modelId
-        ) {
+      const models = response?.data ?? [];
+      const aliases = (model: V2ModelInfo): string[] =>
+        [model.id, model.modelID, `${model.providerID}/${model.id}`].filter(
+          (alias): alias is string => typeof alias === "string" && alias.length > 0
+        );
+
+      for (const model of models) {
+        if (aliases(model).includes(modelId)) {
           // Model.Ref.id is the Model.Info.id (modelID can be a backend path).
+          return { providerID: model.providerID, modelID: model.id };
+        }
+      }
+      const lowerQuery = modelId.toLowerCase();
+      for (const model of models) {
+        if (aliases(model).some((alias) => alias.toLowerCase() === lowerQuery)) {
           return { providerID: model.providerID, modelID: model.id };
         }
       }
     } catch (error) {
       this.log(`Could not list models for model resolution: ${errorMessage(error)}`);
     }
-
-    const slashIndex = modelId.indexOf("/");
-    if (slashIndex > 0 && slashIndex < modelId.length - 1) {
-      return {
-        providerID: modelId.slice(0, slashIndex),
-        modelID: modelId.slice(slashIndex + 1)
-      };
-    }
     return undefined;
+  }
+
+  /**
+   * Reads back the session model and fails when the server did not apply the
+   * configured model (for example because an agent config overrides it).
+   */
+  private async assertSessionModel(
+    sessionId: string,
+    expected: ResolvedModel,
+    configuredId: string,
+    settingName?: string
+  ): Promise<void> {
+    let applied: V2ModelRef | undefined;
+    try {
+      const response = await this.requestJson<{ data?: { model?: V2ModelRef } }>(
+        "GET",
+        `/api/session/${sessionId}`
+      );
+      applied = response?.data?.model;
+    } catch (error) {
+      throw new Error(
+        `Could not verify the OpenCode model "${configuredId}" for session ${sessionId}: ${errorMessage(error)}`
+      );
+    }
+
+    if (!applied || applied.providerID !== expected.providerID || applied.id !== expected.modelID) {
+      const actual = applied ? `${applied.providerID}/${applied.id}` : "none (server default)";
+      const setting = settingName ? ` in ${settingName}` : "";
+      throw new Error(
+        `The OpenCode server is not using the model "${configuredId}" configured${setting}; ` +
+        `the session uses ${actual}. Solve with OpenCode refuses to run with a different model.`
+      );
+    }
   }
 
   /**

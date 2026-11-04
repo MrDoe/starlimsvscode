@@ -80,8 +80,8 @@ OpenCode ticket launcher settings:
 - `STARLIMS.opencode.serverPort`: TCP port used by the OpenCode server (`4096` by default). A server already running on this port is reused
 - `STARLIMS.opencode.command`: Command or absolute executable path used to launch the OpenCode server (`opencode serve`, OpenCode v2). Use `npx.cmd` together with `STARLIMS.opencode.commandArgs` if you launch OpenCode through npx on Windows
 - `STARLIMS.opencode.commandArgs`: Optional leading arguments for the server command, such as `opencode` when using `npx.cmd`
-- `STARLIMS.opencode.planModel`: Initial model used when the ticket action starts the plan phase
-- `STARLIMS.opencode.buildModel`: Implementation model used after the plan is approved
+- `STARLIMS.opencode.planModel`: Model used when the ticket action starts the plan phase. Must be available on the OpenCode server; the action fails instead of falling back to the OpenCode default model
+- `STARLIMS.opencode.buildModel`: Implementation model used after the plan is approved. The extension switches the session to it explicitly and fails when it is not available
 - `STARLIMS.opencode.workingDirectory`: Optional working directory override for the OpenCode server session
 
 The OpenCode server password is stored through the command `STARLIMS: Set OpenCode server password` instead of a plain settings value. When set, the extension passes it to the spawned server via `OPENCODE_SERVER_PASSWORD` and authenticates against the API with HTTP basic auth.

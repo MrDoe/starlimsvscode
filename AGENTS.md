@@ -199,7 +199,7 @@ to the workspace.
 `STARLIMS.url`/`user`/`userPassword`/`urlSuffix` were removed from the Settings UI; the code only reads them to
 migrate existing configurations. If `selectedServer` is empty, the first configured server is used.
 `STARLIMS.mcp.*` — MCP on/off, port, max items, max code chars.
-`STARLIMS.opencode.*` — "Solve with OpenCode" (always via OpenCode v2 server API; `planModel: qwen3.8-flash-next`, `buildModel: qwen3.8-flash-next`, `serverPort: 4096`; password in secret storage via `STARLIMS.SetOpenCodeServerPassword`).
+`STARLIMS.opencode.*` — "Solve with OpenCode" (always via OpenCode v2 server API; `planModel: qwen3.8-flash-next`, `buildModel: qwen3.8-flash-next`, `serverPort: 4096`; the configured model is resolved strictly and verified on the session - no fallback to the OpenCode default; password in secret storage via `STARLIMS.SetOpenCodeServerPassword`).
 `STARLIMS.git.*` — git on check-in (autoPush, remoteUrl, commit message generator).
 `starlimsJsLsp.enabled` — JS LSP (default true).
 `starlimsSslLsp.*` — SSL LSP: `enabled`, `format.*` (indent, casing, spacing, wrap, inline SQL), `diagnostics.rules` (style-rule slug → off|info|warn|error), `diagnostics.strictStyleGuideMode`, `diagnostics.globals`, `naming.hungarianNotation.*`, `styleGuide.*`, `editor.autoInsertBlockClosers`, `documentNamespaces`. Style rules run in `check:ssl` always on; exit code only fails on parse errors or error-severity rule hits.
