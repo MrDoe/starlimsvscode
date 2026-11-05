@@ -45,8 +45,7 @@ const TICKET_HISTORY_COLUMNS = ["OLD_VALUE", "NEW_VALUE", "CHANGED_FIELD", "CHAN
 const TICKET_LOOKUP_COLUMNS = ["ORIGREC", "NAME"];
 /** Columns selected by SCM_API TicketManagement.GetTicketAIJobs, in SELECT order. */
 const TICKET_AI_JOB_COLUMNS = ["ORIGREC", "JOB_TYPE", "STATUS", "MODE", "MODEL", "RETRY_COUNT", "CREATEDON", "MODIFIEDON", "ERROR_MSG"];
-/** Columns selected by SCM_API TicketManagement.GetTicketCauseAnalysis, in SELECT order. */
-const TICKET_CAUSE_COLUMNS = ["ORIGREC", "STATUS", "MODIFIEDON", "RESULT"];
+
 const TICKET_DATA_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scGetTicketData`;
 const TICKET_COMMENT_INSERT_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scInsertTicketComment`;
 const TICKET_HISTORY_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scGetTicketTnx`;
@@ -1031,7 +1030,9 @@ export class EnterpriseService implements IEnterpriseService {
   }
 
   /**
-   * Newest root cause analysis of a ticket (SCM_API TicketManagement.GetTicketCauseAnalysis).
+   * Newest root cause analysis of a ticket, read through the ticket app
+   * (scTicketUtils.GetFinalCauseResult): job id, timestamp, status, result text
+   * and error. A PENDING or RUNNING job has no result text yet - poll again.
    * Undefined when the ticket has never been analysed.
    */
   public async getTicketCauseAnalysisResult(ticketId: number): Promise<EnterpriseOperationResult<TicketCauseAnalysis | undefined>> {
@@ -1042,10 +1043,10 @@ export class EnterpriseService implements IEnterpriseService {
       };
     }
 
-    const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+    const result = await this.executeRemoteScriptResult(TICKET_UTILS_SCRIPT_URI, {
       parameters: [ticketId],
       outputType: "ARRAY",
-      entryPoint: "GetTicketCauseAnalysis"
+      entryPoint: "GetFinalCauseResult"
     });
     if (!result.ok) {
       return {
@@ -1054,9 +1055,11 @@ export class EnterpriseService implements IEnterpriseService {
       };
     }
 
-    const row = normalizeScriptResultRows(result.data, TICKET_CAUSE_COLUMNS)[0];
-    const jobId = row ? this.normalizeNumber(this.getRecordValue(row, ["ORIGREC"])) : undefined;
-    if (!row || !jobId) {
+    // GetFinalCauseResult returns ONE flat array: {jobId, timestamp, status, result, error}.
+    const payload = Array.isArray(result.data) ? result.data : [];
+    const row = (Array.isArray(payload[0]) ? payload[0] : payload) as unknown[];
+    const jobId = this.normalizeNumber(row[0]) ?? 0;
+    if (!jobId) {
       return {
         ok: true,
         data: undefined
@@ -1067,9 +1070,10 @@ export class EnterpriseService implements IEnterpriseService {
       ok: true,
       data: {
         jobId,
-        status: this.normalizeString(this.getRecordValue(row, ["STATUS"])) ?? "",
-        modifiedOn: this.normalizeString(this.getRecordValue(row, ["MODIFIEDON"])),
-        text: this.normalizeString(this.getRecordValue(row, ["RESULT"])) ?? ""
+        modifiedOn: this.normalizeString(row[1]),
+        status: this.normalizeString(row[2]) ?? "",
+        text: this.normalizeString(row[3]) ?? "",
+        error: this.normalizeString(row[4])
       }
     };
   }

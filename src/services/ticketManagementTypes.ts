@@ -142,12 +142,13 @@ export type TicketAIJob = {
   error?: string;
 };
 
-/** The newest root cause analysis of a ticket (SCM_API TicketManagement.GetTicketCauseAnalysis). */
+/** The newest root cause analysis of a ticket (scTicketUtils.GetFinalCauseResult). */
 export type TicketCauseAnalysis = {
   jobId: number;
   status: string;
   modifiedOn?: string;
   text: string;
+  error?: string;
 };
 
 /** The stored evidence pack of a ticket (newest DONE EVIDENCE job, scTicketUtils.GetStoredEvidencePack). */

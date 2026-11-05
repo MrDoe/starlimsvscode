@@ -1688,6 +1688,7 @@ export class StarlimsAutomationService {
 
     return {
       analysis: causeResult.data.text,
+      jobError: causeResult.data.error,
       jobId: causeResult.data.jobId,
       modifiedOn: causeResult.data.modifiedOn,
       ok: true,

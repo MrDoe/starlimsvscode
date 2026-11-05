@@ -971,7 +971,7 @@ export class StarlimsMcpServer {
       "get_ticket_cause_analysis",
       {
         annotations: { readOnlyHint: true },
-        description: "Read the newest root cause analysis of a ticket: job id, status, timestamp and the generated analysis text. Use it to take over a ticket without re-running the AI.",
+        description: "Read the newest root cause analysis of a ticket: job id, status, timestamp and the generated analysis text. The server inserts the CAUSE row synchronously when the chain starts, so status PENDING or RUNNING means the analysis is still running - the text is empty then, poll again. Use it to take over a ticket without re-running the AI.",
         inputSchema: ticketIdInputSchema,
         outputSchema: toolResultSchema
       },
@@ -979,9 +979,16 @@ export class StarlimsMcpServer {
         "get_ticket_cause_analysis",
         { ticketId },
         () => this.automationService.getTicketCauseAnalysis(ticketId),
-        (result) => typeof result.jobId === "number"
-          ? `Cause analysis job #${this.toCount(result.jobId)} is ${String(result.status ?? "unknown")}.`
-          : `No cause analysis exists for ticket #${this.toCount(result.ticketId)}.`
+        (result) => {
+          if (typeof result.jobId !== "number") {
+            return `No cause analysis exists for ticket #${this.toCount(result.ticketId)}.`;
+          }
+
+          const status = String(result.status ?? "unknown");
+          return status === "PENDING" || status === "RUNNING"
+            ? `Cause analysis job #${this.toCount(result.jobId)} is still running (${status}) - poll again.`
+            : `Cause analysis job #${this.toCount(result.jobId)} is ${status}.`;
+        }
       )
     );
 

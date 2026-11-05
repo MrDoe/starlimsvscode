@@ -279,22 +279,3 @@ aJobs := SQLExecute("SELECT TOP (200) ORIGREC, JOB_TYPE, STATUS, " +
 
 :RETURN aJobs;
 :ENDPROC;
-
-:PROCEDURE GetTicketCauseAnalysis;
-:PARAMETERS nTicketId;
-:DEFAULT nTicketId, -1;
-
-:IF nTicketId < 0;
-	RaiseError("TicketId must be provided.", "SCM_API.TicketManagement.GetTicketCauseAnalysis", -1);
-:ENDIF;
-
-/* Newest root cause analysis of a ticket as ORIGREC, STATUS, MODIFIEDON, RESULT.
-   Returns no row when the ticket has never been analysed.;
-:DECLARE aCause;
-aCause := SQLExecute("SELECT TOP 1 ORIGREC, STATUS, " +
-	"CONVERT(varchar(20), MODIFIEDON, 120), ISNULL(RESULT, '') " +
-	"FROM BMBH_TICKET_AI_JOBS WHERE TICKET_ID = ?nTicketId? AND JOB_TYPE = 'CAUSE' " +
-	"ORDER BY ORIGREC DESC");
-
-:RETURN aCause;
-:ENDPROC;
