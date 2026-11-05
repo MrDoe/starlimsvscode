@@ -20,8 +20,11 @@ import * as crypto from 'crypto';
 import {
   RemoteScriptExecutionOptions,
   RemoteScriptOutputType,
+  TicketAIJob,
+  TicketCauseAnalysis,
   TicketComment,
   TicketDataDetails,
+  TicketEvidencePack,
   TicketFullInfo,
   TicketHistoryEntry,
   TicketLookupData,
@@ -40,6 +43,10 @@ const TICKET_COMMENT_COLUMNS = ["ORIGREC", "COMMENT_TEXT", "AUTHOR", "CREATED_ON
 const TICKET_HISTORY_COLUMNS = ["OLD_VALUE", "NEW_VALUE", "CHANGED_FIELD", "CHANGED_ON", "MODIFIED_BY"];
 /** Shape of the `[ORIGREC, NAME]` pairs the ticket lookup dictionaries return. */
 const TICKET_LOOKUP_COLUMNS = ["ORIGREC", "NAME"];
+/** Columns selected by SCM_API TicketManagement.GetTicketAIJobs, in SELECT order. */
+const TICKET_AI_JOB_COLUMNS = ["ORIGREC", "JOB_TYPE", "STATUS", "MODE", "MODEL", "RETRY_COUNT", "CREATEDON", "MODIFIEDON", "ERROR_MSG"];
+/** Columns selected by SCM_API TicketManagement.GetTicketCauseAnalysis, in SELECT order. */
+const TICKET_CAUSE_COLUMNS = ["ORIGREC", "STATUS", "MODIFIEDON", "RESULT"];
 const TICKET_DATA_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scGetTicketData`;
 const TICKET_COMMENT_INSERT_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scInsertTicketComment`;
 const TICKET_HISTORY_SCRIPT_URI = `${TICKET_MANAGEMENT_APP_ROOT}/ServerScripts/scGetTicketTnx`;
@@ -972,6 +979,216 @@ export class EnterpriseService implements IEnterpriseService {
   }
 
   /**
+   * AI job queue rows of one ticket (BMBH_TICKET_AI_JOBS), newest first, through
+   * SCM_API TicketManagement.GetTicketAIJobs. The mode token of EVIDENCE and
+   * VECTORS rows is carried separately; all other job types report an empty mode.
+   */
+  public async getTicketAiJobsResult(ticketId: number): Promise<EnterpriseOperationResult<TicketAIJob[]>> {
+    if (!(ticketId > 0)) {
+      return {
+        ok: false,
+        error: "A positive ticket id is required."
+      };
+    }
+
+    const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+      parameters: [ticketId],
+      outputType: "ARRAY",
+      entryPoint: "GetTicketAIJobs"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not retrieve the AI jobs of ticket #${ticketId}.`
+      };
+    }
+
+    const jobs = normalizeScriptResultRows(result.data, TICKET_AI_JOB_COLUMNS)
+      .map<TicketAIJob | undefined>((row) => {
+        const id = this.normalizeNumber(this.getRecordValue(row, ["ORIGREC"]));
+        if (!id) {
+          return undefined;
+        }
+
+        return {
+          id,
+          jobType: this.normalizeString(this.getRecordValue(row, ["JOB_TYPE"])) ?? "",
+          status: this.normalizeString(this.getRecordValue(row, ["STATUS"])) ?? "",
+          mode: this.normalizeString(this.getRecordValue(row, ["MODE"])),
+          model: this.normalizeString(this.getRecordValue(row, ["MODEL"])),
+          retryCount: this.normalizeNumber(this.getRecordValue(row, ["RETRY_COUNT"])),
+          createdOn: this.normalizeString(this.getRecordValue(row, ["CREATEDON"])),
+          modifiedOn: this.normalizeString(this.getRecordValue(row, ["MODIFIEDON"])),
+          error: this.normalizeString(this.getRecordValue(row, ["ERROR_MSG"]))
+        };
+      })
+      .filter((job): job is TicketAIJob => job !== undefined);
+
+    return {
+      ok: true,
+      data: jobs
+    };
+  }
+
+  /**
+   * Newest root cause analysis of a ticket (SCM_API TicketManagement.GetTicketCauseAnalysis).
+   * Undefined when the ticket has never been analysed.
+   */
+  public async getTicketCauseAnalysisResult(ticketId: number): Promise<EnterpriseOperationResult<TicketCauseAnalysis | undefined>> {
+    if (!(ticketId > 0)) {
+      return {
+        ok: false,
+        error: "A positive ticket id is required."
+      };
+    }
+
+    const result = await this.executeRemoteScriptResult(SCM_API_TICKET_MANAGEMENT_SCRIPT_URI, {
+      parameters: [ticketId],
+      outputType: "ARRAY",
+      entryPoint: "GetTicketCauseAnalysis"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not retrieve the cause analysis of ticket #${ticketId}.`
+      };
+    }
+
+    const row = normalizeScriptResultRows(result.data, TICKET_CAUSE_COLUMNS)[0];
+    const jobId = row ? this.normalizeNumber(this.getRecordValue(row, ["ORIGREC"])) : undefined;
+    if (!row || !jobId) {
+      return {
+        ok: true,
+        data: undefined
+      };
+    }
+
+    return {
+      ok: true,
+      data: {
+        jobId,
+        status: this.normalizeString(this.getRecordValue(row, ["STATUS"])) ?? "",
+        modifiedOn: this.normalizeString(this.getRecordValue(row, ["MODIFIEDON"])),
+        text: this.normalizeString(this.getRecordValue(row, ["RESULT"])) ?? ""
+      }
+    };
+  }
+
+  /**
+   * Stored evidence pack of a ticket - the newest DONE EVIDENCE row's RESULT, read
+   * through the ticket app (scTicketUtils.GetStoredEvidencePack). Undefined when
+   * the ticket has no pack yet.
+   */
+  public async getStoredEvidencePackResult(ticketId: number): Promise<EnterpriseOperationResult<TicketEvidencePack | undefined>> {
+    if (!(ticketId > 0)) {
+      return {
+        ok: false,
+        error: "A positive ticket id is required."
+      };
+    }
+
+    const result = await this.executeRemoteScriptResult(TICKET_UTILS_SCRIPT_URI, {
+      parameters: [ticketId],
+      outputType: "ARRAY",
+      entryPoint: "GetStoredEvidencePack"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not read the evidence pack of ticket #${ticketId}.`
+      };
+    }
+
+    // GetStoredEvidencePack returns ONE flat array: {jobId, createdOn, pack}.
+    const payload = Array.isArray(result.data) ? result.data : [];
+    const row = (Array.isArray(payload[0]) ? payload[0] : payload) as unknown[];
+    const jobId = this.normalizeNumber(row[0]) ?? 0;
+    if (!jobId) {
+      return {
+        ok: true,
+        data: undefined
+      };
+    }
+
+    return {
+      ok: true,
+      data: {
+        jobId,
+        createdOn: this.normalizeString(row[1]),
+        text: this.normalizeString(row[2]) ?? ""
+      }
+    };
+  }
+
+  /** Queues a rebuild of the stored evidence pack (EVIDENCE job, MODE=REBUILD) and returns the job id. */
+  public async requestEvidencePackResult(ticketId: number): Promise<EnterpriseOperationResult<number>> {
+    if (!(ticketId > 0)) {
+      return {
+        ok: false,
+        error: "A positive ticket id is required."
+      };
+    }
+
+    const result = await this.executeRemoteScriptResult(TICKET_UTILS_SCRIPT_URI, {
+      parameters: [ticketId, "REBUILD"],
+      entryPoint: "SubmitEvidencePack"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not queue an evidence pack for ticket #${ticketId}.`
+      };
+    }
+
+    const jobId = this.normalizeNumber(result.data);
+    if (!jobId) {
+      return {
+        ok: false,
+        error: "The ticket carries nothing to search - no evidence pack was queued."
+      };
+    }
+
+    return {
+      ok: true,
+      data: jobId
+    };
+  }
+
+  /** Restarts the root cause investigation (scTicketUtils.RestartCauseAnalysis) and returns the job id to poll. */
+  public async restartCauseAnalysisResult(ticketId: number, username?: string): Promise<EnterpriseOperationResult<number>> {
+    if (!(ticketId > 0)) {
+      return {
+        ok: false,
+        error: "A positive ticket id is required."
+      };
+    }
+
+    const result = await this.executeRemoteScriptResult(TICKET_UTILS_SCRIPT_URI, {
+      parameters: [ticketId, username ?? this.getCurrentUser()],
+      entryPoint: "RestartCauseAnalysis"
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error ?? `Could not restart the cause analysis of ticket #${ticketId}.`
+      };
+    }
+
+    const jobId = this.normalizeNumber(result.data);
+    if (!jobId) {
+      return {
+        ok: false,
+        error: "Nothing to investigate - the ticket does not exist or carries neither a description nor a stack trace."
+      };
+    }
+
+    return {
+      ok: true,
+      data: jobId
+    };
+  }
+
+  /**
    * Changes the title of a ticket measure. The description is only written when
    * one is given - omitting it keeps the stored description.
    */
@@ -1310,7 +1527,8 @@ export class EnterpriseService implements IEnterpriseService {
   /**
    * Create a ticket through BMBH_Ticketmanagement.scTicketUtils.CreateTicketExt, which also queues
    * AI title/description generation jobs on the server. Type and priority are numeric codes from the
-   * ticket lookup dictionaries.
+   * ticket lookup dictionaries. classify=false passes nClassify 0, so the AI classifier
+   * stays out and an explicitly chosen type/priority is not overwritten.
    */
   public async createTicketResult(
     username: string,
@@ -1318,7 +1536,8 @@ export class EnterpriseService implements IEnterpriseService {
     description: string,
     typeCode: number,
     priorityCode: number,
-    notifyUser: boolean
+    notifyUser: boolean,
+    classify: boolean
   ): Promise<EnterpriseOperationResult<number>> {
     const normalizedUser = (username || this.getCurrentUser() || "").trim();
     const normalizedTitle = (title || "").trim();
@@ -1344,7 +1563,8 @@ export class EnterpriseService implements IEnterpriseService {
         normalizedDescription,
         typeCode,
         priorityCode,
-        notifyUser ? 1 : 0
+        notifyUser ? 1 : 0,
+        classify ? 1 : 0
       ],
       entryPoint: "CreateTicketExt"
     });

@@ -1236,11 +1236,11 @@ suite('StarlimsAutomationService', () => {
     assert.match(String(forced.warning), /although it was assigned to DOELLINGER/);
   });
 
-  test('createTicket resolves type and priority names through the lookup', async () => {
-    let receivedArgs: { priority: number; type: number; user: string } | undefined;
+  test('createTicket resolves type and priority names through the lookup and keeps the classifier out', async () => {
+    let receivedArgs: { classify: boolean; priority: number; type: number; user: string } | undefined;
     const automationService = createTicketAutomationService({
-      createTicketResult: async (username, _title, _description, typeCode, priorityCode) => {
-        receivedArgs = { priority: priorityCode, type: typeCode, user: username };
+      createTicketResult: async (username, _title, _description, typeCode, priorityCode, _notifyUser, classify) => {
+        receivedArgs = { classify: classify, priority: priorityCode, type: typeCode, user: username };
         return { ok: true, data: 2220 };
       },
       getCurrentUser: () => 'DC',
@@ -1249,7 +1249,7 @@ suite('StarlimsAutomationService', () => {
 
     const result = await automationService.createTicket({ description: 'Text', priority: 'hoch', title: 'Neues Ticket', type: 'bug' });
     assert.strictEqual(result.ok, true);
-    assert.deepStrictEqual(receivedArgs, { priority: 4, type: 1, user: 'DC' });
+    assert.deepStrictEqual(receivedArgs, { classify: false, priority: 4, type: 1, user: 'DC' });
     assert.strictEqual(result.ticketId, 2220);
     assert.deepStrictEqual(result.type, { code: 1, name: 'Bug' });
   });
@@ -1266,12 +1266,12 @@ suite('StarlimsAutomationService', () => {
     assert.match(String(result.error), /Support-Anfrage \(4\)/);
   });
 
-  test('createTicket falls back to server defaults without consulting the lookup', async () => {
+  test('createTicket falls back to server defaults without consulting the lookup and lets the classifier run', async () => {
     let lookupCalled = false;
-    let receivedArgs: { notify: boolean; priority: number; type: number } | undefined;
+    let receivedArgs: { classify: boolean; notify: boolean; priority: number; type: number } | undefined;
     const automationService = createTicketAutomationService({
-      createTicketResult: async (_user, _title, _description, typeCode, priorityCode, notifyUser) => {
-        receivedArgs = { notify: notifyUser, priority: priorityCode, type: typeCode };
+      createTicketResult: async (_user, _title, _description, typeCode, priorityCode, notifyUser, classify) => {
+        receivedArgs = { classify: classify, notify: notifyUser, priority: priorityCode, type: typeCode };
         return { ok: true, data: 2221 };
       },
       getCurrentUser: () => 'DC',
@@ -1284,7 +1284,7 @@ suite('StarlimsAutomationService', () => {
     const result = await automationService.createTicket({ description: 'Beschreibung', title: 'Ohne Typ' });
     assert.strictEqual(result.ok, true);
     assert.strictEqual(lookupCalled, false);
-    assert.deepStrictEqual(receivedArgs, { notify: false, priority: 1, type: 4 });
+    assert.deepStrictEqual(receivedArgs, { classify: true, notify: false, priority: 1, type: 4 });
     assert.strictEqual(result.note, undefined);
   });
 
@@ -1297,6 +1297,81 @@ suite('StarlimsAutomationService', () => {
     const result = await automationService.createTicket({ title: 'Nur Titel' });
     assert.strictEqual(result.ok, true);
     assert.match(String(result.note), /AI job/i);
+  });
+
+  test('getTicketAiJobs maps the queue rows of a ticket', async () => {
+    let receivedTicketId = 0;
+    const automationService = createTicketAutomationService({
+      getTicketAiJobsResult: async (ticketId) => {
+        receivedTicketId = ticketId;
+        return {
+          ok: true,
+          data: [
+            { id: 366, jobType: 'EVIDENCE', mode: 'MODE=CAUSE', retryCount: 0, status: 'DONE' },
+            { error: 'gate failed', id: 368, jobType: 'CAUSE', status: 'ERROR' }
+          ]
+        };
+      }
+    });
+
+    const result = await automationService.getTicketAiJobs(2260);
+    assert.strictEqual(receivedTicketId, 2260);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.totalItems, 2);
+    const jobs = result.jobs as Array<{ jobType: string; mode?: string }>;
+    assert.strictEqual(jobs[0].jobType, 'EVIDENCE');
+    assert.strictEqual(jobs[0].mode, 'MODE=CAUSE');
+  });
+
+  test('getEvidencePack returns the stored pack and queues a rebuild on refresh', async () => {
+    let refreshCalled = false;
+    const automationService = createTicketAutomationService({
+      getStoredEvidencePackResult: async () => ({ ok: true, data: { createdOn: '2026-11-05 08:41', jobId: 366, text: 'Gepruefte Fakten' } }),
+      requestEvidencePackResult: async (ticketId) => {
+        refreshCalled = ticketId === 2260;
+        return { ok: true, data: 380 };
+      }
+    });
+
+    const stored = await automationService.getEvidencePack(2260);
+    assert.strictEqual(stored.ok, true);
+    assert.strictEqual(stored.jobId, 366);
+    assert.strictEqual(stored.pack, 'Gepruefte Fakten');
+    assert.strictEqual(refreshCalled, false);
+
+    const refreshed = await automationService.getEvidencePack(2260, true);
+    assert.strictEqual(refreshed.ok, true);
+    assert.strictEqual(refreshed.jobId, 380);
+    assert.strictEqual(refreshed.status, 'Queued');
+    assert.strictEqual(refreshCalled, true);
+  });
+
+  test('getTicketCauseAnalysis returns the newest analysis', async () => {
+    const automationService = createTicketAutomationService({
+      getTicketCauseAnalysisResult: async () => ({ ok: true, data: { jobId: 368, modifiedOn: '2026-11-05 08:44', status: 'DONE', text: '## Probable Cause' } })
+    });
+
+    const result = await automationService.getTicketCauseAnalysis(2260);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.jobId, 368);
+    assert.strictEqual(result.status, 'DONE');
+    assert.match(String(result.analysis), /Probable Cause/);
+  });
+
+  test('restartCauseAnalysis returns the first queued job id', async () => {
+    const automationService = createTicketAutomationService({
+      getCurrentUser: () => 'DC',
+      restartCauseAnalysisResult: async (ticketId, username) => {
+        assert.strictEqual(ticketId, 2260);
+        assert.strictEqual(username, 'DC');
+        return { ok: true, data: 381 };
+      }
+    });
+
+    const result = await automationService.restartCauseAnalysis(2260, 'DC');
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.jobId, 381);
+    assert.strictEqual(result.status, 'Queued');
   });
 
   test('checkinItem creates a ticket measure for the active ticket', async () => {

@@ -4,7 +4,7 @@ import { EnterpriseItemType } from "../providers/enterpriseTreeDataProvider";
 import { EnterpriseService } from "./enterpriseService";
 import { ItemTransferFilter, normalizeTransferFilter } from "./itemTransferFilter";
 import { CheckedOutItemRecord, EnterpriseItemRecord } from "./starlimsAutomationTypes";
-import { RemoteScriptOutputType, TicketComment, TicketHistoryEntry, TicketListFilter, TicketLookupOption, TicketMeasure, TicketOverview, TicketReference } from "./ticketManagementTypes";
+import { RemoteScriptOutputType, TicketAIJob, TicketComment, TicketHistoryEntry, TicketListFilter, TicketLookupOption, TicketMeasure, TicketOverview, TicketReference } from "./ticketManagementTypes";
 import { createLineDiff } from "../utilities/textDiff";
 
 type StarlimsLanguageOption = {
@@ -1583,6 +1583,142 @@ export class StarlimsAutomationService {
     return result;
   }
 
+  /** AI job queue rows of a ticket: what was queued, in which state, with which model. */
+  public async getTicketAiJobs(ticketId: number, maxItems?: number): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    if (!(ticketId > 0)) {
+      return { ok: false, error: "A positive ticket id is required.", serverName };
+    }
+
+    const jobsResult = await this.enterpriseService.getTicketAiJobsResult(ticketId);
+    if (!jobsResult.ok) {
+      return {
+        error: `${jobsResult.error ?? `Could not retrieve the AI jobs of ticket #${ticketId}.`} Reading AI jobs needs a SCM_API backend with TicketManagement.GetTicketAIJobs; the extension updates the backend automatically on activation.`,
+        ok: false,
+        serverName,
+        ticketId
+      };
+    }
+
+    const bounded = this.limitItems<TicketAIJob>(jobsResult.data ?? [], maxItems);
+    const result: StarlimsAutomationResult = {
+      jobs: bounded.items,
+      limit: bounded.limit,
+      ok: true,
+      serverName,
+      ticketId,
+      totalItems: bounded.totalItems,
+      truncated: bounded.truncated
+    };
+
+    if (bounded.truncated) {
+      result.note = `Results limited to ${bounded.limit} of ${bounded.totalItems} AI jobs.`;
+    } else if (bounded.totalItems === 0) {
+      result.note = `No AI jobs are recorded for ticket #${ticketId}.`;
+    }
+
+    return result;
+  }
+
+  /**
+   * The stored evidence pack of a ticket (newest DONE EVIDENCE job). Without
+   * refresh the stored pack is returned instantly; refresh queues a rebuild and
+   * returns its job id instead.
+   */
+  public async getEvidencePack(ticketId: number, refresh?: boolean): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    if (!(ticketId > 0)) {
+      return { ok: false, error: "A positive ticket id is required.", serverName };
+    }
+
+    if (refresh === true) {
+      const queued = await this.enterpriseService.requestEvidencePackResult(ticketId);
+      if (!queued.ok) {
+        return { error: queued.error ?? `Could not queue an evidence pack for ticket #${ticketId}.`, ok: false, serverName, ticketId };
+      }
+
+      return {
+        jobId: queued.data,
+        ok: true,
+        serverName,
+        status: "Queued",
+        ticketId
+      };
+    }
+
+    const packResult = await this.enterpriseService.getStoredEvidencePackResult(ticketId);
+    if (!packResult.ok) {
+      return { error: packResult.error ?? `Could not read the evidence pack of ticket #${ticketId}.`, ok: false, serverName, ticketId };
+    }
+
+    if (!packResult.data) {
+      return {
+        note: "No stored evidence pack exists yet. Call again with refresh=true to build one.",
+        ok: true,
+        serverName,
+        ticketId
+      };
+    }
+
+    return {
+      createdOn: packResult.data.createdOn,
+      jobId: packResult.data.jobId,
+      ok: true,
+      pack: packResult.data.text,
+      serverName,
+      ticketId
+    };
+  }
+
+  /** Newest root cause analysis of a ticket (READ-ONLY): status, timestamp and text. */
+  public async getTicketCauseAnalysis(ticketId: number): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    if (!(ticketId > 0)) {
+      return { ok: false, error: "A positive ticket id is required.", serverName };
+    }
+
+    const causeResult = await this.enterpriseService.getTicketCauseAnalysisResult(ticketId);
+    if (!causeResult.ok) {
+      return { error: causeResult.error ?? `Could not read the cause analysis of ticket #${ticketId}.`, ok: false, serverName, ticketId };
+    }
+
+    if (!causeResult.data) {
+      return { note: `No cause analysis exists for ticket #${ticketId} yet.`, ok: true, serverName, ticketId };
+    }
+
+    return {
+      analysis: causeResult.data.text,
+      jobId: causeResult.data.jobId,
+      modifiedOn: causeResult.data.modifiedOn,
+      ok: true,
+      serverName,
+      status: causeResult.data.status,
+      ticketId
+    };
+  }
+
+  /** Queues a new root cause analysis chain for a ticket and returns the job id to poll. */
+  public async restartCauseAnalysis(ticketId: number, username?: string): Promise<StarlimsAutomationResult> {
+    const serverName = this.enterpriseService.getCurrentServerName();
+    if (!(ticketId > 0)) {
+      return { ok: false, error: "A positive ticket id is required.", serverName };
+    }
+
+    const restartResult = await this.enterpriseService.restartCauseAnalysisResult(ticketId, username);
+    if (!restartResult.ok) {
+      return { error: restartResult.error ?? `Could not restart the cause analysis of ticket #${ticketId}.`, ok: false, serverName, ticketId };
+    }
+
+    return {
+      jobId: restartResult.data,
+      note: "The analysis runs as chained AI jobs (hunt, evidence pack, cause analysis); poll get_ticket_cause_analysis or get_ticket_ai_jobs until the cause job is DONE.",
+      ok: true,
+      serverName,
+      status: "Queued",
+      ticketId
+    };
+  }
+
   /** Ticket status/type/priority/severity dictionaries (name -> code) from the SCM_API backend. */
   public async getTicketLookupData(): Promise<StarlimsAutomationResult> {
     const serverName = this.enterpriseService.getCurrentServerName();
@@ -1608,6 +1744,8 @@ export class StarlimsAutomationService {
   /**
    * Creates a ticket through the BMBH ticket app. Type and priority accept lookup
    * names (case/umlaut insensitive); omitted values fall back to the server defaults.
+   * An explicit type or priority turns the server-side AI classifier off, so the
+   * caller's choice is not overwritten.
    */
   public async createTicket(options: {
     title: string;
@@ -1634,6 +1772,8 @@ export class StarlimsAutomationService {
 
     const typeName = this.normalizeOptionalString(options.type);
     const priorityName = this.normalizeOptionalString(options.priority);
+    // Explicit type/priority wins over the AI classifier (CreateTicketExt nClassify=0).
+    const allowClassification = !(typeName || priorityName);
     let typeCode = DEFAULT_TICKET_TYPE_CODE;
     let priorityCode = DEFAULT_TICKET_PRIORITY_CODE;
     let typeOption: TicketLookupOption | undefined;
@@ -1684,7 +1824,8 @@ export class StarlimsAutomationService {
       description,
       typeCode,
       priorityCode,
-      notifyUser
+      notifyUser,
+      allowClassification
     );
     if (!createResult.ok || !createResult.data) {
       return {

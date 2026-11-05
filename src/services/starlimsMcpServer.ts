@@ -217,11 +217,26 @@ const getTicketCommentsInputSchema = z.object({
   maxItems: z.number().int().positive().optional().describe("Optional maximum number of comments to return.")
 });
 
+const getTicketAiJobsInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id."),
+  maxItems: z.number().int().positive().optional().describe("Optional maximum number of job rows to return (newest first).")
+});
+
+const getEvidencePackInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id."),
+  refresh: z.boolean().optional().describe("Set to true to queue a fresh evidence pack (EVIDENCE job, MODE=REBUILD) and return its job id instead of the stored pack. Defaults to false: the stored pack is returned instantly.")
+});
+
+const restartCauseAnalysisInputSchema = z.object({
+  ticketId: z.number().int().positive().describe("Ticket id."),
+  username: z.string().optional().describe("STARLIMS user the analysis runs as. Defaults to the configured user.")
+});
+
 const createTicketInputSchema = z.object({
   title: z.string().describe("Ticket title. Short and specific. The server generates a description by AI when none is given."),
   description: z.string().optional().describe("Detailed description of the request, error or change. Omit to let the server queue an AI job that writes it."),
-  type: z.string().optional().describe("Ticket type name from the ticket dictionary (e.g. Bug, Feature Request, Support-Anfrage). Omit for the server default (Support-Anfrage). get_ticket_lookup_data lists the valid names."),
-  priority: z.string().optional().describe("Ticket priority name from the ticket dictionary (e.g. Niedrig, Mittel, Hoch). Omit for the server default (Nicht definiert)."),
+  type: z.string().optional().describe("Ticket type name from the ticket dictionary (e.g. Bug, Feature Request, Support-Anfrage). Omit for the server default (Support-Anfrage). An explicit type or priority turns the AI classifier off, so the given values are not overwritten. get_ticket_lookup_data lists the valid names."),
+  priority: z.string().optional().describe("Ticket priority name from the ticket dictionary (e.g. Niedrig, Mittel, Hoch). Omit for the server default (Nicht definiert). An explicit type or priority turns the AI classifier off."),
   username: z.string().optional().describe("Author of the ticket. Defaults to the STARLIMS user configured in the extension."),
   notifyUser: z.boolean().optional().describe("Set to true to send the author a notification mail about the new ticket. Defaults to false: no mail is sent.")
 });
@@ -914,6 +929,74 @@ export class StarlimsMcpServer {
         { maxItems, ticketId },
         () => this.automationService.getTicketComments(ticketId, maxItems),
         (result) => `Found ${this.toCount(result.totalItems)} comment(s) for ticket #${this.toCount(result.ticketId)}.`
+      )
+    );
+
+    server.registerTool(
+      "get_ticket_ai_jobs",
+      {
+        annotations: { readOnlyHint: true },
+        description: "Read the AI job history of a ticket (BMBH_TICKET_AI_JOBS): job type (CAUSE, EVIDENCE, VECTORS, CLEFDEC, MEASURES, CLASSIFY), status, mode token, model and error, newest first. Use it to see what the server queued and what failed.",
+        inputSchema: getTicketAiJobsInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ maxItems, ticketId }) => this.executeTool(
+        "get_ticket_ai_jobs",
+        { maxItems, ticketId },
+        () => this.automationService.getTicketAiJobs(ticketId, maxItems),
+        (result) => `Found ${this.toCount(result.totalItems)} AI job(s) for ticket #${this.toCount(result.ticketId)}.`
+      )
+    );
+
+    server.registerTool(
+      "get_evidence_pack",
+      {
+        description: "Read the stored evidence pack of a ticket (the newest DONE EVIDENCE job's result: verified facts, source code, vector and dictionary hits). Without refresh it returns instantly from the stored pack; with refresh=true it queues a rebuild (MODE=REBUILD) and returns the job id to poll instead.",
+        inputSchema: getEvidencePackInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ refresh, ticketId }) => this.executeTool(
+        "get_evidence_pack",
+        { refresh, ticketId },
+        () => this.automationService.getEvidencePack(ticketId, refresh),
+        (result) => result.status === "Queued"
+          ? `Queued evidence pack job #${this.toCount(result.jobId)} for ticket #${this.toCount(result.ticketId)}.`
+          : typeof result.jobId === "number"
+            ? `Stored evidence pack from job #${this.toCount(result.jobId)} (${String(result.createdOn ?? "unknown date")}).`
+            : `No stored evidence pack exists for ticket #${this.toCount(result.ticketId)}.`
+      )
+    );
+
+    server.registerTool(
+      "get_ticket_cause_analysis",
+      {
+        annotations: { readOnlyHint: true },
+        description: "Read the newest root cause analysis of a ticket: job id, status, timestamp and the generated analysis text. Use it to take over a ticket without re-running the AI.",
+        inputSchema: ticketIdInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ ticketId }) => this.executeTool(
+        "get_ticket_cause_analysis",
+        { ticketId },
+        () => this.automationService.getTicketCauseAnalysis(ticketId),
+        (result) => typeof result.jobId === "number"
+          ? `Cause analysis job #${this.toCount(result.jobId)} is ${String(result.status ?? "unknown")}.`
+          : `No cause analysis exists for ticket #${this.toCount(result.ticketId)}.`
+      )
+    );
+
+    server.registerTool(
+      "restart_cause_analysis",
+      {
+        description: "Queue a new root cause analysis for a ticket. The server chains vector hunt, evidence pack and the CAUSE job; poll get_ticket_cause_analysis or get_ticket_ai_jobs until the cause job is DONE. Use it when a ticket has no analysis yet or the stored one is outdated.",
+        inputSchema: restartCauseAnalysisInputSchema,
+        outputSchema: toolResultSchema
+      },
+      async ({ ticketId, username }) => this.executeTool(
+        "restart_cause_analysis",
+        { ticketId, username },
+        () => this.automationService.restartCauseAnalysis(ticketId, username),
+        (result) => `Queued cause analysis for ticket #${this.toCount(result.ticketId)} - first job #${this.toCount(result.jobId)}.`
       )
     );
 

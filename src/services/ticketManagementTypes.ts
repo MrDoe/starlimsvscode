@@ -127,3 +127,32 @@ export type TicketListFilter = {
   /** Maximum number of tickets to return. */
   maxItems?: number;
 };
+
+/** One AI job queue row (BMBH_TICKET_AI_JOBS), as returned by SCM_API TicketManagement.GetTicketAIJobs. */
+export type TicketAIJob = {
+  id: number;
+  jobType: string;
+  status: string;
+  /** Mode token of EVIDENCE/VECTORS rows ("MODE=CAUSE"), empty for every other job type. */
+  mode?: string;
+  model?: string;
+  retryCount?: number;
+  createdOn?: string;
+  modifiedOn?: string;
+  error?: string;
+};
+
+/** The newest root cause analysis of a ticket (SCM_API TicketManagement.GetTicketCauseAnalysis). */
+export type TicketCauseAnalysis = {
+  jobId: number;
+  status: string;
+  modifiedOn?: string;
+  text: string;
+};
+
+/** The stored evidence pack of a ticket (newest DONE EVIDENCE job, scTicketUtils.GetStoredEvidencePack). */
+export type TicketEvidencePack = {
+  jobId: number;
+  createdOn?: string;
+  text: string;
+};
